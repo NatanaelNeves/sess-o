@@ -7,41 +7,82 @@ import {
   collection, doc, addDoc, setDoc, updateDoc, deleteDoc,
   onSnapshot, query, where, getDocs,
 } from "firebase/firestore";
+import "./App.css";
 
-const TMDB_KEY = "4f6e2b1d9a3c5e7f0b2d4e6a8c0d2f4a";
 const TMDB_BASE = "https://api.themoviedb.org/3";
-const TMDB_IMG  = "https://image.tmdb.org/t/p/w500";
+const TMDB_IMG = "https://image.tmdb.org/t/p/w500";
 const TMDB_BG   = "https://image.tmdb.org/t/p/w1280";
 
+const TMDB_READ_TOKEN = import.meta.env.VITE_TMDB_READ_TOKEN;
+const TMDB_API_KEY = import.meta.env.VITE_TMDB_API_KEY;
+
+async function tmdbRequest(endpoint, params = {}) {
+  if (!TMDB_READ_TOKEN && !TMDB_API_KEY) {
+    const error = new Error("TMDB_AUTH_MISSING");
+    error.status = 0;
+    throw error;
+  }
+
+  const url = new URL(`${TMDB_BASE}${endpoint}`);
+  if (TMDB_API_KEY) {
+    url.searchParams.set("api_key", TMDB_API_KEY);
+  }
+
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== "") {
+      url.searchParams.set(key, value);
+    }
+  });
+
+  const response = await fetch(url, {
+    headers: TMDB_READ_TOKEN
+      ? {
+          Authorization: `Bearer ${TMDB_READ_TOKEN}`,
+          Accept: "application/json",
+        }
+      : undefined,
+  });
+
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    const error = new Error(data.status_message || `TMDB_HTTP_${response.status}`);
+    error.status = response.status;
+    throw error;
+  }
+
+  return data;
+}
+
 async function tmdbSearch(q) {
-  try {
-    const d = await fetch(`${TMDB_BASE}/search/multi?api_key=${TMDB_KEY}&query=${encodeURIComponent(q)}&language=pt-BR`).then(r=>r.json());
-    return (d.results||[]).filter(x=>x.media_type==="movie"||x.media_type==="tv").slice(0,8);
-  } catch { return []; }
+  const d = await tmdbRequest("/search/multi", { query: q, language: "pt-BR" });
+  return (d.results||[]).filter(x=>x.media_type==="movie"||x.media_type==="tv").slice(0,8);
 }
 
 async function tmdbFetch(id, type) {
-  try {
-    const ep = type==="tv" ? "tv" : "movie";
-    const d = await fetch(`${TMDB_BASE}/${ep}/${id}?api_key=${TMDB_KEY}&language=pt-BR&append_to_response=credits,external_ids`).then(r=>r.json());
-    return {
-      genres: (d.genres||[]).map(g=>g.name),
-      runtime: type==="movie" ? (d.runtime||null) : (d.episode_run_time?.[0]||null),
-      numberOfSeasons: type==="tv" ? (d.number_of_seasons||null) : null,
-      cast: (d.credits?.cast||[]).slice(0,5).map(c=>c.name),
-      director: type!=="tv" ? ((d.credits?.crew||[]).find(c=>c.job==="Director")?.name||null) : null,
-      imdbId: d.imdb_id||d.external_ids?.imdb_id||null,
-      tmdbRating: d.vote_average ? d.vote_average.toFixed(1) : null,
-      overview: d.overview||null,
-      poster: d.poster_path||null,
-      backdrop: d.backdrop_path||null,
-      title: d.title||d.name,
-      year: (d.release_date||d.first_air_date||"").slice(0,4),
-    };
-  } catch { return {}; }
+  const ep = type==="tv" ? "tv" : "movie";
+  const d = await tmdbRequest(`/${ep}/${id}`, {
+    language: "pt-BR",
+    append_to_response: "credits,external_ids",
+  });
+
+  return {
+    genres: (d.genres||[]).map(g=>g.name),
+    runtime: type==="movie" ? (d.runtime||null) : (d.episode_run_time?.[0]||null),
+    numberOfSeasons: type==="tv" ? (d.number_of_seasons||null) : null,
+    cast: (d.credits?.cast||[]).slice(0,5).map(c=>c.name),
+    director: type!=="tv" ? ((d.credits?.crew||[]).find(c=>c.job==="Director")?.name||null) : null,
+    imdbId: d.imdb_id||d.external_ids?.imdb_id||null,
+    tmdbRating: d.vote_average ? d.vote_average.toFixed(1) : null,
+    overview: d.overview||null,
+    poster: d.poster_path||null,
+    backdrop: d.backdrop_path||null,
+    title: d.title||d.name,
+    year: (d.release_date||d.first_air_date||"").slice(0,4),
+  };
 }
 
-// ── icons ─────────────────────────────────────────────────────────────────────
+// icons
 const Ic = ({ n, s=20, style={} }) => {
   const d = {
     home:     "M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z M9 22V12h6v10",
@@ -74,11 +115,12 @@ const Ic = ({ n, s=20, style={} }) => {
 };
 
 const Stars = ({ val=0, onChange, size=20 }) => (
-  <div style={{ display:"flex", gap:3 }}>
+  <div className="stars" style={{ ['--star-size']: `${size}px` }}>
     {[1,2,3,4,5].map(i => (
       <span key={i} onClick={() => onChange?.(i===val?0:i)}
-        style={{ fontSize:size, cursor:onChange?"pointer":"default",
-          color:i<=val?"#f59e0b":"rgba(255,255,255,0.15)", lineHeight:1, transition:"color .15s" }}>★</span>
+        className={`stars__icon ${i<=val ? "stars__icon--active" : ""} ${onChange ? "clickable" : ""}`}>
+        <Ic n="star" s={Math.max(10, size-4)} />
+      </span>
     ))}
   </div>
 );
@@ -88,41 +130,30 @@ const Avatar = ({ name, size=28, active=false }) => {
   const colors = ["#e63946","#7c3aed","#0284c7","#059669","#d97706"];
   const color = colors[name?.charCodeAt(0)%colors.length]||"#888";
   return (
-    <div style={{ width:size, height:size, borderRadius:"50%", background:color,
-      display:"flex", alignItems:"center", justifyContent:"center",
-      fontSize:size*0.38, fontWeight:700, color:"#fff", flexShrink:0,
-      border:active?"2px solid #fff":"2px solid transparent", boxSizing:"border-box" }}>
+    <div className="avatar-badge" style={{ "--avatar-size": `${size}px`, "--avatar-bg": color, "--avatar-font": `${size * 0.38}px`, "--avatar-border": active ? "var(--text-primary)" : "transparent" }}>
       {initials}
     </div>
   );
 };
 
 const PosterFallback = ({ type, h=220 }) => (
-  <div style={{ height:h, background:"linear-gradient(135deg,#1a1a2e,#16213e)", display:"flex", alignItems:"center", justifyContent:"center", color:"#2a2a4a" }}>
+  <div className="poster-fallback" style={{ height:h }}>
     <Ic n={type==="tv"?"tv":"film"} s={48}/>
   </div>
 );
 
-// ── toast ─────────────────────────────────────────────────────────────────────
+// toast
 const ToastContainer = ({ toasts, onDismiss }) => (
-  <div style={{ position:"fixed", bottom:90, left:"50%", transform:"translateX(-50%)",
-    zIndex:9999, display:"flex", flexDirection:"column", gap:8, width:"min(380px,92vw)", pointerEvents:"none" }}>
+  <div className="toast-stack">
     {toasts.map(t => (
-      <div key={t.id} style={{ background:t.type==="error"?"#7f1d1d":t.type==="info"?"#1e3a5f":t.type==="warn"?"#78350f":"#14532d",
-          border:`1px solid ${t.type==="error"?"#dc2626":t.type==="info"?"#3b82f6":t.type==="warn"?"#d97706":"#16a34a"}`,
-          borderRadius:12, padding:"12px 16px", display:"flex", alignItems:"center", gap:10,
-          color:"#f0f0f0", fontSize:13, fontWeight:600, pointerEvents:"all",
-          boxShadow:"0 8px 24px rgba(0,0,0,.5)", animation:"slideUp .25s ease-out" }}>
-        <span style={{ flex:1 }}>{t.message}</span>
+      <div key={t.id} className={`toast toast--${t.type||"success"}`}>
+        <span className="toast__message">{t.message}</span>
         {t.undoFn && (
-          <button onClick={() => { t.undoFn(); onDismiss(t.id); }}
-            style={{ background:"rgba(255,255,255,0.18)", border:"none", borderRadius:7,
-              padding:"4px 10px", color:"#fff", cursor:"pointer", fontSize:12, fontWeight:700 }}>
+          <button onClick={() => { t.undoFn(); onDismiss(t.id); }} className="toast__action">
             Desfazer
           </button>
         )}
-        <button onClick={() => onDismiss(t.id)}
-          style={{ background:"none", border:"none", color:"rgba(255,255,255,0.45)", cursor:"pointer", padding:2 }}>
+        <button onClick={() => onDismiss(t.id)} className="toast__close">
           <Ic n="x" s={14}/>
         </button>
       </div>
@@ -130,24 +161,18 @@ const ToastContainer = ({ toasts, onDismiss }) => (
   </div>
 );
 
-// ── confirm modal ─────────────────────────────────────────────────────────────
+// confirm modal
 const ConfirmModal = ({ message, onConfirm, onCancel }) => (
   <div onClick={e=>e.target===e.currentTarget&&onCancel()}
-    style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.88)",zIndex:300,
-      display:"flex",alignItems:"center",justifyContent:"center",padding:20 }}>
-    <div style={{ background:"#0e0e1c",border:"1px solid rgba(255,255,255,0.1)",borderRadius:20,
-      padding:"28px 28px",width:"100%",maxWidth:360,textAlign:"center" }}>
-      <div style={{ fontSize:36,marginBottom:14 }}>🗑️</div>
-      <p style={{ color:"#ccc",fontSize:15,lineHeight:1.55,marginBottom:24 }}>{message}</p>
-      <div style={{ display:"flex",gap:10 }}>
-        <button onClick={onCancel}
-          style={{ flex:1,background:"rgba(255,255,255,0.07)",border:"none",borderRadius:12,
-            padding:"12px 0",color:"#aaa",fontWeight:700,fontSize:14,cursor:"pointer" }}>
+    className="modal-backdrop modal-backdrop--confirm">
+    <div className="modal-panel modal-panel--confirm">
+      <div className="modal-panel__emoji">⚠️</div>
+      <p className="modal-panel__copy">{message}</p>
+      <div className="modal-panel__actions">
+        <button onClick={onCancel} className="button button--ghost">
           Cancelar
         </button>
-        <button onClick={onConfirm}
-          style={{ flex:1,background:"linear-gradient(135deg,#dc2626,#991b1b)",border:"none",borderRadius:12,
-            padding:"12px 0",color:"#fff",fontWeight:700,fontSize:14,cursor:"pointer" }}>
+        <button onClick={onConfirm} className="button button--danger">
           Deletar
         </button>
       </div>
@@ -155,21 +180,18 @@ const ConfirmModal = ({ message, onConfirm, onCancel }) => (
   </div>
 );
 
-// ── overlay / modal helpers ───────────────────────────────────────────────────
+// overlay / modal helpers
 const Overlay = ({ children, onClose }) => (
-  <div onClick={e=>{ if(e.target===e.currentTarget) onClose(); }}
-    style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.88)",zIndex:200,
-      display:"flex",alignItems:"center",justifyContent:"center",padding:20 }}>
+  <div onClick={e=>{ if(e.target===e.currentTarget) onClose(); }} className="modal-backdrop">
     {children}
   </div>
 );
 
 const Modal = ({ title, onClose, children, maxW=480 }) => (
-  <div style={{ background:"#0e0e1c",border:"1px solid rgba(255,255,255,0.1)",borderRadius:20,
-    padding:"26px 28px",width:"100%",maxWidth:maxW,maxHeight:"90vh",overflowY:"auto" }}>
-    <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:22 }}>
-      <h3 style={{ fontFamily:"'Playfair Display',serif",fontSize:21,color:"#f0f0f0",margin:0 }}>{title}</h3>
-      <button onClick={onClose} style={{ background:"none",border:"none",color:"#666",cursor:"pointer",padding:4 }}>
+  <div className="modal-panel" style={{ maxWidth:maxW }}>
+    <div className="modal-panel__header">
+      <h3 className="modal-panel__title">{title}</h3>
+      <button onClick={onClose} className="icon-button icon-button--subtle">
         <Ic n="x" s={20}/>
       </button>
     </div>
@@ -178,99 +200,119 @@ const Modal = ({ title, onClose, children, maxW=480 }) => (
 );
 
 const Label = ({ children }) => (
-  <div style={{ fontSize:12,color:"#777",fontWeight:600,letterSpacing:.8,marginBottom:8,textTransform:"uppercase" }}>{children}</div>
+  <div className="field-label">{children}</div>
 );
 
 const SegBtn = ({ options, value, onChange, colorMap={} }) => (
-  <div style={{ display:"flex",gap:8,flexWrap:"wrap" }}>
+  <div className="segmented-group">
     {options.map(([v,l]) => (
       <button key={v} onClick={() => onChange(v)}
-        style={{ flex:1,minWidth:80,padding:"9px 0",borderRadius:10,border:"none",cursor:"pointer",
-          fontWeight:600,fontSize:13,transition:"all .2s",
-          background:value===v?(colorMap[v]||"#e63946"):"rgba(255,255,255,0.06)",
-          color:value===v?"#fff":"#888" }}>{l}</button>
+        className={`segmented-group__button ${value===v ? "segmented-group__button--active" : ""}`}
+        style={{ "--segmented-accent": colorMap[v]||"var(--accent)" }}>
+        {l}
+      </button>
     ))}
   </div>
 );
 
 const Input = ({ style={}, ...p }) => (
-  <input {...p} style={{ background:"rgba(255,255,255,0.07)",border:"1px solid rgba(255,255,255,0.12)",
-    borderRadius:10,padding:"10px 14px",color:"#f0f0f0",fontSize:14,outline:"none",
-    width:"100%",boxSizing:"border-box",...style }}/>
+  <input {...p} className="text-input" style={style}/>
 );
 
-// ── search modal ──────────────────────────────────────────────────────────────
+// search modal
 const SearchModal = ({ onSelect, onClose }) => {
   const [q, setQ] = useState("");
   const [res, setRes] = useState([]);
   const [loading, setLoading] = useState(false);
   const [fetching, setFetching] = useState(false);
+  const [error, setError] = useState("");
   const inputRef = useRef();
 
   useEffect(() => { setTimeout(()=>inputRef.current?.focus(),50); }, []);
   useEffect(() => {
     const t = setTimeout(async () => {
-      if (q.length<2) { setRes([]); return; }
+      if (q.length<2) { setRes([]); setError(""); return; }
       setLoading(true);
-      setRes(await tmdbSearch(q));
-      setLoading(false);
+      setError("");
+      try {
+        setRes(await tmdbSearch(q));
+      } catch (error) {
+        setRes([]);
+        setError(
+          error.message === "TMDB_AUTH_MISSING"
+            ? "Defina VITE_TMDB_READ_TOKEN ou VITE_TMDB_API_KEY no arquivo .env."
+            : error.status === 401
+              ? "TMDB recusou a credencial. Verifique VITE_TMDB_READ_TOKEN ou VITE_TMDB_API_KEY."
+              : "Não foi possível buscar no TMDB agora."
+        );
+      } finally {
+        setLoading(false);
+      }
     }, 400);
     return () => clearTimeout(t);
   }, [q]);
 
   const pick = async r => {
     setFetching(true);
-    const full = await tmdbFetch(r.id, r.media_type);
-    setFetching(false);
-    onSelect({
-      tmdbId: r.id, type: r.media_type,
-      title: full.title||r.title||r.name,
-      poster: full.poster||r.poster_path||null,
-      backdrop: full.backdrop||r.backdrop_path||null,
-      overview: full.overview||r.overview||null,
-      year: full.year||(r.release_date||r.first_air_date||"").slice(0,4),
-      tmdbRating: full.tmdbRating||(r.vote_average?.toFixed(1))||null,
-      genres: full.genres||[],
-      runtime: full.runtime||null,
-      numberOfSeasons: full.numberOfSeasons||null,
-      cast: full.cast||[],
-      director: full.director||null,
-      imdbId: full.imdbId||null,
-    });
+    setError("");
+    try {
+      const full = await tmdbFetch(r.id, r.media_type);
+      onSelect({
+        tmdbId: r.id, type: r.media_type,
+        title: full.title||r.title||r.name,
+        poster: full.poster||r.poster_path||null,
+        backdrop: full.backdrop||r.backdrop_path||null,
+        overview: full.overview||r.overview||null,
+        year: full.year||(r.release_date||r.first_air_date||"").slice(0,4),
+        tmdbRating: full.tmdbRating||(r.vote_average?.toFixed(1))||null,
+        genres: full.genres||[],
+        runtime: full.runtime||null,
+        numberOfSeasons: full.numberOfSeasons||null,
+        cast: full.cast||[],
+        director: full.director||null,
+        imdbId: full.imdbId||null,
+      });
+    } catch (error) {
+      setError(
+        error.message === "TMDB_AUTH_MISSING"
+          ? "Defina VITE_TMDB_READ_TOKEN ou VITE_TMDB_API_KEY no arquivo .env."
+          : error.status === 401
+            ? "TMDB recusou a credencial. Verifique VITE_TMDB_READ_TOKEN ou VITE_TMDB_API_KEY."
+            : "Não foi possível carregar os detalhes do título."
+      );
+    } finally {
+      setFetching(false);
+    }
   };
 
   return (
     <Overlay onClose={onClose}>
       <Modal title="Buscar título" onClose={onClose} maxW={520}>
+        {error && <div className="search-error">{error}</div>}
         {fetching ? (
-          <div style={{ textAlign:"center",padding:"40px 0",color:"#666",fontSize:14 }}>Carregando detalhes...</div>
+          <div className="search-loading">Carregando detalhes...</div>
         ) : (
           <>
-            <div style={{ display:"flex",gap:8,marginBottom:16 }}>
+            <div className="search-row">
               <input ref={inputRef} value={q} onChange={e=>setQ(e.target.value)}
                 placeholder="Nome do filme ou série..."
-                style={{ flex:1,background:"rgba(255,255,255,0.07)",border:"1px solid rgba(255,255,255,0.12)",
-                  borderRadius:10,padding:"10px 14px",color:"#f0f0f0",fontSize:15,outline:"none" }}/>
-              <div style={{ display:"flex",alignItems:"center",padding:"0 12px",color:"#888" }}><Ic n="search" s={18}/></div>
+                className="text-input" />
+              <div className="search-row__icon"><Ic n="search" s={18}/></div>
             </div>
-            {loading && <p style={{ color:"#666",fontSize:14,textAlign:"center",margin:"20px 0" }}>Buscando...</p>}
-            <div style={{ display:"flex",flexDirection:"column",gap:8,maxHeight:380,overflowY:"auto" }}>
+            {loading && <p className="search-loading search-loading--small">Buscando...</p>}
+            <div className="search-results">
               {res.map(r => (
-                <div key={r.id} onClick={()=>pick(r)}
-                  style={{ display:"flex",gap:12,padding:12,borderRadius:12,cursor:"pointer",
-                    background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.06)",transition:"background .15s" }}
-                  onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.09)"}
-                  onMouseLeave={e=>e.currentTarget.style.background="rgba(255,255,255,0.04)"}>
+                <div key={r.id} onClick={()=>pick(r)} className="search-result">
                   {r.poster_path
-                    ? <img src={`${TMDB_IMG}${r.poster_path}`} alt="" style={{ width:44,height:64,borderRadius:6,objectFit:"cover",flexShrink:0 }}/>
-                    : <div style={{ width:44,height:64,borderRadius:6,background:"#1a1a2e",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center" }}><Ic n="film" s={18} style={{color:"#444"}}/></div>}
-                  <div style={{ minWidth:0 }}>
-                    <div style={{ fontWeight:700,color:"#f0f0f0",fontSize:14,marginBottom:3 }}>{r.title||r.name}</div>
-                    <div style={{ fontSize:12,color:"#777",marginBottom:4 }}>
+                    ? <img src={`${TMDB_IMG}${r.poster_path}`} alt="" className="search-result__poster"/>
+                          : <div className="search-result__poster-fallback"><Ic n="film" s={18} className="icon-muted"/></div>}
+                  <div className="search-result__content">
+                    <div className="search-result__title">{r.title||r.name}</div>
+                    <div className="search-result__meta">
                       {r.media_type==="tv"?"Série":"Filme"} • {(r.release_date||r.first_air_date||"").slice(0,4)}
-                      {r.vote_average?` • ★ ${r.vote_average.toFixed(1)}`:""}
+                      {r.vote_average?` ��� ��� ${r.vote_average.toFixed(1)}`:""}
                     </div>
-                    <div style={{ fontSize:12,color:"#666",overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical" }}>
+                    <div className="search-result__overview">
                       {r.overview}
                     </div>
                   </div>
@@ -284,16 +326,14 @@ const SearchModal = ({ onSelect, onClose }) => {
   );
 };
 
-// ── season pills ──────────────────────────────────────────────────────────────
+// season pills
 const SeasonPills = ({ count, selected, onChange }) => {
   const toggle = s => onChange(selected.includes(s) ? selected.filter(x=>x!==s) : [...selected,s].sort((a,b)=>a-b));
   return (
-    <div style={{ display:"flex",gap:8,flexWrap:"wrap" }}>
+    <div className="season-group">
       {Array.from({length:count},(_,i)=>i+1).map(s => (
         <button key={s} onClick={()=>toggle(s)}
-          style={{ padding:"6px 14px",borderRadius:20,border:"none",cursor:"pointer",fontWeight:700,fontSize:13,
-            background:selected.includes(s)?"#7c3aed":"rgba(255,255,255,0.07)",
-            color:selected.includes(s)?"#fff":"#888" }}>
+          className={`season-pill ${selected.includes(s) ? "season-pill--active" : ""}`}>
           T{s}
         </button>
       ))}
@@ -301,7 +341,7 @@ const SeasonPills = ({ count, selected, onChange }) => {
   );
 };
 
-// ── watched form (shared by Add + Edit) ───────────────────────────────────────
+// watched form (shared by Add + Edit)
 const WatchedForm = ({ users, currentUser, initial, onSave, onClose, title }) => {
   const [step, setStep] = useState(initial?.movie ? 1 : 0);
   const [movie, setMovie] = useState(initial?.movie||null);
@@ -330,72 +370,68 @@ const WatchedForm = ({ users, currentUser, initial, onSave, onClose, title }) =>
   return (
     <Overlay onClose={onClose}>
       <Modal title={title||"Registrar sessão"} onClose={onClose} maxW={500}>
-        <div style={{ display:"flex",gap:12,background:"rgba(255,255,255,0.05)",borderRadius:12,padding:12,marginBottom:22,alignItems:"center" }}>
+        <div className="preview-row">
           {movie.poster
-            ? <img src={`${TMDB_IMG}${movie.poster}`} alt="" style={{ width:46,height:68,borderRadius:8,objectFit:"cover" }}/>
-            : <div style={{ width:46,height:68,borderRadius:8,background:"#1a1a2e",display:"flex",alignItems:"center",justifyContent:"center" }}><Ic n="film" s={22} style={{color:"#444"}}/></div>}
-          <div style={{ flex:1 }}>
-            <div style={{ fontFamily:"'Playfair Display',serif",fontWeight:700,color:"#f0f0f0",fontSize:16 }}>{movie.title}</div>
-            <div style={{ fontSize:12,color:"#777",marginTop:2 }}>{movie.type==="tv"?"Série":"Filme"} • {movie.year}</div>
-            {movie.genres?.length>0 && <div style={{ fontSize:11,color:"#555",marginTop:2 }}>{movie.genres.slice(0,3).join(" · ")}</div>}
-          </div>
+            ? <img src={`${TMDB_IMG}${movie.poster}`} alt="" className="preview-poster"/>
+            : <div className="preview-poster preview-poster--fallback"><Ic n="film" s={22} className="icon-muted"/></div>}
+          <div className="preview-meta">
+              <div className="preview-title">{movie.title}</div>
+              <div className="preview-meta__line">{movie.type==="tv"?"Série":"Filme"} • {movie.year}</div>
+              {movie.genres?.length>0 && <div className="preview-meta__line preview-meta__line--muted">{movie.genres.slice(0,3).join(" - ")}</div>}
+            </div>
           {!initial && (
-            <button onClick={()=>setStep(0)} style={{ background:"rgba(255,255,255,0.07)",border:"none",borderRadius:8,padding:"5px 10px",color:"#aaa",cursor:"pointer",fontSize:12 }}>trocar</button>
+            <button onClick={()=>setStep(0)} className="edit-switch">trocar</button>
           )}
         </div>
 
         {movie.type==="tv" && movie.numberOfSeasons>0 && (
-          <div style={{ marginBottom:18 }}>
+          <div className="field-block">
             <Label>Temporadas assistidas</Label>
             <SeasonPills count={movie.numberOfSeasons} selected={seasonsWatched} onChange={setSeasonsWatched}/>
           </div>
         )}
 
-        <div style={{ marginBottom:18 }}>
+        <div className="field-block">
           <Label>Onde assistiram?</Label>
-          <SegBtn options={[["cinema","🎭 Cinema"],["streaming","🏠 Streaming"]]}
+          <SegBtn options={[["cinema","🎬 Cinema"],["streaming","📺 Streaming"]]}
             value={where} onChange={setWhere} colorMap={{cinema:"#d97706",streaming:"#0284c7"}}/>
         </div>
 
-        <div style={{ marginBottom:22 }}>
+        <div className="field-block field-block--wide">
           <Label>Data</Label>
           <Input type="date" value={date} onChange={e=>setDate(e.target.value)}/>
         </div>
 
-        <div style={{ marginBottom:22 }}>
+        <div className="field-block field-block--wide">
           <Label>Críticas individuais</Label>
-          <div style={{ display:"flex",flexDirection:"column",gap:14 }}>
+          <div className="review-list">
             {users.map(u => (
-              <div key={u} style={{ background:"rgba(255,255,255,0.04)",borderRadius:12,padding:"14px 16px" }}>
-                <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:10 }}>
+              <div key={u} className="review-card">
+                <div className="review-card__header">
                   <Avatar name={u} size={26}/>
-                  <span style={{ fontSize:14,fontWeight:600,color:"#ccc" }}>{u}</span>
-                  <div style={{ marginLeft:"auto" }}>
+                  <span className="review-card__name">{u}</span>
+                  <div className="ml-auto">
                     <Stars val={reviews[u]?.rating} onChange={v=>setReview(u,"rating",v)} size={20}/>
                   </div>
                 </div>
                 <textarea value={reviews[u]?.text} onChange={e=>setReview(u,"text",e.target.value)}
                   placeholder={`O que ${u} achou?`} rows={2}
-                  style={{ width:"100%",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.08)",
-                    borderRadius:8,padding:"8px 12px",color:"#ccc",fontSize:13,outline:"none",
-                    resize:"none",fontFamily:"inherit",boxSizing:"border-box" }}/>
+                  className="review-card__textarea" />
               </div>
             ))}
           </div>
         </div>
 
-        <button onClick={handleSave}
-          style={{ width:"100%",background:"linear-gradient(135deg,#e63946,#c1121f)",border:"none",
-            borderRadius:12,padding:"13px 0",color:"#fff",fontWeight:700,fontSize:15,cursor:"pointer" }}>
-          Salvar sessão ✦
+        <button onClick={handleSave} className="cta-button cta-button--primary">
+          Salvar sessão
         </button>
       </Modal>
     </Overlay>
   );
 };
 
-// ── watchlist form ────────────────────────────────────────────────────────────
-const AddWatchlistModal = ({ users, currentUser, onSave, onClose }) => {
+// watchlist form
+const AddWatchlistModal = ({ currentUser, onSave, onClose }) => {
   const [step, setStep] = useState(0);
   const [movie, setMovie] = useState(null);
   const [priority, setPriority] = useState("normal");
@@ -406,42 +442,39 @@ const AddWatchlistModal = ({ users, currentUser, onSave, onClose }) => {
   return (
     <Overlay onClose={onClose}>
       <Modal title="Adicionar à watchlist" onClose={onClose} maxW={460}>
-        <div style={{ display:"flex",gap:12,background:"rgba(255,255,255,0.05)",borderRadius:12,padding:12,marginBottom:22,alignItems:"center" }}>
+        <div className="watchlist-row">
           {movie.poster
-            ? <img src={`${TMDB_IMG}${movie.poster}`} alt="" style={{ width:46,height:68,borderRadius:8,objectFit:"cover" }}/>
-            : <div style={{ width:46,height:68,borderRadius:8,background:"#1a1a2e" }}/>}
+            ? <img src={`${TMDB_IMG}${movie.poster}`} alt="" className="preview-poster"/>
+            : <div className="preview-poster preview-poster--fallback" />}
           <div>
-            <div style={{ fontFamily:"'Playfair Display',serif",fontWeight:700,color:"#f0f0f0",fontSize:16 }}>{movie.title}</div>
-            <div style={{ fontSize:12,color:"#777",marginTop:2 }}>{movie.type==="tv"?"Série":"Filme"} • {movie.year}</div>
+            <div className="watchlist-title">{movie.title}</div>
+            <div className="preview-meta__line">{movie.type==="tv"?"Série":"Filme"} • {movie.year}</div>
           </div>
         </div>
-        <div style={{ marginBottom:18 }}>
+        <div className="field-block">
           <Label>Prioridade</Label>
-          <SegBtn options={[["baixa","🟢 Baixa"],["normal","🟡 Normal"],["alta","🔴 Alta"]]}
+          <SegBtn options={[["baixa","���� Baixa"],["normal","���� Normal"],["alta","���� Alta"]]}
             value={priority} onChange={setPriority} colorMap={{baixa:"#059669",normal:"#d97706",alta:"#e63946"}}/>
         </div>
-        <div style={{ marginBottom:22 }}>
+        <div className="field-block field-block--wide">
           <Label>Por que indicar?</Label>
           <textarea value={note} onChange={e=>setNote(e.target.value)}
             placeholder="Conta por que querem assistir..." rows={2}
-            style={{ width:"100%",background:"rgba(255,255,255,0.07)",border:"1px solid rgba(255,255,255,0.12)",
-              borderRadius:10,padding:"10px 12px",color:"#ccc",fontSize:13,outline:"none",
-              resize:"none",fontFamily:"inherit",boxSizing:"border-box" }}/>
+            className="note-textarea" />
         </div>
-        <div style={{ display:"flex",alignItems:"center",gap:6,fontSize:12,color:"#666",marginBottom:18 }}>
+        <div className="inline-meta">
           <Avatar name={currentUser} size={18}/> Sugerido por {currentUser}
         </div>
         <button onClick={()=>onSave({id:Date.now().toString(),...movie,priority,note,suggestedBy:currentUser,addedAt:new Date().toISOString()})}
-          style={{ width:"100%",background:"linear-gradient(135deg,#7c3aed,#5b21b6)",border:"none",
-            borderRadius:12,padding:"13px 0",color:"#fff",fontWeight:700,fontSize:15,cursor:"pointer" }}>
-          Adicionar à lista ✦
+          className="cta-button cta-button--violet">
+          Adicionar à lista
         </button>
       </Modal>
     </Overlay>
   );
 };
 
-// ── detail modal ──────────────────────────────────────────────────────────────
+// detail modal
 const DetailModal = ({ entry, users, onClose, onMarkWatched, onEdit, onSaveReview, currentUser, fromWatchlist }) => {
   const [inlineRating, setInlineRating] = useState(0);
   const [inlineText, setInlineText] = useState("");
@@ -467,45 +500,43 @@ const DetailModal = ({ entry, users, onClose, onMarkWatched, onEdit, onSaveRevie
     const s = entry.seasonsWatched;
     if (s.length===1) return `T${s[0]}`;
     const seq = s.every((v,i)=>i===0||v===s[i-1]+1);
-    return seq ? `T${s[0]}–T${s[s.length-1]}` : s.map(x=>`T${x}`).join(", ");
+    return seq ? `T${s[0]}���T${s[s.length-1]}` : s.map(x=>`T${x}`).join(", ");
   };
 
   return (
     <Overlay onClose={onClose}>
       <Modal title="" onClose={onClose} maxW={560}>
         {backdrop && (
-          <div style={{ margin:"-26px -28px 0",height:160,position:"relative",overflow:"hidden",borderRadius:"20px 20px 0 0" }}>
-            <img src={backdrop} alt="" style={{ width:"100%",height:"100%",objectFit:"cover",filter:"brightness(.35)" }}/>
-            <div style={{ position:"absolute",inset:0,background:"linear-gradient(to bottom,transparent,#0e0e1c)" }}/>
+          <div className="detail-banner">
+            <img src={backdrop} alt="" className="detail-banner__image"/>
+            <div className="detail-banner__overlay"/>
           </div>
         )}
 
-        <div style={{ display:"flex",gap:16,marginBottom:20,marginTop:backdrop?0:-26 }}>
+        <div className={`detail-hero ${backdrop?"":"detail-hero--compact"}`}>
           {poster
-            ? <img src={poster} alt="" style={{ width:90,height:134,borderRadius:12,objectFit:"cover",flexShrink:0,
-                boxShadow:"0 8px 24px rgba(0,0,0,.6)",marginTop:backdrop?-50:0,position:"relative" }}/>
-            : <div style={{ width:90,height:134,borderRadius:12,background:"#1a1a2e",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center" }}><Ic n="film" s={36} style={{color:"#333"}}/></div>}
-          <div style={{ paddingTop:backdrop?6:0,flex:1 }}>
-            <div style={{ fontSize:11,color:entry.type==="tv"?"#a78bfa":"#f87171",fontWeight:700,letterSpacing:1.2,marginBottom:5 }}>
+            ? <img src={poster} alt="" className={`detail-poster ${backdrop?"detail-poster--floating":""}`} />
+            : <div className="detail-poster detail-poster--fallback"><Ic n="film" s={36} className="icon-muted"/></div>}
+          <div className={`detail-hero__content ${backdrop?"":"detail-hero__content--compact"}`}>
+            <div className={`detail-eyebrow ${entry.type==="tv"?"detail-eyebrow--tv":"detail-eyebrow--movie"}`}>
               {entry.type==="tv"?"SÉRIE":"FILME"}{entry.year?` • ${entry.year}`:""}
-              {entry.runtime ? ` • ${Math.floor(entry.runtime/60)}h${entry.runtime%60>0?` ${entry.runtime%60}min`:""}` : ""}
+              {entry.runtime ? ` ��� ${Math.floor(entry.runtime/60)}h${entry.runtime%60>0?` ${entry.runtime%60}min`:""}` : ""}
             </div>
-            <h2 style={{ fontFamily:"'Playfair Display',serif",fontSize:22,color:"#f0f0f0",margin:"0 0 6px" }}>{entry.title}</h2>
+            <h2 className="detail-title detail-title--small">{entry.title}</h2>
             {entry.where && (
-              <div style={{ fontSize:13,color:entry.where==="cinema"?"#f59e0b":"#60a5fa" }}>
-                {entry.where==="cinema"?"🎭 Cinema":"🏠 Streaming"}
-                {entry.date && " • "+new Date(entry.date+"T12:00:00").toLocaleDateString("pt-BR",{day:"2-digit",month:"long",year:"numeric"})}
+              <div className={`detail-meta ${entry.where==="cinema"?"detail-meta--cinema":"detail-meta--streaming"}`}>
+                {entry.where==="cinema"?"��ġ Cinema":"���� Streaming"}
+                {entry.date && " ��� "+new Date(entry.date+"T12:00:00").toLocaleDateString("pt-BR",{day:"2-digit",month:"long",year:"numeric"})}
               </div>
             )}
-            <div style={{ display:"flex",gap:8,marginTop:8,flexWrap:"wrap",alignItems:"center" }}>
-              {isDiscord && <span style={{ fontSize:11,fontWeight:700,color:"#f87171",background:"rgba(230,57,70,.15)",borderRadius:20,padding:"3px 10px" }}>💥 Discordaram</span>}
-              {seasonLabel() && <span style={{ fontSize:11,fontWeight:700,color:"#a78bfa",background:"rgba(124,58,237,.15)",borderRadius:20,padding:"3px 10px" }}>{seasonLabel()}</span>}
-              {entry.tmdbRating && <span style={{ fontSize:11,color:"#f59e0b",fontWeight:700 }}>TMDB ★ {entry.tmdbRating}</span>}
+            <div className="detail-badges">
+              {isDiscord && <span className="detail-badge detail-badge--discord">���� Discordaram</span>}
+              {seasonLabel() && <span className="detail-badge detail-badge--season">{seasonLabel()}</span>}
+              {entry.tmdbRating && <span className="detail-badge detail-badge--rating">TMDB ��� {entry.tmdbRating}</span>}
             </div>
           </div>
           {onEdit && (
-            <button onClick={onEdit} style={{ background:"rgba(255,255,255,0.07)",border:"none",borderRadius:10,
-              padding:8,color:"#aaa",cursor:"pointer",height:"fit-content",marginTop:backdrop?-44:0 }}>
+            <button onClick={onEdit} className={`icon-button icon-button--soft ${backdrop?"":"icon-button--floating"}`}>
               <Ic n="edit" s={16}/>
             </button>
           )}
@@ -513,34 +544,33 @@ const DetailModal = ({ entry, users, onClose, onMarkWatched, onEdit, onSaveRevie
 
         {/* genres */}
         {entry.genres?.length>0 && (
-          <div style={{ display:"flex",gap:6,flexWrap:"wrap",marginBottom:16 }}>
+          <div className="detail-tags">
             {entry.genres.map(g=>(
-              <span key={g} style={{ fontSize:11,fontWeight:600,color:"#a78bfa",background:"rgba(124,58,237,.12)",
-                borderRadius:20,padding:"3px 10px" }}>{g}</span>
+              <span key={g} className="detail-tag">{g}</span>
             ))}
           </div>
         )}
 
         {/* seasons detail */}
         {entry.type==="tv" && entry.seasonsWatched?.length>0 && entry.numberOfSeasons && (
-          <div style={{ marginBottom:16,fontSize:13,color:"#888" }}>
+          <div className="detail-note">
             Temporadas assistidas: {entry.seasonsWatched.join(", ")} de {entry.numberOfSeasons}
           </div>
         )}
 
         {/* director + cast */}
         {entry.director && (
-          <div style={{ marginBottom:12 }}>
+          <div className="field-block">
             <Label>Direção</Label>
-            <span style={{ fontSize:14,color:"#ccc",fontWeight:600 }}>{entry.director}</span>
+            <span className="detail-text">{entry.director}</span>
           </div>
         )}
         {entry.cast?.length>0 && (
-          <div style={{ marginBottom:16 }}>
+          <div className="field-block">
             <Label>Elenco</Label>
-            <div style={{ display:"flex",gap:6,flexWrap:"wrap" }}>
+            <div className="detail-tags">
               {entry.cast.map(c=>(
-                <span key={c} style={{ fontSize:12,color:"#bbb",background:"rgba(255,255,255,0.07)",borderRadius:20,padding:"4px 10px" }}>{c}</span>
+                <span key={c} className="detail-tag detail-tag--muted">{c}</span>
               ))}
             </div>
           </div>
@@ -548,10 +578,9 @@ const DetailModal = ({ entry, users, onClose, onMarkWatched, onEdit, onSaveRevie
 
         {/* IMDB link */}
         {entry.imdbId && (
-          <div style={{ marginBottom:18 }}>
+          <div className="field-block field-block--wide">
             <a href={`https://www.imdb.com/title/${entry.imdbId}`} target="_blank" rel="noopener noreferrer"
-              style={{ display:"inline-flex",alignItems:"center",gap:6,background:"#f5c518",
-                color:"#000",borderRadius:8,padding:"6px 14px",fontSize:12,fontWeight:700,textDecoration:"none" }}>
+              className="imdb-link">
               <Ic n="link" s={14}/> Ver no IMDB
             </a>
           </div>
@@ -559,19 +588,19 @@ const DetailModal = ({ entry, users, onClose, onMarkWatched, onEdit, onSaveRevie
 
         {/* reviews */}
         {!fromWatchlist && entry.reviews && (
-          <div style={{ marginBottom:18 }}>
+          <div className="field-block field-block--wide">
             <Label>Críticas do casal</Label>
-            <div style={{ display:"flex",flexDirection:"column",gap:12 }}>
+            <div className="review-list">
               {Object.entries(entry.reviews).map(([user,rev]) => (
                 (rev.rating||rev.text) ? (
-                  <div key={user} style={{ background:"rgba(255,255,255,0.04)",borderRadius:12,padding:"12px 14px" }}>
-                    <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:rev.text?8:0 }}>
+                  <div key={user} className="review-card review-card--compact">
+                    <div className={`review-card__header ${rev.text?"":"review-card__header--no-text"}`}>
                       <Avatar name={user} size={22}/>
-                      <span style={{ fontSize:13,fontWeight:600,color:"#bbb",flex:1 }}>{user}</span>
+                      <span className="review-card__name review-card__name--flex">{user}</span>
                       {rev.rating>0 && <Stars val={rev.rating} size={16}/>}
-                      {rev.rating>0 && <span style={{ fontSize:13,color:"#f59e0b",fontWeight:700 }}>{rev.rating}/5</span>}
+                      {rev.rating>0 && <span className="review-rating">{rev.rating}/5</span>}
                     </div>
-                    {rev.text && <p style={{ margin:0,fontSize:13,color:"#999",lineHeight:1.55,fontStyle:"italic" }}>"{rev.text}"</p>}
+                    {rev.text && <p className="review-card__quote">"{rev.text}"</p>}
                   </div>
                 ) : null
               ))}
@@ -585,31 +614,26 @@ const DetailModal = ({ entry, users, onClose, onMarkWatched, onEdit, onSaveRevie
           if (r?.rating||r?.text) return null;
           if (u===currentUser) return null;
           return (
-            <div key={u} style={{ background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.07)",
-              borderRadius:12,padding:"10px 14px",marginBottom:10,display:"flex",alignItems:"center",gap:8 }}>
+            <div key={u} className="awaiting-card">
               <Avatar name={u} size={20}/>
-              <span style={{ fontSize:12,color:"#666",fontStyle:"italic" }}>Aguardando crítica de {u}</span>
+              <span className="awaiting-card__text">Aguardando crítica de {u}</span>
             </div>
           );
         })}
 
         {/* inline review if currentUser hasn't rated */}
         {!fromWatchlist && !hasMyReview && onSaveReview && (
-          <div style={{ background:"rgba(230,57,70,.08)",border:"1px solid rgba(230,57,70,.2)",borderRadius:14,padding:"16px",marginBottom:18 }}>
-            <div style={{ fontSize:13,color:"#f87171",fontWeight:700,marginBottom:12 }}>Você ainda não avaliou esse filme</div>
-            <div style={{ display:"flex",alignItems:"center",gap:10,marginBottom:10 }}>
+          <div className="inline-review">
+            <div className="inline-review__title">Você ainda não avaliou esse filme</div>
+            <div className="inline-review__rating-row">
               <Avatar name={currentUser} size={24}/>
               <Stars val={inlineRating} onChange={setInlineRating} size={22}/>
             </div>
             <textarea value={inlineText} onChange={e=>setInlineText(e.target.value)}
               placeholder="Sua crítica..." rows={2}
-              style={{ width:"100%",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.08)",
-                borderRadius:8,padding:"8px 12px",color:"#ccc",fontSize:13,outline:"none",
-                resize:"none",fontFamily:"inherit",boxSizing:"border-box",marginBottom:10 }}/>
+              className="review-inline__textarea" />
             <button onClick={handleInlineSave} disabled={savingReview||!inlineRating}
-              style={{ background:"linear-gradient(135deg,#e63946,#c1121f)",border:"none",borderRadius:10,
-                padding:"9px 20px",color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer",
-                opacity:inlineRating?1:.5 }}>
+              className="review-inline__button">
               {savingReview?"Salvando...":"Salvar avaliação"}
             </button>
           </div>
@@ -617,9 +641,9 @@ const DetailModal = ({ entry, users, onClose, onMarkWatched, onEdit, onSaveRevie
 
         {/* overview */}
         {entry.overview && (
-          <div style={{ marginBottom:18 }}>
+          <div className="field-block field-block--wide">
             <Label>Sinopse</Label>
-            <p style={{ margin:0,fontSize:13,color:"#888",lineHeight:1.6 }}>{entry.overview}</p>
+            <p className="detail-copy">{entry.overview}</p>
           </div>
         )}
 
@@ -627,32 +651,30 @@ const DetailModal = ({ entry, users, onClose, onMarkWatched, onEdit, onSaveRevie
         {fromWatchlist && (
           <>
             {entry.note && (
-              <div style={{ marginBottom:16 }}>
+              <div className="field-block">
                 <Label>Por que assistir</Label>
-                <p style={{ margin:0,fontSize:13,color:"#999",fontStyle:"italic" }}>"{entry.note}"</p>
+                <p className="detail-copy detail-copy--italic">"{entry.note}"</p>
               </div>
             )}
-            <div style={{ display:"flex",gap:16,marginBottom:20 }}>
+            <div className="detail-meta-row">
               <div>
                 <Label>Sugerido por</Label>
-                <div style={{ display:"flex",alignItems:"center",gap:6 }}>
+                <div className="detail-inline-person">
                   <Avatar name={entry.suggestedBy} size={20}/>
-                  <span style={{ color:"#ccc",fontSize:13 }}>{entry.suggestedBy}</span>
+                  <span className="detail-text detail-text--muted">{entry.suggestedBy}</span>
                 </div>
               </div>
               <div>
                 <Label>Prioridade</Label>
-                <span style={{ fontSize:13,fontWeight:600,
-                  color:entry.priority==="alta"?"#ef4444":entry.priority==="normal"?"#f59e0b":"#22c55e" }}>
+                <span className={`detail-priority ${entry.priority==="alta"?"priority--alta":entry.priority==="normal"?"priority--normal":"priority--baixa"}`}>
                   {entry.priority?.charAt(0).toUpperCase()+entry.priority?.slice(1)||"Normal"}
                 </span>
               </div>
             </div>
             {onMarkWatched && (
               <button onClick={()=>onMarkWatched(entry)}
-                style={{ width:"100%",background:"linear-gradient(135deg,#e63946,#c1121f)",border:"none",
-                  borderRadius:12,padding:"12px 0",color:"#fff",fontWeight:700,fontSize:14,cursor:"pointer" }}>
-                ✓ Marcar como assistido
+                className="cta-button cta-button--primary">
+                Marcar como assistido
               </button>
             )}
           </>
@@ -662,20 +684,17 @@ const DetailModal = ({ entry, users, onClose, onMarkWatched, onEdit, onSaveRevie
   );
 };
 
-// ── login screen ──────────────────────────────────────────────────────────────
+// login screen
 const LoginScreen = ({ onLogin, loading }) => (
-  <div style={{ minHeight:"100vh",background:"#08080f",display:"flex",alignItems:"center",justifyContent:"center",padding:24 }}>
-    <div style={{ maxWidth:380,width:"100%",textAlign:"center" }}>
-      <div style={{ fontSize:60,marginBottom:16 }}>🎬</div>
-      <h1 style={{ fontFamily:"'Playfair Display',serif",fontSize:38,color:"#f0f0f0",margin:"0 0 6px",letterSpacing:-1 }}>
-        Sessão<span style={{ color:"#e63946" }}> ✦</span>
+  <div className="auth-screen">
+    <div className="auth-card">
+      <div className="auth-icon">🎞️</div>
+      <h1 className="auth-title">
+        Sessão <span className="auth-brand-accent">❤️</span>
       </h1>
-      <p style={{ color:"#666",fontSize:14,marginBottom:48 }}>O diário cinematográfico do casal</p>
+      <p className="auth-subtitle auth-subtitle--wide">O diário cinematográfico do casal</p>
       <button onClick={onLogin} disabled={loading}
-        style={{ display:"flex",alignItems:"center",justifyContent:"center",gap:12,width:"100%",
-          background:"#fff",border:"none",borderRadius:14,padding:"14px 0",
-          color:"#111",fontWeight:700,fontSize:15,cursor:loading?"not-allowed":"pointer",
-          opacity:loading?.7:1,transition:"opacity .2s" }}>
+        className="auth-google-btn">
         <svg width="20" height="20" viewBox="0 0 24 24">
           <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
           <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
@@ -688,78 +707,117 @@ const LoginScreen = ({ onLogin, loading }) => (
   </div>
 );
 
-// ── couple setup (create or join) ─────────────────────────────────────────────
+// couple setup (create or join)
 const CoupleSetup = ({ authUser, onCreate, onJoin }) => {
   const [tab, setTab] = useState("create");
-  const [myName, setMyName] = useState(authUser?.displayName||"");
+  const [myName, setMyName] = useState(authUser?.displayName || "");
   const [since, setSince] = useState("");
   const [code, setCode] = useState("");
-  const [joinName, setJoinName] = useState(authUser?.displayName||"");
+  const [joinName, setJoinName] = useState(authUser?.displayName || "");
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
 
   const handleCreate = async () => {
     if (!myName.trim()) return;
-    setLoading(true); setErr("");
-    try { await onCreate(myName.trim(), since); }
-    catch(e) { setErr(e.message); }
-    finally { setLoading(false); }
+    setLoading(true);
+    setErr("");
+    try {
+      await onCreate(myName.trim(), since);
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleJoin = async () => {
-    if (!code.trim()||!joinName.trim()) return;
-    setLoading(true); setErr("");
-    try { await onJoin(code.trim().toUpperCase(), joinName.trim()); }
-    catch(e) { setErr(e.message); }
-    finally { setLoading(false); }
+    if (!code.trim() || !joinName.trim()) return;
+    setLoading(true);
+    setErr("");
+    try {
+      await onJoin(code.trim().toUpperCase(), joinName.trim());
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const inp = { background:"rgba(255,255,255,0.07)",border:"1px solid rgba(255,255,255,0.12)",borderRadius:12,
-    padding:"13px 18px",color:"#f0f0f0",fontSize:15,outline:"none",textAlign:"center",width:"100%",boxSizing:"border-box" };
+  const inp = {
+    background: "rgba(255,255,255,0.07)",
+    border: "1px solid var(--border-default)",
+    borderRadius: 12,
+    padding: "13px 18px",
+    color: "var(--text-primary)",
+    fontSize: 15,
+    outline: "none",
+    textAlign: "center",
+    width: "100%",
+    boxSizing: "border-box",
+  };
 
   return (
-    <div style={{ minHeight:"100vh",background:"#08080f",display:"flex",alignItems:"center",justifyContent:"center",padding:24 }}>
-      <div style={{ maxWidth:400,width:"100%",textAlign:"center" }}>
-        <div style={{ fontSize:48,marginBottom:12 }}>🎬</div>
-        <h1 style={{ fontFamily:"'Playfair Display',serif",fontSize:32,color:"#f0f0f0",margin:"0 0 6px",letterSpacing:-1 }}>
-          Sessão<span style={{ color:"#e63946" }}> ✦</span>
+    <div className="auth-screen">
+      <div className="auth-card">
+        <div className="auth-icon">🎞️</div>
+        <h1 className="auth-title auth-title--large">
+          Sessão <span className="days-highlight">❤️</span>
         </h1>
-        <p style={{ color:"#666",fontSize:13,marginBottom:28 }}>Olá, {authUser?.displayName?.split(" ")[0]}! Configure seu diário.</p>
+        <p className="auth-subtitle">Olá, {authUser?.displayName?.split(" ")[0]}! Configure seu diário.</p>
 
-        {/* tabs */}
-        <div style={{ display:"flex",gap:8,marginBottom:28 }}>
-          {[["create","Criar casal"],["join","Tenho um convite"]].map(([v,l])=>(
-            <button key={v} onClick={()=>{setTab(v);setErr("");}}
-              style={{ flex:1,padding:"10px 0",borderRadius:12,border:"none",cursor:"pointer",fontWeight:700,fontSize:13,
-                background:tab===v?"#e63946":"rgba(255,255,255,0.07)",color:tab===v?"#fff":"#888" }}>{l}</button>
+        <div className="auth-tabs">
+          {[["create", "Criar casal"], ["join", "Tenho um convite"]].map(([value, label]) => (
+            <button
+              key={value}
+              onClick={() => {
+                setTab(value);
+                setErr("");
+              }}
+              className="auth-tab"
+              data-active={tab === value}
+              type="button"
+            >
+              {label}
+            </button>
           ))}
         </div>
 
-        {tab==="create" && (
-          <div style={{ display:"flex",flexDirection:"column",gap:12 }}>
-            <input value={myName} onChange={e=>setMyName(e.target.value)} placeholder="Seu nome" style={inp}/>
-            <p style={{ color:"#555",fontSize:13,margin:"4px 0" }}>Você receberá um código para convidar sua pessoa ❤️</p>
-            <p style={{ color:"#666",fontSize:12,margin:0 }}>Desde quando juntos? (opcional)</p>
-            <input type="date" value={since} onChange={e=>setSince(e.target.value)} style={inp}/>
-            {err && <p style={{ color:"#f87171",fontSize:13 }}>{err}</p>}
-            <button onClick={handleCreate} disabled={loading||!myName.trim()}
-              style={{ background:"linear-gradient(135deg,#e63946,#c1121f)",border:"none",borderRadius:12,
-                padding:"13px 0",color:"#fff",fontWeight:700,fontSize:15,cursor:"pointer",opacity:myName.trim()?1:.5 }}>
-              {loading?"Criando...":"Criar nosso diário ✦"}
+        {tab === "create" && (
+          <div className="auth-stack">
+            <input value={myName} onChange={e => setMyName(e.target.value)} placeholder="Seu nome" style={inp} />
+            <p className="auth-note">Você receberá um código para convidar sua pessoa</p>
+            <p className="auth-note auth-note--compact">Desde quando juntos? (opcional)</p>
+            <input type="date" value={since} onChange={e => setSince(e.target.value)} style={inp} />
+            {err && <p className="error-text">{err}</p>}
+            <button
+              onClick={handleCreate}
+              disabled={loading || !myName.trim()}
+              className="auth-btn auth-btn--accent"
+              type="button"
+            >
+              {loading ? "Criando..." : "Criar nosso diário"}
             </button>
           </div>
         )}
 
-        {tab==="join" && (
-          <div style={{ display:"flex",flexDirection:"column",gap:12 }}>
-            <input value={joinName} onChange={e=>setJoinName(e.target.value)} placeholder="Seu nome" style={inp}/>
-            <input value={code} onChange={e=>setCode(e.target.value.toUpperCase())} placeholder="Código de convite (ex: ABC123)"
-              style={{ ...inp, letterSpacing:3, fontWeight:700, fontSize:20 }} maxLength={6}/>
-            {err && <p style={{ color:"#f87171",fontSize:13 }}>{err}</p>}
-            <button onClick={handleJoin} disabled={loading||code.length<6||!joinName.trim()}
-              style={{ background:"linear-gradient(135deg,#7c3aed,#5b21b6)",border:"none",borderRadius:12,
-                padding:"13px 0",color:"#fff",fontWeight:700,fontSize:15,cursor:"pointer",opacity:code.length===6&&joinName.trim()?1:.5 }}>
-              {loading?"Entrando...":"Entrar no diário ✦"}
+        {tab === "join" && (
+          <div className="auth-stack">
+            <input value={joinName} onChange={e => setJoinName(e.target.value)} placeholder="Seu nome" style={inp} />
+            <input
+              value={code}
+              onChange={e => setCode(e.target.value.toUpperCase())}
+              placeholder="Código de convite (ex: ABC123)"
+              style={{ ...inp, letterSpacing: 3, fontWeight: 700, fontSize: 20 }}
+              maxLength={6}
+            />
+            {err && <p className="error-text">{err}</p>}
+            <button
+              onClick={handleJoin}
+              disabled={loading || code.length < 6 || !joinName.trim()}
+              className="auth-btn auth-btn--violet"
+              type="button"
+            >
+              {loading ? "Entrando..." : "Entrar no diário"}
             </button>
           </div>
         )}
@@ -768,109 +826,104 @@ const CoupleSetup = ({ authUser, onCreate, onJoin }) => {
   );
 };
 
-// ── invite code display (after creating couple) ───────────────────────────────
+// invite code display (after creating couple)
 const InviteScreen = ({ inviteCode, couple }) => (
-  <div style={{ minHeight:"100vh",background:"#08080f",display:"flex",alignItems:"center",justifyContent:"center",padding:24 }}>
-    <div style={{ maxWidth:380,width:"100%",textAlign:"center" }}>
-      <div style={{ fontSize:48,marginBottom:16 }}>🎉</div>
-      <h2 style={{ fontFamily:"'Playfair Display',serif",fontSize:28,color:"#f0f0f0",margin:"0 0 8px" }}>Diário criado!</h2>
-      <p style={{ color:"#888",fontSize:14,marginBottom:32 }}>Compartilhe o código abaixo com {couple.name1==="?"?"sua pessoa":couple.name2||"sua pessoa"} para ela entrar no diário.</p>
-      <div style={{ background:"rgba(230,57,70,.1)",border:"2px dashed rgba(230,57,70,.4)",borderRadius:20,
-        padding:"28px 24px",marginBottom:24 }}>
-        <p style={{ color:"#888",fontSize:12,fontWeight:700,letterSpacing:2,marginBottom:10 }}>CÓDIGO DE CONVITE</p>
-        <div style={{ fontFamily:"'Playfair Display',serif",fontSize:44,fontWeight:900,color:"#e63946",letterSpacing:10 }}>
-          {inviteCode}
-        </div>
+  <div className="auth-screen">
+    <div className="auth-card">
+      <div className="auth-icon">����</div>
+      <h2 className="auth-title" style={{ fontSize: "clamp(28px, 4.4vw, 32px)", marginBottom: 8 }}>Diário criado!</h2>
+      <p className="auth-subtitle auth-callout">
+        Compartilhe o código abaixo com {couple.name1 === "?" ? "sua pessoa" : couple.name2 || "sua pessoa"} para ela entrar no diário.
+      </p>
+      <div className="invite-box">
+        <p className="invite-code-title">CÓDIGO DE CONVITE</p>
+        <div className="invite-box__code">{inviteCode}</div>
       </div>
-      <p style={{ color:"#555",fontSize:13 }}>Aguardando sua pessoa entrar… assim que ela usar o código, o diário abrirá automaticamente.</p>
+      <p className="auth-note">Aguardando sua pessoa entrar — assim que ela usar o código, o diário abrirá automaticamente.</p>
     </div>
   </div>
 );
 
-// ── home page ─────────────────────────────────────────────────────────────────
-const HomePage = ({ watched, watchlist, couple, currentUser, users }) => {
-  const totMovies = watched.filter(w=>w.type==="movie").length;
-  const totSeries = watched.filter(w=>w.type==="tv").length;
-  const totCinema = watched.filter(w=>w.where==="cinema").length;
-  const allRatings = watched.flatMap(w=>Object.values(w.reviews||{}).map(r=>r.rating).filter(Boolean));
-  const avgR = allRatings.length?(allRatings.reduce((a,b)=>a+b,0)/allRatings.length).toFixed(1):null;
-  const totalMins = watched.reduce((s,w)=>s+(w.runtime||0),0);
-  const recent = [...watched].sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt)).slice(0,4);
-  const days = couple.since?Math.floor((new Date()-new Date(couple.since))/86400000):null;
-  const nextWatch = [...watchlist].sort((a,b)=>{const p={alta:0,normal:1,baixa:2};return(p[a.priority]??1)-(p[b.priority]??1);})[0];
+// home page
+const HomePage = ({ watched, watchlist, couple, currentUser }) => {
+  const totMovies = watched.filter(w => w.type === "movie").length;
+  const totSeries = watched.filter(w => w.type === "tv").length;
+  const totCinema = watched.filter(w => w.where === "cinema").length;
+  const allRatings = watched.flatMap(w => Object.values(w.reviews || {}).map(r => r.rating).filter(Boolean));
+  const avgR = allRatings.length ? (allRatings.reduce((a, b) => a + b, 0) / allRatings.length).toFixed(1) : null;
+  const totalMins = watched.reduce((s, w) => s + (w.runtime || 0), 0);
+  const recent = [...watched].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).slice(0, 4);
+  const days = couple.since ? Math.floor((new Date() - new Date(couple.since)) / 86400000) : null;
+  const nextWatch = [...watchlist].sort((a, b) => {
+    const p = { alta: 0, normal: 1, baixa: 2 };
+    return (p[a.priority] ?? 1) - (p[b.priority] ?? 1);
+  })[0];
 
   return (
     <div>
-      <div style={{ background:"linear-gradient(135deg,#14040b,#090915)",borderRadius:20,padding:"24px 26px",marginBottom:22,position:"relative",overflow:"hidden" }}>
-        <div style={{ position:"absolute",top:-30,right:-30,width:180,height:180,background:"radial-gradient(circle,rgba(230,57,70,.12),transparent 70%)",borderRadius:"50%",pointerEvents:"none" }}/>
-        <div style={{ fontSize:12,color:"#e63946",fontWeight:700,letterSpacing:2,marginBottom:6 }}>✦ BEM-VINDO DE VOLTA</div>
-        <h2 style={{ fontFamily:"'Playfair Display',serif",fontSize:26,color:"#f0f0f0",margin:"0 0 4px" }}>Olá, {currentUser} ❤️</h2>
-        {days!==null && <p style={{ color:"#666",fontSize:13,margin:0 }}>{couple.name1} & {couple.name2} • {days} dias juntos</p>}
+      <div className="hero-panel">
+        <div className="hero-panel__eyebrow">BEM-VINDO DE VOLTA</div>
+        <h2 className="hero-panel__title">Olá, {currentUser}!</h2>
+        {days !== null && <p className="hero-panel__meta">{couple.name1} & {couple.name2} ��� {days} dias juntos</p>}
       </div>
 
-      <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:22 }}>
+      <div className="stat-grid">
         {[
-          {v:totMovies+totSeries,l:"Total assistidos",icon:"film",c:"#e63946"},
-          {v:totCinema,l:"No cinema",icon:"star",c:"#f59e0b"},
-          {v:totMovies,l:"Filmes",icon:"film",c:"#7c3aed"},
-          {v:avgR?`${avgR} ★`:"—",l:"Nota média",icon:"star",c:"#f59e0b"},
-        ].map(s=>(
-          <div key={s.l} style={{ background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:16,padding:"16px 18px" }}>
-            <div style={{ color:s.c,marginBottom:8,opacity:.85 }}><Ic n={s.icon} s={20}/></div>
-            <div style={{ fontFamily:"'Playfair Display',serif",fontSize:28,fontWeight:700,color:"#f0f0f0" }}>{s.v}</div>
-            <div style={{ fontSize:12,color:"#777",marginTop:2 }}>{s.l}</div>
+          { v: totMovies + totSeries, l: "Total assistidos", icon: "film" },
+          { v: totCinema, l: "No cinema", icon: "star" },
+          { v: totMovies, l: "Filmes", icon: "film" },
+          { v: avgR ? `${avgR}  ★` : "—", l: "Nota média", icon: "star" },
+        ].map(s => (
+          <div key={s.l} className="stat-card">
+            <div className="stat-card__icon icon--info"><Ic n={s.icon} s={20} /></div>
+            <div className="stat-card__value">{s.v}</div>
+            <div className="stat-card__label">{s.l}</div>
           </div>
         ))}
       </div>
 
-      {totalMins>0 && (
-        <div style={{ background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:16,padding:"14px 18px",marginBottom:22,display:"flex",alignItems:"center",gap:12 }}>
-          <Ic n="clock" s={22} style={{color:"#60a5fa"}}/>
+      {totalMins > 0 && (
+        <div className="info-card">
+          <span className="icon--info"><Ic n="clock" s={22} /></span>
           <div>
-            <div style={{ fontSize:18,fontWeight:700,color:"#f0f0f0" }}>{Math.floor(totalMins/60)}h {totalMins%60}min</div>
-            <div style={{ fontSize:12,color:"#777" }}>assistidos juntos</div>
+            <div className="value-large">{Math.floor(totalMins / 60)}h {totalMins % 60}min</div>
+            <div className="muted-small">assistidos juntos</div>
           </div>
         </div>
       )}
 
       {nextWatch && (
-        <div style={{ display:"flex",gap:14,background:"rgba(124,58,237,.08)",border:"1px solid rgba(124,58,237,.2)",borderRadius:16,padding:"14px 18px",marginBottom:22,alignItems:"center" }}>
+        <div className="surface-card surface-card--violet mb-22">
           {nextWatch.poster
-            ? <img src={`${TMDB_IMG}${nextWatch.poster}`} alt="" style={{ width:42,height:60,borderRadius:8,objectFit:"cover" }}/>
-            : <div style={{ width:42,height:60,borderRadius:8,background:"#1a1a2e" }}/>}
-          <div style={{ flex:1,minWidth:0 }}>
-            <div style={{ fontSize:11,color:"#a78bfa",fontWeight:700,letterSpacing:1,marginBottom:4 }}>PRÓXIMA SESSÃO</div>
-            <div style={{ fontWeight:700,color:"#f0f0f0",fontSize:15,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis" }}>{nextWatch.title}</div>
-            <div style={{ fontSize:12,color:"#888",marginTop:2 }}>Sugerido por {nextWatch.suggestedBy}</div>
+            ? <img src={`${TMDB_IMG}${nextWatch.poster}`} alt="" className="poster-img" />
+            : <div className="poster-placeholder" />}
+          <div className="list-fill">
+            <div className="nextwatch__eyebrow">PRÓXIMA SESSÃO</div>
+            <div className="nextwatch__title">{nextWatch.title}</div>
+            <div className="nextwatch__sub">Sugerido por {nextWatch.suggestedBy}</div>
           </div>
-          <div style={{ fontSize:11,color:nextWatch.priority==="alta"?"#ef4444":nextWatch.priority==="normal"?"#f59e0b":"#22c55e",fontWeight:700 }}>
-            {nextWatch.priority?.toUpperCase()}
-          </div>
+          <div className={`${nextWatch.priority==="alta"?"priority--alta":nextWatch.priority==="normal"?"priority--normal":"priority--baixa"} priority-pill`}> {nextWatch.priority?.toUpperCase()}</div>
         </div>
       )}
 
-      {recent.length>0 && (
+      {recent.length > 0 && (
         <>
-          <div style={{ fontSize:11,color:"#666",fontWeight:700,letterSpacing:1.2,marginBottom:12 }}>ASSISTIDOS RECENTEMENTE</div>
-          <div style={{ display:"flex",flexDirection:"column",gap:10 }}>
-            {recent.map(e=>{
-              const rs=Object.values(e.reviews||{}).map(r=>r.rating).filter(Boolean);
-              const avg=rs.length?(rs.reduce((a,b)=>a+b,0)/rs.length).toFixed(1):null;
+          <div className="section-heading">ASSISTIDOS RECENTEMENTE</div>
+          <div className="recent-list">
+            {recent.map(e => {
+              const rs = Object.values(e.reviews || {}).map(r => r.rating).filter(Boolean);
+              const avg = rs.length ? (rs.reduce((a, b) => a + b, 0) / rs.length).toFixed(1) : null;
               return (
-                <div key={e.id} style={{ display:"flex",gap:12,background:"rgba(255,255,255,0.03)",borderRadius:12,padding:12,alignItems:"center" }}>
+                <div key={e.id} className="surface-card list-item">
                   {e.poster
-                    ? <img src={`${TMDB_IMG}${e.poster}`} alt="" style={{ width:40,height:58,borderRadius:7,objectFit:"cover" }}/>
-                    : <div style={{ width:40,height:58,borderRadius:7,background:"#1a1a2e" }}/>}
-                  <div style={{ flex:1,minWidth:0 }}>
-                    <div style={{ fontWeight:700,color:"#f0f0f0",fontSize:14,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis" }}>{e.title}</div>
-                    <div style={{ fontSize:11,color:"#777",marginTop:2 }}>
-                      {e.date&&new Date(e.date+"T12:00:00").toLocaleDateString("pt-BR",{day:"2-digit",month:"short"})} • {e.where==="cinema"?"Cinema":"Streaming"}
-                    </div>
-                    <div style={{ display:"flex",gap:4,marginTop:5 }}>
-                      {Object.keys(e.reviews||{}).map(u=><Avatar key={u} name={u} size={16}/>)}
-                    </div>
+                    ? <img src={`${TMDB_IMG}${e.poster}`} alt="" className="poster-small" />
+                    : <div className="poster-placeholder--small" />}
+                  <div className="list-fill">
+                    <div className="list-title">{e.title}</div>
+                    <div className="list-meta">{e.date && new Date(e.date + "T12:00:00").toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })} • {e.where === "cinema" ? "Cinema" : "Streaming"}</div>
+                    <div className="list-avatars">{Object.keys(e.reviews || {}).map(u => <Avatar key={u} name={u} size={16} />)}</div>
                   </div>
-                  {avg && <span style={{ color:"#f59e0b",fontWeight:700,fontSize:14 }}>★ {avg}</span>}
+                  {avg && <span className="avg-highlight">��� {avg}</span>}
                 </div>
               );
             })}
@@ -878,24 +931,24 @@ const HomePage = ({ watched, watchlist, couple, currentUser, users }) => {
         </>
       )}
 
-      {watched.length===0 && (
-        <div style={{ textAlign:"center",padding:"60px 20px" }}>
-          <svg width="80" height="80" viewBox="0 0 80 80" fill="none" style={{ marginBottom:16,opacity:.3 }}>
-            <rect x="10" y="10" width="60" height="60" rx="8" stroke="#e63946" strokeWidth="2"/>
-            <line x1="25" y1="10" x2="25" y2="70" stroke="#e63946" strokeWidth="2"/>
-            <line x1="55" y1="10" x2="55" y2="70" stroke="#e63946" strokeWidth="2"/>
-            <line x1="10" y1="40" x2="70" y2="40" stroke="#e63946" strokeWidth="2"/>
-            <line x1="10" y1="25" x2="25" y2="25" stroke="#e63946" strokeWidth="2"/>
-            <line x1="55" y1="25" x2="70" y2="25" stroke="#e63946" strokeWidth="2"/>
+      {watched.length === 0 && (
+        <div className="empty-state">
+          <svg width="80" height="80" viewBox="0 0 80 80" fill="none" className="empty-svg">
+            <rect x="10" y="10" width="60" height="60" rx="8" stroke="var(--accent)" strokeWidth="2" />
+            <line x1="25" y1="10" x2="25" y2="70" stroke="var(--accent)" strokeWidth="2" />
+            <line x1="55" y1="10" x2="55" y2="70" stroke="var(--accent)" strokeWidth="2" />
+            <line x1="10" y1="40" x2="70" y2="40" stroke="var(--accent)" strokeWidth="2" />
+            <line x1="10" y1="25" x2="25" y2="25" stroke="var(--accent)" strokeWidth="2" />
+            <line x1="55" y1="25" x2="70" y2="25" stroke="var(--accent)" strokeWidth="2" />
           </svg>
-          <div style={{ color:"#555",fontSize:15,fontWeight:600 }}>Registrem a primeira sessão de vocês!</div>
+          <div className="empty-state__text">Registrem a primeira sessão de vocês!</div>
         </div>
       )}
     </div>
   );
 };
 
-// ── diary page ────────────────────────────────────────────────────────────────
+// diary page
 const DiaryPage = ({ watched, users, currentUser, onDelete, onEdit, onSaveReview }) => {
   const [sel, setSel] = useState(null);
   const [editing, setEditing] = useState(null);
@@ -949,43 +1002,30 @@ const DiaryPage = ({ watched, users, currentUser, onDelete, onEdit, onSaveReview
       )}
 
       {/* search bar */}
-      <div style={{ position:"relative",marginBottom:12 }}>
-        <input value={search} onChange={e=>setSearch(e.target.value)}
-          placeholder="Buscar por título..."
-          style={{ width:"100%",background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.1)",
-            borderRadius:12,padding:"10px 44px 10px 14px",color:"#f0f0f0",fontSize:14,outline:"none",boxSizing:"border-box" }}/>
-        <div style={{ position:"absolute",right:14,top:"50%",transform:"translateY(-50%)",color:"#555" }}>
-          <Ic n="search" s={16}/>
+      <div className="search-row">
+        <input className="text-input" value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar por título..." />
+        <div className="search-row__icon">
+          <Ic n="search" s={16} />
         </div>
       </div>
 
       {/* filter toggle */}
-      <div style={{ display:"flex",gap:8,marginBottom:12,alignItems:"center" }}>
-        <button onClick={()=>setShowFilters(f=>!f)}
-          style={{ display:"flex",alignItems:"center",gap:6,padding:"7px 14px",borderRadius:10,border:"none",cursor:"pointer",
-            fontWeight:600,fontSize:12,
-            background:showFilters||hasActive?"#e63946":"rgba(255,255,255,0.07)",
-            color:showFilters||hasActive?"#fff":"#888" }}>
-          <Ic n="filter" s={14}/> Filtros {hasActive?"●":""}
+      <div className="filters-row">
+        <button onClick={()=>setShowFilters(f=>!f)} className={`segmented-button ${showFilters||hasActive?"segmented-button--active":""}`}>
+          <Ic n="filter" s={14}/> Filtros {hasActive?" •":""}
         </button>
         {hasActive && (
-          <button onClick={clearAll}
-            style={{ padding:"7px 14px",borderRadius:10,border:"none",cursor:"pointer",
-              fontWeight:600,fontSize:12,background:"rgba(255,255,255,0.07)",color:"#888" }}>
-            Limpar
-          </button>
+          <button onClick={clearAll} className="segmented-button">Limpar</button>
         )}
-        <span style={{ marginLeft:"auto",fontSize:12,color:"#555" }}>{items.length} título{items.length!==1?"s":""}</span>
+        <span className="filters-count">{items.length} título{items.length!==1?"s":""}</span>
       </div>
 
       {showFilters && (
-        <div style={{ background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:14,padding:"16px",marginBottom:14 }}>
-          <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12 }}>
+        <div className="filters-panel">
+          <div className="filters-grid">
             <div>
               <Label>Tipo</Label>
-              <select value={filters.type} onChange={e=>setF("type",e.target.value)}
-                style={{ width:"100%",background:"rgba(255,255,255,0.07)",border:"1px solid rgba(255,255,255,0.1)",
-                  borderRadius:8,padding:"8px 10px",color:"#f0f0f0",fontSize:13,outline:"none" }}>
+              <select value={filters.type} onChange={e=>setF("type",e.target.value)} className="form-select">
                 <option value="all">Todos</option>
                 <option value="movie">Filmes</option>
                 <option value="tv">Séries</option>
@@ -993,9 +1033,7 @@ const DiaryPage = ({ watched, users, currentUser, onDelete, onEdit, onSaveReview
             </div>
             <div>
               <Label>Onde</Label>
-              <select value={filters.where} onChange={e=>setF("where",e.target.value)}
-                style={{ width:"100%",background:"rgba(255,255,255,0.07)",border:"1px solid rgba(255,255,255,0.1)",
-                  borderRadius:8,padding:"8px 10px",color:"#f0f0f0",fontSize:13,outline:"none" }}>
+              <select value={filters.where} onChange={e=>setF("where",e.target.value)} className="form-select">
                 <option value="all">Todos</option>
                 <option value="cinema">Cinema</option>
                 <option value="streaming">Streaming</option>
@@ -1003,34 +1041,27 @@ const DiaryPage = ({ watched, users, currentUser, onDelete, onEdit, onSaveReview
             </div>
             <div>
               <Label>Nota mínima</Label>
-              <select value={filters.rating} onChange={e=>setF("rating",e.target.value)}
-                style={{ width:"100%",background:"rgba(255,255,255,0.07)",border:"1px solid rgba(255,255,255,0.1)",
-                  borderRadius:8,padding:"8px 10px",color:"#f0f0f0",fontSize:13,outline:"none" }}>
+              <select value={filters.rating} onChange={e=>setF("rating",e.target.value)} className="form-select">
                 <option value="all">Todos</option>
-                <option value="5">★★★★★</option>
-                <option value="4">★★★★+</option>
-                <option value="3">★★★+</option>
-                <option value="low">Abaixo de ★★★</option>
+                <option value="5">���������������</option>
+                <option value="4">������������+</option>
+                <option value="3">���������+</option>
+                <option value="low">Abaixo de ���������</option>
               </select>
             </div>
             <div>
               <Label>Gênero</Label>
-              <select value={filters.genre} onChange={e=>setF("genre",e.target.value)}
-                style={{ width:"100%",background:"rgba(255,255,255,0.07)",border:"1px solid rgba(255,255,255,0.1)",
-                  borderRadius:8,padding:"8px 10px",color:"#f0f0f0",fontSize:13,outline:"none" }}>
+              <select value={filters.genre} onChange={e=>setF("genre",e.target.value)} className="form-select">
                 <option value="all">Todos</option>
                 {allGenres.map(g=><option key={g} value={g}>{g}</option>)}
               </select>
             </div>
           </div>
-          <div style={{ marginTop:12 }}>
+          <div className="mt-12">
             <Label>Ordenar por</Label>
-            <div style={{ display:"flex",gap:8,flexWrap:"wrap" }}>
-              {[["recent","Mais recentes"],["oldest","Mais antigos"],["rated","Melhor avaliados"],["az","A–Z"]].map(([v,l])=>(
-                <button key={v} onClick={()=>setF("sort",v)}
-                  style={{ padding:"6px 14px",borderRadius:10,border:"none",cursor:"pointer",fontWeight:600,fontSize:12,
-                    background:filters.sort===v?"#e63946":"rgba(255,255,255,0.07)",
-                    color:filters.sort===v?"#fff":"#888" }}>{l}</button>
+            <div className="row" style={{ flexWrap: "wrap" }}>
+              {[ ["recent","Mais recentes"],["oldest","Mais antigos"],["rated","Melhor avaliados"],["az","A→Z"] ].map(([v,l])=>(
+                <button key={v} onClick={()=>setF("sort",v)} className={`segmented-button ${filters.sort===v?"segmented-button--active":""}`}>{l}</button>
               ))}
             </div>
           </div>
@@ -1038,70 +1069,55 @@ const DiaryPage = ({ watched, users, currentUser, onDelete, onEdit, onSaveReview
       )}
 
       {items.length===0 ? (
-        <div style={{ textAlign:"center",padding:"60px 0" }}>
-          <svg width="70" height="70" viewBox="0 0 70 70" fill="none" style={{ marginBottom:16,opacity:.25 }}>
-            <circle cx="35" cy="35" r="30" stroke="#e63946" strokeWidth="2"/>
-            <line x1="20" y1="35" x2="50" y2="35" stroke="#e63946" strokeWidth="2"/>
-            <line x1="35" y1="20" x2="35" y2="50" stroke="#e63946" strokeWidth="2" strokeDasharray="4 4"/>
+        <div className="empty-state">
+          <svg width="70" height="70" viewBox="0 0 70 70" fill="none" className="empty-svg">
+            <circle cx="35" cy="35" r="30" stroke="var(--accent)" strokeWidth="2"/>
+            <line x1="20" y1="35" x2="50" y2="35" stroke="var(--accent)" strokeWidth="2"/>
+            <line x1="35" y1="20" x2="35" y2="50" stroke="var(--accent)" strokeWidth="2" strokeDasharray="4 4"/>
           </svg>
-          <div style={{ color:"#555",fontSize:14 }}>
+          <div className="text-muted">
             {watched.length===0?"Nenhum filme registrado ainda":"Nenhum título encontrado com esses filtros"}
           </div>
         </div>
       ) : (
-        <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(148px,1fr))",gap:14 }}>
-          {items.map(e=>{
+        <div className="card-grid">
+            {items.map(e=>{
             const rs=Object.values(e.reviews||{}).map(r=>r.rating).filter(Boolean);
             const avg=rs.length?(rs.reduce((a,b)=>a+b,0)/rs.length).toFixed(1):null;
             const ratings=users.map(u=>e.reviews?.[u]?.rating||0).filter(Boolean);
             const isDiscord=ratings.length===2&&Math.abs(ratings[0]-ratings[1])>=2;
             const pendingUsers=users.filter(u=>!e.reviews?.[u]?.rating&&!e.reviews?.[u]?.text);
             return (
-              <div key={e.id} onClick={()=>setSel(e)}
-                style={{ background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:14,
-                  overflow:"hidden",cursor:"pointer",position:"relative",transition:"transform .2s,box-shadow .2s" }}
-                onMouseEnter={ev=>{ev.currentTarget.style.transform="translateY(-4px)";ev.currentTarget.style.boxShadow="0 18px 36px rgba(0,0,0,.5)";}}
-                onMouseLeave={ev=>{ev.currentTarget.style.transform="none";ev.currentTarget.style.boxShadow="none";}}>
-                <div style={{ height:200,position:"relative",overflow:"hidden" }}>
+              <div key={e.id} onClick={()=>setSel(e)} className="card-inner card-inner--clickable">
+                <div className="poster-wrap">
                   {e.poster
-                    ? <img src={`${TMDB_IMG}${e.poster}`} alt="" style={{ width:"100%",height:"100%",objectFit:"cover" }}/>
+                    ? <img src={`${TMDB_IMG}${e.poster}`} alt="" className="poster-img" />
                     : <PosterFallback type={e.type} h={200}/>}
-                  <div style={{ position:"absolute",top:8,left:8,background:e.type==="tv"?"#7c3aed":"#e63946",
-                    borderRadius:6,padding:"2px 7px",fontSize:10,fontWeight:700,color:"#fff",letterSpacing:1 }}>
+                  <div className={`poster-badge ${e.type==="tv"?"poster-badge--tv":"poster-badge--movie"}`}>
                     {e.type==="tv"?"SÉRIE":"FILME"}
                   </div>
-                  {avg && <div style={{ position:"absolute",top:8,right:8,background:"rgba(0,0,0,.8)",
-                    borderRadius:7,padding:"2px 7px",fontSize:12,fontWeight:700,color:"#f59e0b" }}>★ {avg}</div>}
+                  {avg && <div className="poster-avg"><span className="avg-highlight">★ {avg}</span></div>}
                   {isDiscord && (
-                    <div style={{ position:"absolute",bottom:36,left:8,background:"rgba(0,0,0,.82)",
-                      borderRadius:20,padding:"3px 8px",fontSize:9,color:"#f87171",fontWeight:700,
-                      display:"flex",alignItems:"center",gap:3,whiteSpace:"nowrap" }}>
-                      💥 Discordaram
+                    <div className="poster-flag">
+                      <span className="poster-flag__label">Discordaram</span>
                     </div>
                   )}
                   {pendingUsers.length>0 && (
-                    <div style={{ position:"absolute",bottom:36,right:8,background:"rgba(0,0,0,.82)",
-                      borderRadius:20,padding:"3px 8px",fontSize:9,color:"#f59e0b",fontWeight:700,
-                      display:"flex",alignItems:"center",gap:3,whiteSpace:"nowrap" }}>
-                      ⏳ {pendingUsers[0].split(" ")[0]}{pendingUsers.length>1?` +${pendingUsers.length-1}`:""}
+                    <div className="poster-flag poster-flag--right">
+                      <span className="poster-flag__label">⏳ {pendingUsers[0].split(" ")[0]}{pendingUsers.length>1?` +${pendingUsers.length-1}`:""}</span>
                     </div>
                   )}
-                  <div style={{ position:"absolute",bottom:8,left:8 }}><Avatar name={e.addedBy} size={22}/></div>
-                  <button onClick={ev=>{ev.stopPropagation();onDelete(e);}}
-                    style={{ position:"absolute",bottom:8,right:8,background:"rgba(220,38,38,.8)",
-                      border:"none",borderRadius:7,padding:"3px 7px",cursor:"pointer",color:"#fff" }}>
+                  <div className="poster-avatar"><Avatar name={e.addedBy} size={22}/></div>
+                  <button onClick={ev=>{ev.stopPropagation();onDelete(e);}} className="btn--danger poster-delete">
                     <Ic n="trash" s={13}/>
                   </button>
                 </div>
-                <div style={{ padding:"10px 12px" }}>
-                  <div style={{ fontFamily:"'Playfair Display',serif",fontSize:14,fontWeight:700,color:"#f0f0f0",
-                    whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",marginBottom:3 }}>{e.title}</div>
-                  <div style={{ fontSize:11,color:e.where==="cinema"?"#f59e0b":"#60a5fa" }}>
-                    {e.where==="cinema"?"🎭 Cinema":"🏠 Streaming"}
+                <div className="card-inner__body">
+                  <div className="card-title">{e.title}</div>
+                  <div className={e.where==="cinema"?"detail-meta--cinema":"detail-meta--streaming"}>
+                    {e.where==="cinema"?"🎬 Cinema":"📺 Streaming"}
                   </div>
-                  {e.date && <div style={{ fontSize:11,color:"#666",marginTop:2 }}>
-                    {new Date(e.date+"T12:00:00").toLocaleDateString("pt-BR",{day:"2-digit",month:"short",year:"numeric"})}
-                  </div>}
+                  {e.date && <div className="meta muted small">{new Date(e.date+"T12:00:00").toLocaleDateString("pt-BR",{day:"2-digit",month:"short",year:"numeric"})}</div>}
                 </div>
               </div>
             );
@@ -1112,13 +1128,12 @@ const DiaryPage = ({ watched, users, currentUser, onDelete, onEdit, onSaveReview
   );
 };
 
-// ── watchlist page ────────────────────────────────────────────────────────────
+// watchlist page
 const WatchlistPage = ({ watchlist, users, currentUser, onDelete, onMarkWatched }) => {
   const [sel, setSel] = useState(null);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all");
   const [sort, setSort] = useState("priority");
-  const priColor = { alta:"#ef4444", normal:"#f59e0b", baixa:"#22c55e" };
   const priOrder = { alta:0, normal:1, baixa:2 };
 
   let items = [...watchlist];
@@ -1140,72 +1155,57 @@ const WatchlistPage = ({ watchlist, users, currentUser, onDelete, onMarkWatched 
           onMarkWatched={e=>{onMarkWatched(e);setSel(null);}}/>
       )}
 
-      <div style={{ position:"relative",marginBottom:12 }}>
-        <input value={search} onChange={e=>setSearch(e.target.value)}
-          placeholder="Buscar na watchlist..."
-          style={{ width:"100%",background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.1)",
-            borderRadius:12,padding:"10px 44px 10px 14px",color:"#f0f0f0",fontSize:14,outline:"none",boxSizing:"border-box" }}/>
-        <div style={{ position:"absolute",right:14,top:"50%",transform:"translateY(-50%)",color:"#555" }}>
-          <Ic n="search" s={16}/>
+      <div className="search-row">
+        <input className="text-input" value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar na watchlist..." />
+        <div className="search-row__icon">
+          <Ic n="search" s={16} />
         </div>
       </div>
 
-      <div style={{ display:"flex",gap:8,marginBottom:16,flexWrap:"wrap" }}>
-        {[["all","Todos"],["movie","Filmes"],["tv","Séries"],["alta","Alta prioridade"]].map(([v,l])=>(
-          <button key={v} onClick={()=>setFilter(v)}
-            style={{ padding:"6px 14px",borderRadius:20,border:"none",cursor:"pointer",fontWeight:600,fontSize:12,
-              background:filter===v?"#7c3aed":"rgba(255,255,255,0.07)",color:filter===v?"#fff":"#888" }}>{l}</button>
+      <div className="filters-row">
+        {[ ["all","Todos"],["movie","Filmes"],["tv","SÉries"],["alta","Alta prioridade"] ].map(([v,l])=>(
+          <button key={v} onClick={() => setFilter(v)} className={`segmented-button ${filter === v ? "segmented-button--active" : ""} ${v==='tv'?'segmented-button--tv':v==='movie'?'segmented-button--movie':''}`}>{l}</button>
         ))}
-        <div style={{ marginLeft:"auto",display:"flex",alignItems:"center",gap:6 }}>
-          <span style={{ fontSize:11,color:"#555" }}>Ordenar:</span>
-          <select value={sort} onChange={e=>setSort(e.target.value)}
-            style={{ background:"rgba(255,255,255,0.07)",border:"1px solid rgba(255,255,255,0.1)",
-              borderRadius:8,padding:"4px 8px",color:"#ccc",fontSize:12,outline:"none" }}>
+          <div className="ml-auto">
+          <span className="label-muted">Ordenar:</span>
+          <select value={sort} onChange={e=>setSort(e.target.value)} className="form-select">
             <option value="priority">Prioridade</option>
             <option value="recent">Mais recentes</option>
-            <option value="az">A–Z</option>
+            <option value="az">A→Z</option>
             <option value="who">Quem sugeriu</option>
           </select>
         </div>
       </div>
 
       {items.length===0 ? (
-        <div style={{ textAlign:"center",padding:"60px 0" }}>
-          <svg width="70" height="70" viewBox="0 0 70 70" fill="none" style={{ marginBottom:16,opacity:.25 }}>
+        <div className="empty-state">
+          <svg width="70" height="70" viewBox="0 0 70 70" fill="none" className="empty-svg" style={{ opacity:.25 }}>
             <path d="M15 10h40v50l-20-14-20 14V10z" stroke="#7c3aed" strokeWidth="2" fill="none"/>
             <line x1="25" y1="25" x2="45" y2="25" stroke="#7c3aed" strokeWidth="2"/>
             <line x1="25" y1="33" x2="40" y2="33" stroke="#7c3aed" strokeWidth="2"/>
           </svg>
-          <div style={{ color:"#555",fontSize:14 }}>
+          <div className="empty-state__text">
             {watchlist.length===0?"Nenhum filme na lista — que tal adicionar algo?":"Nenhum título com esses filtros"}
           </div>
         </div>
       ) : (
-        <div style={{ display:"flex",flexDirection:"column",gap:10 }}>
+        <div className="col-gap-10">
           {items.map(e=>(
-            <div key={e.id} onClick={()=>setSel(e)}
-              style={{ display:"flex",gap:14,background:"rgba(255,255,255,0.04)",
-                border:"1px solid rgba(255,255,255,0.07)",borderRadius:16,padding:14,
-                cursor:"pointer",transition:"background .15s",alignItems:"center" }}
-              onMouseEnter={ev=>ev.currentTarget.style.background="rgba(255,255,255,0.08)"}
-              onMouseLeave={ev=>ev.currentTarget.style.background="rgba(255,255,255,0.04)"}>
+            <div key={e.id} onClick={()=>setSel(e)} className="surface-card list-item">
               {e.poster
-                ? <img src={`${TMDB_IMG}${e.poster}`} alt="" style={{ width:46,height:66,borderRadius:8,objectFit:"cover",flexShrink:0 }}/>
-                : <div style={{ width:46,height:66,borderRadius:8,background:"#1a1a2e",flexShrink:0 }}/>}
-              <div style={{ flex:1,minWidth:0 }}>
-                <div style={{ fontWeight:700,color:"#f0f0f0",fontSize:14,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis" }}>{e.title}</div>
-                <div style={{ fontSize:11,color:"#777",marginTop:2 }}>{e.type==="tv"?"Série":"Filme"} • {e.year}</div>
-                <div style={{ display:"flex",alignItems:"center",gap:6,marginTop:5 }}>
+                ? <img src={`${TMDB_IMG}${e.poster}`} alt="" className="poster-medium" />
+                : <div className="poster-placeholder--medium" />}
+              <div className="list-fill">
+                <div className="list-title">{e.title}</div>
+                <div className="list-meta">{e.type==="tv"?"Série":"Filme"} • {e.year}</div>
+                <div className="list-avatars">
                   <Avatar name={e.suggestedBy} size={16}/>
-                  <span style={{ fontSize:11,color:"#666" }}>{e.suggestedBy}</span>
+                  <span className="card-meta">{e.suggestedBy}</span>
                 </div>
               </div>
-              <div style={{ display:"flex",flexDirection:"column",alignItems:"flex-end",gap:8 }}>
-                <span style={{ fontSize:11,fontWeight:700,color:priColor[e.priority]||"#888" }}>
-                  ● {e.priority?.charAt(0).toUpperCase()+e.priority?.slice(1)}
-                </span>
-                <button onClick={ev=>{ev.stopPropagation();onDelete(e);}}
-                  style={{ background:"none",border:"none",color:"#555",cursor:"pointer",padding:2 }}>
+              <div className="card-right">
+                <span className={`${e.priority? (e.priority==="alta"?"priority--alta":e.priority==="normal"?"priority--normal":"priority--baixa") : ""} priority-pill`}>• {e.priority?.charAt(0).toUpperCase()+e.priority?.slice(1)}</span>
+                <button onClick={ev=>{ev.stopPropagation();onDelete(e);}} className="icon-button">
                   <Ic n="trash" s={15}/>
                 </button>
               </div>
@@ -1217,7 +1217,7 @@ const WatchlistPage = ({ watchlist, users, currentUser, onDelete, onMarkWatched 
   );
 };
 
-// ── profile page ──────────────────────────────────────────────────────────────
+// profile page
 const ProfilePage = ({ watched, watchlist, couple, users }) => {
   const days = couple.since?Math.floor((new Date()-new Date(couple.since))/86400000):null;
   const first = watched.length?watched.reduce((a,b)=>new Date(a.createdAt)<new Date(b.createdAt)?a:b):null;
@@ -1278,83 +1278,79 @@ const ProfilePage = ({ watched, watchlist, couple, users }) => {
 
   return (
     <div>
-      <div style={{ background:"linear-gradient(135deg,#14040b,#090915)",border:"1px solid rgba(230,57,70,.18)",
-        borderRadius:20,padding:"26px 28px",marginBottom:22,textAlign:"center" }}>
-        <div style={{ display:"flex",justifyContent:"center",marginBottom:14 }}>
-          {users.map((u,i)=><div key={u} style={{ marginLeft:i===0?0:-8,zIndex:i }}><Avatar name={u} size={52}/></div>)}
+      <div className="hero-accent">
+        <div className="avatar-row">
+          {users.map((u,i)=>(
+            <div key={u} style={{ zIndex:i }} className={i===0?"":"avatar-stack"}>
+              <Avatar name={u} size={52}/>
+            </div>
+          ))}
         </div>
-        <h2 style={{ fontFamily:"'Playfair Display',serif",fontSize:24,color:"#f0f0f0",margin:"0 0 4px" }}>
-          {couple.name1} & {couple.name2}
-        </h2>
-        {days!==null&&<p style={{ color:"#e63946",fontWeight:600,margin:"0 0 2px" }}>{days} dias juntos</p>}
-        {couple.since&&<p style={{ color:"#555",fontSize:12,margin:0 }}>
-          Desde {new Date(couple.since+"T12:00:00").toLocaleDateString("pt-BR",{day:"2-digit",month:"long",year:"numeric"})}
-        </p>}
+        <h2 className="profile-heading">{couple.name1} & {couple.name2}</h2>
+        {days!==null&&<p className="days-highlight">{days} dias juntos</p>}
+        {couple.since&&<p className="text-muted text-muted--compact">Desde {new Date(couple.since+"T12:00:00").toLocaleDateString("pt-BR",{day:"2-digit",month:"long",year:"numeric"})}</p>}
       </div>
 
       {/* couple stats */}
-      <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:18 }}>
+      <div className="grid-3">
         {[
           {v:watched.length,l:"Total"},
           {v:watched.filter(w=>w.type==="movie").length,l:"Filmes"},
           {v:watched.filter(w=>w.type==="tv").length,l:"Séries"},
         ].map(s=>(
-          <div key={s.l} style={{ background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.07)",
-            borderRadius:14,padding:"14px 16px",textAlign:"center" }}>
-            <div style={{ fontFamily:"'Playfair Display',serif",fontSize:28,fontWeight:700,color:"#f0f0f0" }}>{s.v}</div>
-            <div style={{ fontSize:12,color:"#777",marginTop:2 }}>{s.l}</div>
+          <div key={s.l} className="stat-card">
+            <div className="stat-card__value">{s.v}</div>
+            <div className="stat-card__label">{s.l}</div>
           </div>
         ))}
       </div>
 
       {/* hours + avg */}
-      <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:18 }}>
+      <div className="grid-2">
         {totalMins>0 && (
-          <div style={{ background:"rgba(96,165,250,.08)",border:"1px solid rgba(96,165,250,.2)",borderRadius:14,padding:"14px 16px" }}>
-            <div style={{ fontSize:11,color:"#60a5fa",fontWeight:700,letterSpacing:1,marginBottom:6 }}>⏱ HORAS</div>
-            <div style={{ fontFamily:"'Playfair Display',serif",fontSize:22,fontWeight:700,color:"#f0f0f0" }}>
-              {Math.floor(totalMins/60)}h {totalMins%60}min
-            </div>
-            <div style={{ fontSize:11,color:"#555",marginTop:2 }}>assistidos juntos</div>
+            <div className="panel--info">
+            <div className="panel-label--info">HORAS</div>
+            <div className="stat-value">{Math.floor(totalMins/60)}h {totalMins%60}min</div>
+            <div className="stat-meta">assistidos juntos</div>
           </div>
         )}
         {globalAvg && (
-          <div style={{ background:"rgba(245,158,11,.08)",border:"1px solid rgba(245,158,11,.2)",borderRadius:14,padding:"14px 16px" }}>
-            <div style={{ fontSize:11,color:"#f59e0b",fontWeight:700,letterSpacing:1,marginBottom:6 }}>★ MÉDIA</div>
-            <div style={{ fontFamily:"'Playfair Display',serif",fontSize:22,fontWeight:700,color:"#f0f0f0" }}>{globalAvg}</div>
-            <div style={{ fontSize:11,color:"#555",marginTop:2 }}>nota do casal</div>
+          <div className="panel--warning">
+            <div className="panel-label--warning">MÉDIA</div>
+            <div className="stat-value">{globalAvg}</div>
+            <div className="stat-meta">nota do casal</div>
           </div>
         )}
       </div>
 
       {/* cinema vs streaming */}
       {watched.length>0 && (
-        <div style={{ background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:16,padding:"16px 18px",marginBottom:18 }}>
-          <div style={{ fontSize:11,color:"#666",fontWeight:700,letterSpacing:1.2,marginBottom:12 }}>🎭 CINEMA vs 🏠 STREAMING</div>
-          <div style={{ display:"flex",gap:8,height:12,borderRadius:6,overflow:"hidden",marginBottom:8 }}>
-            <div style={{ flex:cinemaCount,background:"#d97706" }}/>
-            <div style={{ flex:streamCount,background:"#0284c7" }}/>
-          </div>
-          <div style={{ display:"flex",justifyContent:"space-between",fontSize:12,color:"#888" }}>
-            <span>🎭 {cinemaCount} ({watched.length?Math.round(cinemaCount/watched.length*100):0}%)</span>
-            <span>🏠 {streamCount} ({watched.length?Math.round(streamCount/watched.length*100):0}%)</span>
+        <div className="card-inner card-inner--padded">
+          <div className="section-eyebrow">CINEMA vs STREAMING</div>
+            <div className="bar-row">
+              <div style={{ flex:cinemaCount }} className="bar--cinema" />
+              <div style={{ flex:streamCount }} className="bar--stream" />
+            </div>
+          <div className="space-between">
+            <span>��ġ {cinemaCount} ({watched.length?Math.round(cinemaCount/watched.length*100):0}%)</span>
+            <span>���� {streamCount} ({watched.length?Math.round(streamCount/watched.length*100):0}%)</span>
           </div>
         </div>
       )}
 
       {/* top genres */}
       {topGenres.length>0 && (
-        <div style={{ background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:16,padding:"16px 18px",marginBottom:18 }}>
-          <div style={{ fontSize:11,color:"#666",fontWeight:700,letterSpacing:1.2,marginBottom:14 }}>TOP GÊNEROS</div>
-          <div style={{ display:"flex",flexDirection:"column",gap:10 }}>
+          <div className="card-inner card-inner--padded">
+          <div className="section-eyebrow">TOP GÊNEROS</div>
+          <div className="col-gap-10">
             {topGenres.map(([g,c])=>(
               <div key={g}>
-                <div style={{ display:"flex",justifyContent:"space-between",marginBottom:4 }}>
-                  <span style={{ fontSize:13,color:"#ccc" }}>{g}</span>
-                  <span style={{ fontSize:12,color:"#777" }}>{c}</span>
+                <div className="space-between" style={{ marginBottom:4 }}>
+                  <span className="genre-label">{g}</span>
+                  <span className="genre-count">{c}</span>
                 </div>
-                <div style={{ height:6,background:"rgba(255,255,255,0.08)",borderRadius:3,overflow:"hidden" }}>
-                  <div style={{ height:"100%",width:`${c/maxGenre*100}%`,background:"linear-gradient(90deg,#7c3aed,#a78bfa)",borderRadius:3 }}/>
+                <div className="genre-track">
+                  <div style={{ height:"100%",width:`${c/maxGenre*100}%` }} className="genre-fill" />
                 </div>
               </div>
             ))}
@@ -1364,38 +1360,38 @@ const ProfilePage = ({ watched, watchlist, couple, users }) => {
 
       {/* month most active */}
       {topMonth && (
-        <div style={{ background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:16,padding:"14px 18px",marginBottom:18,display:"flex",gap:14,alignItems:"center" }}>
-          <Ic n="clock" s={24} style={{color:"#a78bfa"}}/>
+        <div className="card-inner card-inner--compact">
+          <span className="icon--violet"><Ic n="clock" s={24} /></span>
           <div>
-            <div style={{ fontSize:11,color:"#777",fontWeight:700,letterSpacing:1,marginBottom:2 }}>MÊS MAIS ATIVO</div>
-            <div style={{ fontWeight:700,color:"#f0f0f0",fontSize:15,textTransform:"capitalize" }}>{monthName(topMonth[0])}</div>
-            <div style={{ fontSize:12,color:"#666" }}>{topMonth[1]} títulos assistidos</div>
+            <div className="section-eyebrow">MÊS MAIS ATIVO</div>
+            <div className="stat-title">{monthName(topMonth[0])}</div>
+            <div className="muted">{topMonth[1]} títulos assistidos</div>
           </div>
         </div>
       )}
 
       {/* per-user stats */}
-      <div style={{ marginBottom:18 }}>
-        <div style={{ fontSize:11,color:"#666",fontWeight:700,letterSpacing:1.2,marginBottom:12 }}>PERFIL DE CADA UM</div>
-        <div style={{ display:"flex",flexDirection:"column",gap:12 }}>
+      <div className="per-user-section">
+        <div className="section-eyebrow">PERFIL DE CADA UM</div>
+        <div className="col-gap-12">
           {userStats.map(u=>(
-            <div key={u.name} style={{ background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:16,padding:"16px 18px" }}>
-              <div style={{ display:"flex",alignItems:"center",gap:10,marginBottom:14 }}>
+            <div key={u.name} className="card-inner card-inner--padded">
+              <div className="row align-center" style={{ marginBottom:14 }}>
                 <Avatar name={u.name} size={36}/>
                 <div style={{ flex:1 }}>
-                  <span style={{ fontFamily:"'Playfair Display',serif",fontSize:17,fontWeight:700,color:"#f0f0f0" }}>{u.name}</span>
-                  {u.favGenre && <div style={{ fontSize:11,color:"#777",marginTop:2 }}>❤ {u.favGenre}</div>}
+                  <span className="profile-name">{u.name}</span>
+                  {u.favGenre && <div className="muted small">— {u.favGenre}</div>}
                 </div>
                 {u.avg && <div style={{ display:"flex",alignItems:"center",gap:6 }}>
                   <Stars val={Math.round(parseFloat(u.avg))} size={14}/>
-                  <span style={{ color:"#f59e0b",fontWeight:700,fontSize:13 }}>{u.avg}</span>
+                  <span className="avg-small">{u.avg}</span>
                 </div>}
               </div>
-              <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8 }}>
+              <div className="grid-3" style={{ gap:8 }}>
                 {[{v:u.registered,l:"Registrou"},{v:u.suggested,l:"Sugeriu"},{v:u.total,l:"Avaliou"}].map(s=>(
-                  <div key={s.l} style={{ background:"rgba(255,255,255,0.04)",borderRadius:10,padding:"10px 0",textAlign:"center" }}>
-                    <div style={{ fontSize:20,fontWeight:700,color:"#f0f0f0" }}>{s.v}</div>
-                    <div style={{ fontSize:11,color:"#777" }}>{s.l}</div>
+                  <div key={s.l} className="stat-pill">
+                    <div className="stat-value">{s.v}</div>
+                    <div className="stat-meta">{s.l}</div>
                   </div>
                 ))}
               </div>
@@ -1405,15 +1401,15 @@ const ProfilePage = ({ watched, watchlist, couple, users }) => {
       </div>
 
       {/* marcos */}
-      <div style={{ fontSize:11,color:"#666",fontWeight:700,letterSpacing:1.2,marginBottom:12 }}>✦ MARCOS</div>
-      <div style={{ display:"flex",flexDirection:"column",gap:10,marginBottom:18 }}>
+      <div style={{ fontSize:11,color:"#666",fontWeight:700,letterSpacing:1.2,marginBottom:12 }}>MARCOS</div>
+      <div className="col-gap-10" style={{ marginBottom:18 }}>
         {[
           first&&{ label:"Primeiro juntos", item:first },
-          bestRated&&avgR(bestRated)>0&&{ label:`Melhor avaliado (★ ${avgR(bestRated).toFixed(1)})`, item:bestRated },
+          bestRated&&avgR(bestRated)>0&&{ label:`Melhor avaliado (��� ${avgR(bestRated).toFixed(1)})`, item:bestRated },
           biggestDiscord&&{ label:`Maior discordância (${Math.abs((biggestDiscord.reviews?.[users[0]]?.rating||0)-(biggestDiscord.reviews?.[users[1]]?.rating||0))} estrelas)`, item:biggestDiscord },
           mostSeasons&&{ label:`Mais temporadas assistidas (${mostSeasons.seasonsWatched?.length})`, item:mostSeasons },
         ].filter(Boolean).map(({label,item})=>(
-          <div key={label} style={{ display:"flex",gap:12,background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:14,padding:12,alignItems:"center" }}>
+          <div key={label} className="card-inner" style={{ display:"flex",gap:12,padding:12,alignItems:"center" }}>
             {item.poster&&<img src={`${TMDB_IMG}${item.poster}`} alt="" style={{ width:38,height:56,borderRadius:7,objectFit:"cover",flexShrink:0 }}/>}
             <div>
               <div style={{ fontSize:11,color:"#777",marginBottom:4 }}>{label}</div>
@@ -1423,11 +1419,11 @@ const ProfilePage = ({ watched, watchlist, couple, users }) => {
         ))}
       </div>
 
-      {/* discordômetro */}
+      {/* discord+�metro */}
       {discordEntries.length>0 && (
         <div style={{ background:"rgba(230,57,70,.06)",border:"1px solid rgba(230,57,70,.15)",borderRadius:16,padding:"16px 18px" }}>
           <div style={{ fontSize:11,color:"#f87171",fontWeight:700,letterSpacing:1.2,marginBottom:12 }}>
-            💥 DISCORDÔMETRO — {discordEntries.length} título{discordEntries.length!==1?"s":""}
+            • DISCORDÔMETRO — {discordEntries.length} título{discordEntries.length!==1?"s":""}
           </div>
           <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
             {discordEntries.slice(0,5).map(e=>{
@@ -1438,10 +1434,10 @@ const ProfilePage = ({ watched, watchlist, couple, users }) => {
                   <div style={{ flex:1,minWidth:0 }}>
                     <div style={{ fontWeight:700,color:"#f0f0f0",fontSize:13,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis" }}>{e.title}</div>
                     <div style={{ fontSize:11,color:"#888",marginTop:2 }}>
-                      {users[0]}: ★{r0} · {users[1]}: ★{r1}
+                      {users[0]}: ���{r0} -� {users[1]}: ���{r1}
                     </div>
                   </div>
-                  <span style={{ fontSize:13,color:"#f87171",fontWeight:700,flexShrink:0 }}>Δ{Math.abs(r0-r1)}</span>
+                  <span style={{ fontSize:13,color:"#f87171",fontWeight:700,flexShrink:0 }}>+{Math.abs(r0-r1)}</span>
                 </div>
               );
             })}
@@ -1452,7 +1448,7 @@ const ProfilePage = ({ watched, watchlist, couple, users }) => {
   );
 };
 
-// ── nav ───────────────────────────────────────────────────────────────────────
+// nav
 const NAV = [
   { id:"home",      icon:"home",     label:"Início" },
   { id:"diary",     icon:"book",     label:"Diário" },
@@ -1460,16 +1456,16 @@ const NAV = [
   { id:"profile",   icon:"heart",    label:"Casal" },
 ];
 
-// ── root ──────────────────────────────────────────────────────────────────────
+// root
 export default function App() {
-  // ── auth + couple state ──
+  // auth + couple state
   const [authUser,   setAuthUser]   = useState(null);
   const [couple,     setCouple]     = useState(null);   // Firestore couple doc data
   const [coupleId,   setCoupleId]   = useState(null);   // Firestore doc id
   const [authLoading,setAuthLoading]= useState(true);
   const [loginLoading,setLoginLoading]=useState(false);
 
-  // ── app state ──
+  // app state
   const [watched,   setWatched]   = useState([]);
   const [watchlist, setWatchlist] = useState([]);
   const [page,      setPage]      = useState("home");
@@ -1477,18 +1473,18 @@ export default function App() {
   const [toasts,    setToasts]    = useState([]);
   const [confirm,   setConfirm]   = useState(null);
 
-  // ── derived ──
+  // derived
   // currentUser remains a name string for UI compatibility
   const currentUser = couple
     ? (couple.uid1 === authUser?.uid ? couple.name1 : couple.name2)
     : null;
   const users = couple ? [couple.name1, couple.name2].filter(Boolean) : [];
 
-  // ── auth listener ──
+  // auth listener
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async user => {
       setAuthUser(user);
-      if (!user) { setCouple(null); setCoupleId(null); setAuthLoading(false); return; }
+      if (!user) { setWatched([]); setWatchlist([]); setCouple(null); setCoupleId(null); setAuthLoading(false); return; }
       // look for existing couple (as uid1 or uid2)
       const [s1, s2] = await Promise.all([
         getDocs(query(collection(db,"couples"), where("uid1","==",user.uid))),
@@ -1498,15 +1494,18 @@ export default function App() {
       if (!snap.empty) {
         setCoupleId(snap.docs[0].id);
         setCouple(snap.docs[0].data());
+      } else {
+        setWatched([]);
+        setWatchlist([]);
       }
       setAuthLoading(false);
     });
     return () => unsub();
   }, []);
 
-  // ── Firestore real-time listeners ──
+  // Firestore real-time listeners
   useEffect(() => {
-    if (!coupleId) { setWatched([]); setWatchlist([]); return; }
+    if (!coupleId) return;
     const unW  = onSnapshot(collection(db,"couples",coupleId,"watched"),
       snap => setWatched(snap.docs.map(d=>({id:d.id,...d.data()}))));
     const unWL = onSnapshot(collection(db,"couples",coupleId,"watchlist"),
@@ -1514,7 +1513,7 @@ export default function App() {
     return () => { unW(); unWL(); };
   }, [coupleId]);
 
-  // ── auth actions ──
+  // auth actions
   const handleLogin = async () => {
     setLoginLoading(true);
     try { await signInWithPopup(auth, new GoogleAuthProvider()); }
@@ -1524,10 +1523,12 @@ export default function App() {
 
   const handleSignOut = async () => {
     await signOut(auth);
+    setWatched([]);
+    setWatchlist([]);
     setCouple(null); setCoupleId(null);
   };
 
-  // ── couple actions ──
+  // couple actions
   const handleCreateCouple = async (name1, since) => {
     const inviteCode = Math.random().toString(36).slice(2,8).toUpperCase();
     const ref = await addDoc(collection(db,"couples"), {
@@ -1549,7 +1550,7 @@ export default function App() {
     setCouple({ ...data, name2, uid2: authUser.uid });
   };
 
-  // ── toast helper ──
+  // toast helper
   const addToast = (message, type="success", undoFn=null) => {
     const id = Date.now().toString();
     setToasts(t=>[...t,{id,message,type,undoFn}]);
@@ -1557,12 +1558,12 @@ export default function App() {
   };
   const dismissToast = id => setToasts(t=>t.filter(x=>x.id!==id));
 
-  // ── data operations (Firestore) ──
+  // data operations (Firestore)
   const addWatched = async entry => {
-    const { id, ...data } = entry;
+    const { ...data } = entry;
     await addDoc(collection(db,"couples",coupleId,"watched"), data);
     setAddModal(null);
-    addToast("Sessão salva! 🎬");
+    addToast("Sessão salva! 🎉");
   };
 
   const editWatched = async entry => {
@@ -1577,10 +1578,10 @@ export default function App() {
   };
 
   const addWatchlist = async entry => {
-    const { id, ...data } = entry;
+    const { ...data } = entry;
     await addDoc(collection(db,"couples",coupleId,"watchlist"), data);
     setAddModal(null);
-    addToast("Adicionado à lista ✦","info");
+    addToast("Adicionado à lista","info");
   };
 
   const requestDelete = (item, type) => {
@@ -1604,10 +1605,10 @@ export default function App() {
     setAddModal({ type:"watched", movie:data });
   };
 
-  // ── render guards ──
+  // render guards
   if (authLoading) return (
     <div style={{ minHeight:"100vh",background:"#08080f",display:"flex",alignItems:"center",justifyContent:"center" }}>
-      <div style={{ color:"#555",fontSize:14 }}>Carregando...</div>
+      <div className="text-muted">Carregando...</div>
     </div>
   );
 
@@ -1639,7 +1640,7 @@ export default function App() {
       )}
       <ToastContainer toasts={toasts} onDismiss={dismissToast}/>
 
-      <div style={{ minHeight:"100vh",background:"#08080f",maxWidth:680,margin:"0 auto",paddingBottom:88 }}>
+      <div className="app-shell">
 
         {/* modals */}
         {addModal==="watchlist" && (
@@ -1652,33 +1653,26 @@ export default function App() {
         )}
 
         {/* header */}
-        <div style={{ padding:"22px 22px 0",display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:22 }}>
-          <span style={{ fontFamily:"'Playfair Display',serif",fontSize:22,fontWeight:900,color:"#f0f0f0" }}>
-            Sessão<span style={{ color:"#e63946" }}> ✦</span>
+        <div className="app-shell__header">
+          <span className="app-shell__brand">
+            Sessão <span className="app-shell__brand-accent">❤️</span>
           </span>
-          <div style={{ display:"flex",alignItems:"center",gap:10 }}>
-            <button onClick={handleSignOut}
-              style={{ display:"flex",alignItems:"center",gap:7,background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.08)",
-                borderRadius:20,padding:"5px 12px 5px 6px",cursor:"pointer" }}
-              title="Sair">
+          <div className="app-shell__actions">
+            <button onClick={handleSignOut} className="avatar-pill" title="Sair">
               <Avatar name={currentUser} size={22}/>
-              <span style={{ fontSize:12,color:"#ccc",fontWeight:600 }}>{currentUser}</span>
+              <span className="avatar-pill__name">{currentUser}</span>
             </button>
-            <button onClick={()=>setAddModal("watchlist")}
-              style={{ background:"rgba(124,58,237,.2)",border:"1px solid rgba(124,58,237,.3)",borderRadius:10,
-                padding:"7px 13px",color:"#a78bfa",cursor:"pointer",fontSize:12,fontWeight:700,display:"flex",alignItems:"center",gap:5 }}>
+            <button onClick={()=>setAddModal("watchlist")} className="action-btn action-btn--ghost">
               <Ic n="bookmark" s={14}/> Lista
             </button>
-            <button onClick={()=>setAddModal("watched")}
-              style={{ background:"linear-gradient(135deg,#e63946,#c1121f)",border:"none",borderRadius:10,
-                padding:"7px 13px",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700,display:"flex",alignItems:"center",gap:5 }}>
+            <button onClick={()=>setAddModal("watched")} className="action-btn action-btn--primary">
               <Ic n="plus" s={14}/> Registrar
             </button>
           </div>
         </div>
 
         {/* pages */}
-        <div style={{ padding:"0 22px" }}>
+        <div className="app-shell__content">
           {page==="home"      && <HomePage      watched={watched} watchlist={watchlist} couple={couple} currentUser={currentUser} users={users}/>}
           {page==="diary"     && <DiaryPage     watched={watched} users={users} currentUser={currentUser}
                                    onDelete={e=>requestDelete(e,"watched")} onEdit={editWatched} onSaveReview={saveReview}/>}
@@ -1688,15 +1682,11 @@ export default function App() {
         </div>
 
         {/* bottom nav */}
-        <div style={{ position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:680,
-          background:"rgba(8,8,15,0.96)",borderTop:"1px solid rgba(255,255,255,0.07)",
-          backdropFilter:"blur(20px)",display:"flex",justifyContent:"space-around",padding:"10px 0 14px" }}>
+        <div className="app-shell__nav">
           {NAV.map(n=>(
-            <button key={n.id} onClick={()=>setPage(n.id)}
-              style={{ background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",
-                alignItems:"center",gap:4,color:page===n.id?"#e63946":"#555",transition:"color .2s",padding:"2px 16px" }}>
+            <button key={n.id} onClick={()=>setPage(n.id)} className={`nav-item ${page===n.id?"nav-item--active":""}`}>
               <Ic n={n.icon} s={21}/>
-              <span style={{ fontSize:10,fontWeight:700,letterSpacing:.5 }}>{n.label.toUpperCase()}</span>
+              <span className="app-shell__nav-label">{n.label.toUpperCase()}</span>
             </button>
           ))}
         </div>

@@ -10,7 +10,22 @@
       "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\Opn_Natan\\\\Desktop\\\\projetos\\\\sessão\\\\sessao\" -Recurse -Force)",
       "Bash(Select-Object -Property FullName, PSIsContainer)",
       "Bash(ConvertTo-Json)",
-      "PowerShell(Get-ChildItem -Path \"c:\\\\Users\\\\Opn_Natan\\\\Desktop\\\\projetos\\\\sessão\\\\sessao\\\\src\" -Recurse -Force | Select-Object FullName, @{Name='Type'; Expression={if \\($_.PSIsContainer\\) { 'Folder' } else { 'File' }}} | Sort-Object FullName)"
+      "PowerShell(Get-ChildItem -Path \"c:\\\\Users\\\\Opn_Natan\\\\Desktop\\\\projetos\\\\sessão\\\\sessao\\\\src\" -Recurse -Force | Select-Object FullName, @{Name='Type'; Expression={if \\($_.PSIsContainer\\) { 'Folder' } else { 'File' }}} | Sort-Object FullName)",
+      "Bash(curl -s http://localhost:5173)",
+      "Bash(npx playwright *)",
+      "Bash(node -e ' *)",
+      "Bash(npx playwright@latest screenshot --browser chromium --wait-for-timeout 2000 --viewport-size \"390,844\" http://localhost:5173 \"C:/Users/Natan/AppData/Local/Temp/sessao-login.png\")",
+      "Bash(npx playwright@latest screenshot --browser chromium --wait-for-timeout 5000 --viewport-size \"390,844\" http://localhost:5173 \"C:/Users/Natan/AppData/Local/Temp/sessao2.png\")",
+      "Read(//c/Users/Natan/AppData/Roaming/npm/node_modules/**)",
+      "Bash(npx --yes playwright@1.60.0 screenshot --browser chromium --wait-for-timeout 4000 --viewport-size \"390,844\" http://localhost:5173 \"C:/Users/Natan/AppData/Local/Temp/sessao3.png\")",
+      "Bash(cat .env.example)",
+      "Bash(ls -la .env*)",
+      "Bash(npx playwright@1.60.0 screenshot --browser chromium --wait-for-timeout 3000 --viewport-size \"390,844\" http://localhost:5173 \"C:/Users/Natan/AppData/Local/Temp/sessao4.png\" --full-page)",
+      "Bash(cp .env.example .env)",
+      "Bash(cat)",
+      "Bash(pkill -f \"vite\")",
+      "Bash(npx playwright@1.60.0 screenshot --browser chromium --wait-for-timeout 5000 --viewport-size \"390,844\" http://localhost:5174 \"C:/Users/Natan/AppData/Local/Temp/sessao-login2.png\")",
+      "Bash(npx firebase-tools *)"
     ]
   }
 }

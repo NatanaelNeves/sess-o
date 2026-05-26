@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+﻿import { useState, useEffect, useRef } from "react";
 import { auth, db } from "./firebase";
 import {
   onAuthStateChanged, signInWithPopup, signOut, GoogleAuthProvider,
@@ -188,13 +188,19 @@ const Overlay = ({ children, onClose }) => (
 );
 
 const Modal = ({ title, onClose, children, maxW=480 }) => (
-  <div className="modal-panel" style={{ maxWidth:maxW }}>
-    <div className="modal-panel__header">
-      <h3 className="modal-panel__title">{title}</h3>
-      <button onClick={onClose} className="icon-button icon-button--subtle">
-        <Ic n="x" s={20}/>
+  <div className="modal-panel" style={{ maxWidth:maxW, position:"relative" }}>
+    {title ? (
+      <div className="modal-panel__header">
+        <h3 className="modal-panel__title">{title}</h3>
+        <button onClick={onClose} className="icon-button icon-button--subtle">
+          <Ic n="x" s={20}/>
+        </button>
+      </div>
+    ) : (
+      <button onClick={onClose} className="modal-close-float">
+        <Ic n="x" s={18}/>
       </button>
-    </div>
+    )}
     {children}
   </div>
 );
@@ -310,7 +316,7 @@ const SearchModal = ({ onSelect, onClose }) => {
                     <div className="search-result__title">{r.title||r.name}</div>
                     <div className="search-result__meta">
                       {r.media_type==="tv"?"Série":"Filme"} • {(r.release_date||r.first_air_date||"").slice(0,4)}
-                      {r.vote_average?` ��� ��� ${r.vote_average.toFixed(1)}`:""}
+                      {r.vote_average?` • ★ ${r.vote_average.toFixed(1)}`:""}
                     </div>
                     <div className="search-result__overview">
                       {r.overview}
@@ -453,7 +459,7 @@ const AddWatchlistModal = ({ currentUser, onSave, onClose }) => {
         </div>
         <div className="field-block">
           <Label>Prioridade</Label>
-          <SegBtn options={[["baixa","���� Baixa"],["normal","���� Normal"],["alta","���� Alta"]]}
+          <SegBtn options={[["baixa","🟢 Baixa"],["normal","🟡 Normal"],["alta","🔴 Alta"]]}
             value={priority} onChange={setPriority} colorMap={{baixa:"#059669",normal:"#d97706",alta:"#e63946"}}/>
         </div>
         <div className="field-block field-block--wide">
@@ -500,7 +506,7 @@ const DetailModal = ({ entry, users, onClose, onMarkWatched, onEdit, onSaveRevie
     const s = entry.seasonsWatched;
     if (s.length===1) return `T${s[0]}`;
     const seq = s.every((v,i)=>i===0||v===s[i-1]+1);
-    return seq ? `T${s[0]}���T${s[s.length-1]}` : s.map(x=>`T${x}`).join(", ");
+    return seq ? `T${s[0]}→T${s[s.length-1]}` : s.map(x=>`T${x}`).join(", ");
   };
 
   return (
@@ -520,19 +526,19 @@ const DetailModal = ({ entry, users, onClose, onMarkWatched, onEdit, onSaveRevie
           <div className={`detail-hero__content ${backdrop?"":"detail-hero__content--compact"}`}>
             <div className={`detail-eyebrow ${entry.type==="tv"?"detail-eyebrow--tv":"detail-eyebrow--movie"}`}>
               {entry.type==="tv"?"SÉRIE":"FILME"}{entry.year?` • ${entry.year}`:""}
-              {entry.runtime ? ` ��� ${Math.floor(entry.runtime/60)}h${entry.runtime%60>0?` ${entry.runtime%60}min`:""}` : ""}
+              {entry.runtime ? ` • ${Math.floor(entry.runtime/60)}h${entry.runtime%60>0?` ${entry.runtime%60}min`:""}` : ""}
             </div>
             <h2 className="detail-title detail-title--small">{entry.title}</h2>
             {entry.where && (
               <div className={`detail-meta ${entry.where==="cinema"?"detail-meta--cinema":"detail-meta--streaming"}`}>
-                {entry.where==="cinema"?"��ġ Cinema":"���� Streaming"}
-                {entry.date && " ��� "+new Date(entry.date+"T12:00:00").toLocaleDateString("pt-BR",{day:"2-digit",month:"long",year:"numeric"})}
+                {entry.where==="cinema"?"🎬 Cinema":"📺 Streaming"}
+                {entry.date && " • "+new Date(entry.date+"T12:00:00").toLocaleDateString("pt-BR",{day:"2-digit",month:"long",year:"numeric"})}
               </div>
             )}
             <div className="detail-badges">
-              {isDiscord && <span className="detail-badge detail-badge--discord">���� Discordaram</span>}
+              {isDiscord && <span className="detail-badge detail-badge--discord">⚡ Discordaram</span>}
               {seasonLabel() && <span className="detail-badge detail-badge--season">{seasonLabel()}</span>}
-              {entry.tmdbRating && <span className="detail-badge detail-badge--rating">TMDB ��� {entry.tmdbRating}</span>}
+              {entry.tmdbRating && <span className="detail-badge detail-badge--rating">TMDB ★ {entry.tmdbRating}</span>}
             </div>
           </div>
           {onEdit && (
@@ -600,7 +606,7 @@ const DetailModal = ({ entry, users, onClose, onMarkWatched, onEdit, onSaveRevie
                       {rev.rating>0 && <Stars val={rev.rating} size={16}/>}
                       {rev.rating>0 && <span className="review-rating">{rev.rating}/5</span>}
                     </div>
-                    {rev.text && <p className="review-card__quote">"{rev.text}"</p>}
+                    {rev.text && <p className="review-card__quote">“{rev.text}”</p>}
                   </div>
                 ) : null
               ))}
@@ -830,7 +836,7 @@ const CoupleSetup = ({ authUser, onCreate, onJoin }) => {
 const InviteScreen = ({ inviteCode, couple }) => (
   <div className="auth-screen">
     <div className="auth-card">
-      <div className="auth-icon">����</div>
+      <div className="auth-icon">🎞️</div>
       <h2 className="auth-title" style={{ fontSize: "clamp(28px, 4.4vw, 32px)", marginBottom: 8 }}>Diário criado!</h2>
       <p className="auth-subtitle auth-callout">
         Compartilhe o código abaixo com {couple.name1 === "?" ? "sua pessoa" : couple.name2 || "sua pessoa"} para ela entrar no diário.
@@ -864,7 +870,7 @@ const HomePage = ({ watched, watchlist, couple, currentUser }) => {
       <div className="hero-panel">
         <div className="hero-panel__eyebrow">BEM-VINDO DE VOLTA</div>
         <h2 className="hero-panel__title">Olá, {currentUser}!</h2>
-        {days !== null && <p className="hero-panel__meta">{couple.name1} & {couple.name2} ��� {days} dias juntos</p>}
+        {days !== null && <p className="hero-panel__meta">{couple.name1} & {couple.name2} • {days} dias juntos</p>}
       </div>
 
       <div className="stat-grid">
@@ -923,7 +929,7 @@ const HomePage = ({ watched, watchlist, couple, currentUser }) => {
                     <div className="list-meta">{e.date && new Date(e.date + "T12:00:00").toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })} • {e.where === "cinema" ? "Cinema" : "Streaming"}</div>
                     <div className="list-avatars">{Object.keys(e.reviews || {}).map(u => <Avatar key={u} name={u} size={16} />)}</div>
                   </div>
-                  {avg && <span className="avg-highlight">��� {avg}</span>}
+                  {avg && <span className="avg-highlight">★ {avg}</span>}
                 </div>
               );
             })}
@@ -1043,10 +1049,10 @@ const DiaryPage = ({ watched, users, currentUser, onDelete, onEdit, onSaveReview
               <Label>Nota mínima</Label>
               <select value={filters.rating} onChange={e=>setF("rating",e.target.value)} className="form-select">
                 <option value="all">Todos</option>
-                <option value="5">���������������</option>
-                <option value="4">������������+</option>
-                <option value="3">���������+</option>
-                <option value="low">Abaixo de ���������</option>
+                <option value="5">⭐⭐⭐⭐⭐</option>
+                <option value="4">⭐⭐⭐⭐+</option>
+                <option value="3">⭐⭐⭐+</option>
+                <option value="low">Abaixo de ⭐⭐⭐</option>
               </select>
             </div>
             <div>
@@ -1092,7 +1098,8 @@ const DiaryPage = ({ watched, users, currentUser, onDelete, onEdit, onSaveReview
                 <div className="poster-wrap">
                   {e.poster
                     ? <img src={`${TMDB_IMG}${e.poster}`} alt="" className="poster-img" />
-                    : <PosterFallback type={e.type} h={200}/>}
+                    : <PosterFallback type={e.type} h={210}/>}
+                  <div className="poster-gradient"/>
                   <div className={`poster-badge ${e.type==="tv"?"poster-badge--tv":"poster-badge--movie"}`}>
                     {e.type==="tv"?"SÉRIE":"FILME"}
                   </div>
@@ -1102,22 +1109,18 @@ const DiaryPage = ({ watched, users, currentUser, onDelete, onEdit, onSaveReview
                       <span className="poster-flag__label">Discordaram</span>
                     </div>
                   )}
-                  {pendingUsers.length>0 && (
-                    <div className="poster-flag poster-flag--right">
-                      <span className="poster-flag__label">⏳ {pendingUsers[0].split(" ")[0]}{pendingUsers.length>1?` +${pendingUsers.length-1}`:""}</span>
-                    </div>
-                  )}
                   <div className="poster-avatar"><Avatar name={e.addedBy} size={22}/></div>
-                  <button onClick={ev=>{ev.stopPropagation();onDelete(e);}} className="btn--danger poster-delete">
+                  <button onClick={ev=>{ev.stopPropagation();onDelete(e);}} className="poster-delete">
                     <Ic n="trash" s={13}/>
                   </button>
                 </div>
                 <div className="card-inner__body">
                   <div className="card-title">{e.title}</div>
-                  <div className={e.where==="cinema"?"detail-meta--cinema":"detail-meta--streaming"}>
-                    {e.where==="cinema"?"🎬 Cinema":"📺 Streaming"}
+                  <div className="card-meta-line">
+                    <Ic n={e.where==="cinema"?"film":"tv"} s={10}/>
+                    {e.where==="cinema"?"Cinema":"Streaming"}
+                    {e.date && " • " + new Date(e.date+"T12:00:00").toLocaleDateString("pt-BR",{day:"2-digit",month:"short",year:"numeric"})}
                   </div>
-                  {e.date && <div className="meta muted small">{new Date(e.date+"T12:00:00").toLocaleDateString("pt-BR",{day:"2-digit",month:"short",year:"numeric"})}</div>}
                 </div>
               </div>
             );
@@ -1332,8 +1335,8 @@ const ProfilePage = ({ watched, watchlist, couple, users }) => {
               <div style={{ flex:streamCount }} className="bar--stream" />
             </div>
           <div className="space-between">
-            <span>��ġ {cinemaCount} ({watched.length?Math.round(cinemaCount/watched.length*100):0}%)</span>
-            <span>���� {streamCount} ({watched.length?Math.round(streamCount/watched.length*100):0}%)</span>
+            <span>🎬 {cinemaCount} ({watched.length?Math.round(cinemaCount/watched.length*100):0}%)</span>
+            <span>📺 {streamCount} ({watched.length?Math.round(streamCount/watched.length*100):0}%)</span>
           </div>
         </div>
       )}
@@ -1405,7 +1408,7 @@ const ProfilePage = ({ watched, watchlist, couple, users }) => {
       <div className="col-gap-10" style={{ marginBottom:18 }}>
         {[
           first&&{ label:"Primeiro juntos", item:first },
-          bestRated&&avgR(bestRated)>0&&{ label:`Melhor avaliado (��� ${avgR(bestRated).toFixed(1)})`, item:bestRated },
+          bestRated&&avgR(bestRated)>0&&{ label:`Melhor avaliado (★ ${avgR(bestRated).toFixed(1)})`, item:bestRated },
           biggestDiscord&&{ label:`Maior discordância (${Math.abs((biggestDiscord.reviews?.[users[0]]?.rating||0)-(biggestDiscord.reviews?.[users[1]]?.rating||0))} estrelas)`, item:biggestDiscord },
           mostSeasons&&{ label:`Mais temporadas assistidas (${mostSeasons.seasonsWatched?.length})`, item:mostSeasons },
         ].filter(Boolean).map(({label,item})=>(
@@ -1419,7 +1422,7 @@ const ProfilePage = ({ watched, watchlist, couple, users }) => {
         ))}
       </div>
 
-      {/* discord+�metro */}
+      {/* discordômetro */}
       {discordEntries.length>0 && (
         <div style={{ background:"rgba(230,57,70,.06)",border:"1px solid rgba(230,57,70,.15)",borderRadius:16,padding:"16px 18px" }}>
           <div style={{ fontSize:11,color:"#f87171",fontWeight:700,letterSpacing:1.2,marginBottom:12 }}>
@@ -1434,7 +1437,7 @@ const ProfilePage = ({ watched, watchlist, couple, users }) => {
                   <div style={{ flex:1,minWidth:0 }}>
                     <div style={{ fontWeight:700,color:"#f0f0f0",fontSize:13,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis" }}>{e.title}</div>
                     <div style={{ fontSize:11,color:"#888",marginTop:2 }}>
-                      {users[0]}: ���{r0} -� {users[1]}: ���{r1}
+                      {users[0]}: ★{r0} · {users[1]}: ★{r1}
                     </div>
                   </div>
                   <span style={{ fontSize:13,color:"#f87171",fontWeight:700,flexShrink:0 }}>+{Math.abs(r0-r1)}</span>
@@ -1626,10 +1629,6 @@ export default function App() {
   return (
     <>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;900&family=DM+Sans:ital,wght@0,400;0,600;0,700;1,400&display=swap');
-        *{box-sizing:border-box;margin:0;padding:0;}
-        body{background:#08080f;font-family:'DM Sans',sans-serif;color:#f0f0f0;}
-        ::-webkit-scrollbar{width:4px;}::-webkit-scrollbar-track{background:transparent;}::-webkit-scrollbar-thumb{background:#2a2a3a;border-radius:2px;}
         input[type=date]::-webkit-calendar-picker-indicator{filter:invert(1) opacity(.4);}
         select option{background:#1a1a2e;color:#f0f0f0;}
         @keyframes slideUp{from{opacity:0;transform:translateY(16px);}to{opacity:1;transform:translateY(0);}}

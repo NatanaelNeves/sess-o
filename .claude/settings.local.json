@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node -e \"const p=require\\('./package.json'\\);console.log\\(JSON.stringify\\(p.dependencies,null,2\\)\\)\")",
+      "Bash(npm install *)",
+      "Bash(node -e \"const p=require\\('./package.json'\\);console.log\\(p.dependencies.firebase\\)\")",
+      "Bash(npm run *)",
+      "Bash(firebase --version)",
+      "Bash(firebase deploy *)",
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\Opn_Natan\\\\Desktop\\\\projetos\\\\sessão\\\\sessao\" -Recurse -Force)",
+      "Bash(Select-Object -Property FullName, PSIsContainer)",
+      "Bash(ConvertTo-Json)",
+      "PowerShell(Get-ChildItem -Path \"c:\\\\Users\\\\Opn_Natan\\\\Desktop\\\\projetos\\\\sessão\\\\sessao\\\\src\" -Recurse -Force | Select-Object FullName, @{Name='Type'; Expression={if \\($_.PSIsContainer\\) { 'Folder' } else { 'File' }}} | Sort-Object FullName)"
+    ]
+  }
+}

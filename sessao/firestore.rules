@@ -1,0 +1,45 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helpers
+    function isAuth() {
+      return request.auth != null;
+    }
+    function isMember(coupleData) {
+      return coupleData.uid1 == request.auth.uid || coupleData.uid2 == request.auth.uid;
+    }
+    function coupleData(coupleId) {
+      return get(/databases/$(database)/documents/couples/$(coupleId)).data;
+    }
+
+    // Couples collection
+    match /couples/{coupleId} {
+      // Any authenticated user can read (needed for invite code lookup)
+      allow read: if isAuth();
+
+      // Create: only the first user (uid1) can create their own couple
+      allow create: if isAuth() && request.resource.data.uid1 == request.auth.uid;
+
+      // Update: uid1 can update anything; someone joining sets uid2 if it's currently null
+      allow update: if isAuth() && (
+        resource.data.uid1 == request.auth.uid ||
+        resource.data.uid2 == request.auth.uid ||
+        (resource.data.uid2 == null && request.resource.data.uid2 == request.auth.uid)
+      );
+
+      // Delete: only uid1 can delete
+      allow delete: if isAuth() && resource.data.uid1 == request.auth.uid;
+
+      // Watched subcollection
+      match /watched/{entryId} {
+        allow read, write: if isAuth() && isMember(coupleData(coupleId));
+      }
+
+      // Watchlist subcollection
+      match /watchlist/{entryId} {
+        allow read, write: if isAuth() && isMember(coupleData(coupleId));
+      }
+    }
+  }
+}

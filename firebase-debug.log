@@ -1,0 +1,88 @@
+[debug] [2026-05-26T12:59:07.595Z] ----------------------------------------------------------------------
+[debug] [2026-05-26T12:59:07.598Z] Command:       C:\Program Files\nodejs\node.exe C:\Users\Opn_Natan\AppData\Roaming\npm\node_modules\firebase-tools\lib\bin\firebase.js init
+[debug] [2026-05-26T12:59:07.598Z] CLI Version:   15.18.0
+[debug] [2026-05-26T12:59:07.598Z] Platform:      win32
+[debug] [2026-05-26T12:59:07.598Z] Node Version:  v24.15.0
+[debug] [2026-05-26T12:59:07.598Z] Time:          Tue May 26 2026 09:59:07 GMT-0300 (Horário Padrão de Brasília)
+[debug] [2026-05-26T12:59:07.598Z] ----------------------------------------------------------------------
+[debug] 
+[info] 
+     ######## #### ########  ######## ########     ###     ######  ########
+     ##        ##  ##     ## ##       ##     ##  ##   ##  ##       ##
+     ######    ##  ########  ######   ########  #########  ######  ######
+     ##        ##  ##    ##  ##       ##     ## ##     ##       ## ##
+     ##       #### ##     ## ######## ########  ##     ##  ######  ########
+
+You're about to initialize a Firebase project in this directory:
+
+  C:\Users\Opn_Natan\Desktop\projetos\sessão
+
+[info] 
+=== Project Setup
+[info] 
+[info] First, let's associate this project directory with a Firebase project.
+[info] You can create multiple project aliases by running firebase use --add, 
+[info] 
+[debug] [2026-05-26T12:59:23.464Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2026-05-26T12:59:23.465Z] > authorizing via signed-in user (natanaelneves.11@gmail.com)
+[debug] [2026-05-26T12:59:23.465Z] Checked if tokens are valid: true, expires at: 1779803939605
+[debug] [2026-05-26T12:59:23.466Z] Checked if tokens are valid: true, expires at: 1779803939605
+[debug] [2026-05-26T12:59:23.467Z] >>> [apiv2][query] GET https://firebase.googleapis.com/v1beta1/projects pageSize=100
+[debug] [2026-05-26T12:59:24.365Z] <<< [apiv2][status] GET https://firebase.googleapis.com/v1beta1/projects 200
+[debug] [2026-05-26T12:59:24.365Z] <<< [apiv2][body] GET https://firebase.googleapis.com/v1beta1/projects [omitted]
+[info] 
+=== Dataconnect Setup
+[info] i  dataconnect: ensuring required API firebasedataconnect.googleapis.com is enabled... 
+[debug] [2026-05-26T12:59:29.576Z] Checked if tokens are valid: true, expires at: 1779803939605
+[debug] [2026-05-26T12:59:29.576Z] Checked if tokens are valid: true, expires at: 1779803939605
+[info] i  dataconnect: ensuring required API sqladmin.googleapis.com is enabled... 
+[debug] [2026-05-26T12:59:29.577Z] Checked if tokens are valid: true, expires at: 1779803939605
+[debug] [2026-05-26T12:59:29.577Z] Checked if tokens are valid: true, expires at: 1779803939605
+[debug] [2026-05-26T12:59:29.577Z] >>> [apiv2][query] GET https://serviceusage.googleapis.com/v1/projects/sess-80b2c/services/firebasedataconnect.googleapis.com [none]
+[debug] [2026-05-26T12:59:29.577Z] >>> [apiv2][(partial)header] GET https://serviceusage.googleapis.com/v1/projects/sess-80b2c/services/firebasedataconnect.googleapis.com  x-goog-user-project=sess-80b2c
+[debug] [2026-05-26T12:59:29.579Z] >>> [apiv2][query] GET https://serviceusage.googleapis.com/v1/projects/sess-80b2c/services/sqladmin.googleapis.com [none]
+[debug] [2026-05-26T12:59:29.579Z] >>> [apiv2][(partial)header] GET https://serviceusage.googleapis.com/v1/projects/sess-80b2c/services/sqladmin.googleapis.com  x-goog-user-project=sess-80b2c
+[debug] [2026-05-26T12:59:30.788Z] <<< [apiv2][status] GET https://serviceusage.googleapis.com/v1/projects/sess-80b2c/services/firebasedataconnect.googleapis.com 200
+[debug] [2026-05-26T12:59:30.788Z] <<< [apiv2][body] GET https://serviceusage.googleapis.com/v1/projects/sess-80b2c/services/firebasedataconnect.googleapis.com [omitted]
+[warn] !  dataconnect: missing required API firebasedataconnect.googleapis.com. Enabling now... 
+[debug] [2026-05-26T12:59:30.789Z] Checked if tokens are valid: true, expires at: 1779803939605
+[debug] [2026-05-26T12:59:30.789Z] Checked if tokens are valid: true, expires at: 1779803939605
+[debug] [2026-05-26T12:59:30.789Z] >>> [apiv2][query] POST https://serviceusage.googleapis.com/v1/projects/sess-80b2c/services/firebasedataconnect.googleapis.com:enable [none]
+[debug] [2026-05-26T12:59:30.789Z] >>> [apiv2][(partial)header] POST https://serviceusage.googleapis.com/v1/projects/sess-80b2c/services/firebasedataconnect.googleapis.com:enable  x-goog-user-project=sess-80b2c
+[debug] [2026-05-26T12:59:30.864Z] <<< [apiv2][status] GET https://serviceusage.googleapis.com/v1/projects/sess-80b2c/services/sqladmin.googleapis.com 200
+[debug] [2026-05-26T12:59:30.864Z] <<< [apiv2][body] GET https://serviceusage.googleapis.com/v1/projects/sess-80b2c/services/sqladmin.googleapis.com [omitted]
+[warn] !  dataconnect: missing required API sqladmin.googleapis.com. Enabling now... 
+[debug] [2026-05-26T12:59:30.864Z] Checked if tokens are valid: true, expires at: 1779803939605
+[debug] [2026-05-26T12:59:30.865Z] Checked if tokens are valid: true, expires at: 1779803939605
+[debug] [2026-05-26T12:59:30.865Z] >>> [apiv2][query] POST https://serviceusage.googleapis.com/v1/projects/sess-80b2c/services/sqladmin.googleapis.com:enable [none]
+[debug] [2026-05-26T12:59:30.865Z] >>> [apiv2][(partial)header] POST https://serviceusage.googleapis.com/v1/projects/sess-80b2c/services/sqladmin.googleapis.com:enable  x-goog-user-project=sess-80b2c
+[debug] [2026-05-26T12:59:31.560Z] <<< [apiv2][status] POST https://serviceusage.googleapis.com/v1/projects/sess-80b2c/services/sqladmin.googleapis.com:enable 200
+[debug] [2026-05-26T12:59:31.560Z] <<< [apiv2][body] POST https://serviceusage.googleapis.com/v1/projects/sess-80b2c/services/sqladmin.googleapis.com:enable [omitted]
+[debug] [2026-05-26T12:59:32.065Z] <<< [apiv2][status] POST https://serviceusage.googleapis.com/v1/projects/sess-80b2c/services/firebasedataconnect.googleapis.com:enable 200
+[debug] [2026-05-26T12:59:32.065Z] <<< [apiv2][body] POST https://serviceusage.googleapis.com/v1/projects/sess-80b2c/services/firebasedataconnect.googleapis.com:enable [omitted]
+[debug] [2026-05-26T12:59:42.084Z] Checked if tokens are valid: true, expires at: 1779803939605
+[debug] [2026-05-26T12:59:42.084Z] Checked if tokens are valid: true, expires at: 1779803939605
+[debug] [2026-05-26T12:59:42.084Z] >>> [apiv2][query] GET https://firebasedataconnect.googleapis.com/v1/projects/sess-80b2c/locations/-/services [none]
+[debug] [2026-05-26T12:59:43.488Z] <<< [apiv2][status] GET https://firebasedataconnect.googleapis.com/v1/projects/sess-80b2c/locations/-/services 200
+[debug] [2026-05-26T12:59:43.489Z] <<< [apiv2][body] GET https://firebasedataconnect.googleapis.com/v1/projects/sess-80b2c/locations/-/services {}
+[info] i  : ensuring required API cloudaicompanion.googleapis.com is enabled... 
+[debug] [2026-05-26T12:59:51.652Z] Checked if tokens are valid: true, expires at: 1779803939605
+[debug] [2026-05-26T12:59:51.652Z] Checked if tokens are valid: true, expires at: 1779803939605
+[debug] [2026-05-26T12:59:51.652Z] >>> [apiv2][query] GET https://serviceusage.googleapis.com/v1/projects/sess-80b2c/services/cloudaicompanion.googleapis.com [none]
+[debug] [2026-05-26T12:59:51.653Z] >>> [apiv2][(partial)header] GET https://serviceusage.googleapis.com/v1/projects/sess-80b2c/services/cloudaicompanion.googleapis.com  x-goog-user-project=sess-80b2c
+[debug] [2026-05-26T12:59:52.853Z] <<< [apiv2][status] GET https://serviceusage.googleapis.com/v1/projects/sess-80b2c/services/cloudaicompanion.googleapis.com 200
+[debug] [2026-05-26T12:59:52.853Z] <<< [apiv2][body] GET https://serviceusage.googleapis.com/v1/projects/sess-80b2c/services/cloudaicompanion.googleapis.com [omitted]
+[info] +  : required API cloudaicompanion.googleapis.com is enabled 
+[debug] [2026-05-26T13:00:03.159Z] ExitPromptError: User force closed the prompt with SIGINT
+    at Interface.sigint (C:\Users\Opn_Natan\AppData\Roaming\npm\node_modules\firebase-tools\node_modules\@inquirer\core\dist\commonjs\lib\create-prompt.js:101:37)
+    at Interface.emit (node:events:509:28)
+    at [_ttyWrite] [as _ttyWrite] (node:internal/readline/interface:1327:18)
+    at ReadStream.onkeypress (node:internal/readline/interface:284:20)
+    at ReadStream.emit (node:events:521:24)
+    at emitKeys (node:internal/readline/utils:371:14)
+    at emitKeys.next (<anonymous>)
+    at ReadStream.onData (node:internal/readline/emitKeypressEvents:64:36)
+    at ReadStream.emit (node:events:509:28)
+    at addChunk (node:internal/streams/readable:563:12)
+[error] 
+[error] Error: An unexpected error has occurred.

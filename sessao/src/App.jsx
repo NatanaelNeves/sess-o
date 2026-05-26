@@ -187,21 +187,25 @@ const Overlay = ({ children, onClose }) => (
   </div>
 );
 
-const Modal = ({ title, onClose, children, maxW=480 }) => (
+const Modal = ({ title, onClose, children, maxW=480, banner }) => (
   <div className="modal-panel" style={{ maxWidth:maxW, position:"relative" }}>
-    {title ? (
-      <div className="modal-panel__header">
-        <h3 className="modal-panel__title">{title}</h3>
-        <button onClick={onClose} className="icon-button icon-button--subtle">
-          <Ic n="x" s={20}/>
-        </button>
-      </div>
-    ) : (
+    {banner}
+    {!title && (
       <button onClick={onClose} className="modal-close-float">
         <Ic n="x" s={18}/>
       </button>
     )}
-    {children}
+    <div className="modal-panel__body">
+      {title && (
+        <div className="modal-panel__header">
+          <h3 className="modal-panel__title">{title}</h3>
+          <button onClick={onClose} className="icon-button icon-button--subtle">
+            <Ic n="x" s={20}/>
+          </button>
+        </div>
+      )}
+      {children}
+    </div>
   </div>
 );
 
@@ -511,14 +515,14 @@ const DetailModal = ({ entry, users, onClose, onMarkWatched, onEdit, onSaveRevie
 
   return (
     <Overlay onClose={onClose}>
-      <Modal title="" onClose={onClose} maxW={560}>
-        {backdrop && (
+      <Modal title="" onClose={onClose} maxW={560}
+        banner={backdrop ? (
           <div className="detail-banner">
             <img src={backdrop} alt="" className="detail-banner__image"/>
             <div className="detail-banner__overlay"/>
           </div>
-        )}
-
+        ) : null}
+      >
         <div className={`detail-hero ${backdrop?"":"detail-hero--compact"}`}>
           {poster
             ? <img src={poster} alt="" className={`detail-poster ${backdrop?"detail-poster--floating":""}`} />

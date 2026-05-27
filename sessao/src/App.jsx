@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useRef, forwardRef } from "react";
+﻿import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { auth, db } from "./firebase";
 import {
@@ -9,25 +9,140 @@ import {
   onSnapshot, query, where, getDocs,
 } from "firebase/firestore";
 import "./App.css";
-import { toPng } from "html-to-image";
 
 const TMDB_BASE = "https://api.themoviedb.org/3";
 const TMDB_IMG = "https://image.tmdb.org/t/p/w500";
 const TMDB_BG   = "https://image.tmdb.org/t/p/w1280";
 
-async function fetchDataUrl(url) {
-  try {
-    const res = await fetch(url);
-    const blob = await res.blob();
-    return await new Promise((resolve, reject) => {
-      const r = new FileReader();
-      r.onload = () => resolve(r.result);
-      r.onerror = reject;
-      r.readAsDataURL(blob);
-    });
-  } catch {
-    return null;
+async function generateSharePng(entry, users, format) {
+  await document.fonts.ready;
+  const isStory = format === "story";
+  const W = 1080, H = isStory ? 1920 : 1080;
+  const canvas = document.createElement("canvas");
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext("2d");
+
+  const tryLoad = url => new Promise(resolve => {
+    if (!url) return resolve(null);
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    const t = setTimeout(() => resolve(null), 5000);
+    img.onload  = () => { clearTimeout(t); resolve(img); };
+    img.onerror = () => { clearTimeout(t); resolve(null); };
+    img.src = url;
+  });
+
+  const [backdrop, poster] = await Promise.all([
+    tryLoad(entry.backdrop ? `${TMDB_BG}${entry.backdrop}` : null),
+    tryLoad(entry.poster   ? `${TMDB_IMG}${entry.poster}`  : null),
+  ]);
+
+  // Background
+  if (backdrop) {
+    const s = Math.max(W / backdrop.naturalWidth, H / backdrop.naturalHeight);
+    const bw = backdrop.naturalWidth * s, bh = backdrop.naturalHeight * s;
+    ctx.drawImage(backdrop, (W - bw) / 2, (H - bh) / 2, bw, bh);
+    ctx.fillStyle = "rgba(8,8,15,0.72)";
+    ctx.fillRect(0, 0, W, H);
+  } else {
+    const g = ctx.createLinearGradient(0, 0, W, H);
+    g.addColorStop(0, "#200a14"); g.addColorStop(0.5, "#0d082a"); g.addColorStop(1, "#08080f");
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    const cg = ctx.createRadialGradient(W/2, H*0.4, 0, W/2, H*0.4, W*0.55);
+    cg.addColorStop(0, "rgba(201,57,74,0.22)"); cg.addColorStop(1, "rgba(201,57,74,0)");
+    ctx.fillStyle = cg; ctx.fillRect(0, 0, W, H);
   }
+  if (isStory) {
+    const bg = ctx.createLinearGradient(0, H*0.5, 0, H);
+    bg.addColorStop(0, "rgba(8,8,15,0)"); bg.addColorStop(0.4, "rgba(8,8,15,0.88)"); bg.addColorStop(1, "#08080f");
+    ctx.fillStyle = bg; ctx.fillRect(0, H*0.5, W, H*0.5);
+  }
+
+  ctx.textAlign = "center";
+
+  // Branding top
+  ctx.font = `600 ${isStory?32:26}px 'Playfair Display', Georgia, serif`;
+  ctx.fillStyle = "rgba(201,57,74,0.85)";
+  ctx.fillText("Sessão", W/2, isStory ? 96 : 68);
+
+  let cy = isStory ? H * 0.52 : H * 0.5;
+
+  // Poster
+  if (poster) {
+    const ph = isStory ? 460 : 310;
+    const pw = Math.round(ph * 2/3);
+    const px = W/2 - pw/2, py = isStory ? H*0.17 : H*0.14;
+    ctx.save();
+    const rr = 16;
+    ctx.beginPath();
+    ctx.moveTo(px+rr,py); ctx.lineTo(px+pw-rr,py);
+    ctx.arcTo(px+pw,py,px+pw,py+rr,rr); ctx.lineTo(px+pw,py+ph-rr);
+    ctx.arcTo(px+pw,py+ph,px+pw-rr,py+ph,rr); ctx.lineTo(px+rr,py+ph);
+    ctx.arcTo(px,py+ph,px,py+ph-rr,rr); ctx.lineTo(px,py+rr);
+    ctx.arcTo(px,py,px+rr,py,rr); ctx.closePath();
+    ctx.shadowColor = "rgba(0,0,0,0.7)"; ctx.shadowBlur = 40; ctx.shadowOffsetY = 14;
+    ctx.clip();
+    ctx.drawImage(poster, px, py, pw, ph);
+    ctx.restore();
+    cy = py + ph + (isStory ? 50 : 28);
+  }
+  ctx.shadowColor = "transparent"; ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
+
+  // Type badge
+  const typeText = `${entry.type==="tv"?"SÉRIE":"FILME"}${entry.year?" · "+entry.year:""}`;
+  const typeColor = entry.type === "tv" ? "#a78bfa" : "#f87171";
+  ctx.font = `700 ${isStory?22:18}px 'Inter', Arial, sans-serif`;
+  const badgeW = ctx.measureText(typeText).width + 48;
+  const badgeH = isStory ? 38 : 30;
+  const bx = W/2 - badgeW/2, by = cy;
+  ctx.fillStyle = entry.type === "tv" ? "rgba(139,92,246,0.2)" : "rgba(201,57,74,0.18)";
+  ctx.beginPath();
+  ctx.roundRect ? ctx.roundRect(bx, by, badgeW, badgeH, badgeH/2) : ctx.rect(bx, by, badgeW, badgeH);
+  ctx.fill();
+  ctx.fillStyle = typeColor;
+  ctx.fillText(typeText, W/2, by + badgeH*0.73);
+  cy = by + badgeH + (isStory ? 22 : 16);
+
+  // Title (word-wrapped)
+  const fs = isStory ? 64 : 48;
+  ctx.font = `700 ${fs}px 'Playfair Display', Georgia, serif`;
+  ctx.fillStyle = "#f0ede8";
+  const maxW2 = W - 110;
+  const lh = Math.round(fs * 1.25);
+  const words = entry.title.split(" ");
+  let lines = [], cur = "";
+  for (const w of words) {
+    const t = cur ? `${cur} ${w}` : w;
+    if (ctx.measureText(t).width > maxW2 && cur) { lines.push(cur); cur = w; } else cur = t;
+  }
+  if (cur) lines.push(cur);
+  lines = lines.slice(0, 3);
+  lines.forEach((l, i) => ctx.fillText(l, W/2, cy + i*lh + fs*0.85));
+  cy += lines.length * lh + (isStory ? 28 : 20);
+
+  // User ratings
+  const userRatings = users.map(u => ({ name:u, r:entry.reviews?.[u]?.rating||0 })).filter(x=>x.r>0);
+  if (userRatings.length > 0) {
+    const rowH = isStory ? 54 : 42;
+    userRatings.forEach((ur, i) => {
+      const ry = cy + i * rowH;
+      ctx.font = `500 ${isStory?24:20}px 'Inter', Arial, sans-serif`;
+      ctx.fillStyle = "rgba(155,152,163,0.85)";
+      ctx.fillText(ur.name, W/2, ry + (isStory?18:14));
+      ctx.font = `600 ${isStory?28:22}px Arial, sans-serif`;
+      ctx.fillStyle = "#c9993a";
+      ctx.fillText("★".repeat(ur.r)+"☆".repeat(5-ur.r), W/2, ry + (isStory?48:36));
+    });
+    cy += userRatings.length * rowH + (isStory ? 16 : 12);
+  }
+
+  // Footer
+  ctx.font = `400 ${isStory?20:16}px 'Inter', Arial, sans-serif`;
+  ctx.fillStyle = "rgba(255,255,255,0.2)";
+  ctx.fillText("compartilhado via Sessão ❤️", W/2, H - (isStory ? 72 : 52));
+
+  try { return canvas.toDataURL("image/png"); }
+  catch { return null; }
 }
 
 const TMDB_READ_TOKEN = import.meta.env.VITE_TMDB_READ_TOKEN;
@@ -124,6 +239,8 @@ const Ic = ({ n, s=20, style={} }) => {
     zap:      "M13 2L3 14h9l-1 8 10-12h-9l1-8z",
     chev:     "M6 9l6 6 6-6",
     play:     "M5 3l14 9-14 9V3z",
+    grid4:    "M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z",
+    list:     "M9 6h11 M9 12h11 M9 18h11 M4 6h.01 M4 12h.01 M4 18h.01",
   };
   return (
     <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={style}>
@@ -517,103 +634,6 @@ const AddWatchlistModal = ({ currentUser, onSave, onClose }) => {
   );
 };
 
-// share card (rendered off-screen for html-to-image capture)
-const ShareCard = forwardRef(({ entry, users, format, images }, ref) => {
-  const isStory = format === "story";
-  const W = isStory ? 360 : 400;
-  const H = isStory ? 640 : 400;
-
-  const rs = Object.values(entry.reviews || {}).map(r => r.rating).filter(Boolean);
-  const avg = rs.length ? (rs.reduce((a,b) => a+b, 0) / rs.length).toFixed(1) : null;
-  const userRatings = users.map(u => ({ name:u, rating:entry.reviews?.[u]?.rating||0 })).filter(r => r.rating > 0);
-
-  const Stars = ({ n, size=14 }) => (
-    <span style={{ display:"flex", gap:2 }}>
-      {Array.from({length:5},(_,i) => (
-        <span key={i} style={{ color:i<n?"#c9993a":"rgba(255,255,255,0.15)", fontSize:size, lineHeight:1 }}>★</span>
-      ))}
-    </span>
-  );
-
-  if (isStory) {
-    return (
-      <div ref={ref} style={{ width:W, height:H, position:"relative", overflow:"hidden", background:"#08080f", fontFamily:"'Arial',sans-serif", boxSizing:"border-box" }}>
-        {images?.backdrop && (
-          <img src={images.backdrop} alt="" style={{ position:"absolute", inset:0, width:"100%", height:"100%", objectFit:"cover", filter:"brightness(0.3) saturate(0.5)" }}/>
-        )}
-        <div style={{ position:"absolute", inset:0, background:"linear-gradient(to bottom,rgba(8,8,15,0.1) 0%,rgba(8,8,15,0.4) 35%,rgba(8,8,15,0.9) 60%,#08080f 80%)" }}/>
-        <div style={{ position:"relative", width:"100%", height:"100%", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"flex-end", paddingBottom:32, boxSizing:"border-box" }}>
-          {images?.poster && (
-            <img src={images.poster} alt="" style={{ width:130, height:196, objectFit:"cover", borderRadius:12, boxShadow:"0 16px 48px rgba(0,0,0,0.85)", position:"absolute", top:"50%", left:"50%", transform:"translate(-50%,-50%) translateY(-70px)" }}/>
-          )}
-          <div style={{ textAlign:"center", padding:"0 28px", width:"100%", boxSizing:"border-box" }}>
-            <div style={{ display:"inline-block", background:entry.type==="tv"?"rgba(139,126,200,0.2)":"rgba(201,57,74,0.2)", border:`1px solid ${entry.type==="tv"?"rgba(139,126,200,0.4)":"rgba(201,57,74,0.4)"}`, borderRadius:20, padding:"3px 12px", fontSize:10, fontWeight:700, letterSpacing:1.2, color:entry.type==="tv"?"#a78bfa":"#f87171", marginBottom:10 }}>
-              {entry.type==="tv"?"SÉRIE":"FILME"}{entry.year?` • ${entry.year}`:""}
-            </div>
-            <div style={{ fontFamily:"'Georgia',serif", fontSize:22, fontWeight:700, color:"#f0ede8", lineHeight:1.25, marginBottom:14, textShadow:"0 2px 8px rgba(0,0,0,0.9)" }}>
-              {entry.title}
-            </div>
-            {userRatings.length>0 && (
-              <div style={{ display:"flex", flexDirection:"column", gap:6, alignItems:"center", marginBottom:16 }}>
-                {userRatings.map(({name,rating}) => (
-                  <div key={name} style={{ display:"flex", alignItems:"center", gap:8 }}>
-                    <span style={{ fontSize:11, color:"#9b98a3", minWidth:70, textAlign:"right" }}>{name}</span>
-                    <Stars n={rating} size={13}/>
-                    <span style={{ fontSize:11, color:"#c9993a", fontWeight:700 }}>{rating}/5</span>
-                  </div>
-                ))}
-              </div>
-            )}
-            <div style={{ borderTop:"1px solid rgba(255,255,255,0.1)", paddingTop:10, fontSize:11, color:"rgba(255,255,255,0.3)", letterSpacing:0.5 }}>
-              Sessão ❤️
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // square format
-  return (
-    <div ref={ref} style={{ width:W, height:H, position:"relative", overflow:"hidden", background:"#0d0d1a", fontFamily:"'Arial',sans-serif", display:"flex", flexDirection:"column", boxSizing:"border-box" }}>
-      <div style={{ display:"flex", flex:1, minHeight:0 }}>
-        <div style={{ width:140, flexShrink:0, position:"relative", overflow:"hidden" }}>
-          {images?.poster
-            ? <img src={images.poster} alt="" style={{ width:"100%", height:"100%", objectFit:"cover" }}/>
-            : <div style={{ width:"100%", height:"100%", background:"#1a1a2e", display:"flex", alignItems:"center", justifyContent:"center" }}><span style={{ fontSize:28, color:"rgba(255,255,255,0.2)" }}>🎬</span></div>
-          }
-          <div style={{ position:"absolute", inset:0, background:"linear-gradient(to right,transparent 55%,#0d0d1a 100%)" }}/>
-        </div>
-        <div style={{ flex:1, padding:"22px 18px 18px 14px", display:"flex", flexDirection:"column", justifyContent:"center", minWidth:0 }}>
-          <div style={{ fontSize:10, fontWeight:700, letterSpacing:1.5, color:entry.type==="tv"?"#a78bfa":"#f87171", marginBottom:8, textTransform:"uppercase" }}>
-            {entry.type==="tv"?"SÉRIE":"FILME"}{entry.year?` • ${entry.year}`:""}
-          </div>
-          <div style={{ fontFamily:"'Georgia',serif", fontSize:17, fontWeight:700, color:"#f0ede8", lineHeight:1.3, marginBottom:14 }}>
-            {entry.title}
-          </div>
-          {avg && (
-            <div style={{ marginBottom:10 }}>
-              <Stars n={Math.round(parseFloat(avg))} size={15}/>
-              <div style={{ fontSize:11, color:"#5a5866", marginTop:3 }}>
-                Nota: <span style={{ color:"#c9993a", fontWeight:700 }}>{avg}</span>
-              </div>
-            </div>
-          )}
-          {userRatings.map(({name,rating}) => (
-            <div key={name} style={{ display:"flex", alignItems:"center", gap:6, marginBottom:4 }}>
-              <span style={{ fontSize:10, color:"#9b98a3", minWidth:55, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{name}</span>
-              <Stars n={rating} size={11}/>
-            </div>
-          ))}
-        </div>
-      </div>
-      <div style={{ borderTop:"1px solid rgba(255,255,255,0.06)", padding:"7px 18px", display:"flex", justifyContent:"flex-end", flexShrink:0 }}>
-        <span style={{ fontSize:10, color:"rgba(255,255,255,0.22)", letterSpacing:0.5 }}>Sessão ❤️</span>
-      </div>
-    </div>
-  );
-});
-ShareCard.displayName = "ShareCard";
 
 // detail modal
 const DetailModal = ({ entry, users, onClose, onMarkWatched, onEdit, onSaveReview, currentUser, fromWatchlist, onUpdateStatus }) => {
@@ -622,10 +642,8 @@ const DetailModal = ({ entry, users, onClose, onMarkWatched, onEdit, onSaveRevie
   const [savingReview, setSavingReview] = useState(false);
   const [statusDropdown, setStatusDropdown] = useState(false);
   const statusRef = useRef(null);
-  const shareCardRef = useRef(null);
   const [shareFormat, setShareFormat] = useState("story");
-  const [shareTask, setShareTask] = useState(null);
-  const [shareImages, setShareImages] = useState(null);
+  const [shareLoading, setShareLoading] = useState(false);
   const [capturedDataUrl, setCapturedDataUrl] = useState(null);
   const [providers, setProviders] = useState(null);
   useEffect(() => {
@@ -634,16 +652,6 @@ const DetailModal = ({ entry, users, onClose, onMarkWatched, onEdit, onSaveRevie
     document.addEventListener("mousedown", close);
     return () => document.removeEventListener("mousedown", close);
   }, [statusDropdown]);
-
-  useEffect(() => {
-    if (shareTask !== "capturing" || !shareImages || !shareCardRef.current) return;
-    const ratio = shareFormat === "story" ? 3 : 2;
-    requestAnimationFrame(() => {
-      toPng(shareCardRef.current, { pixelRatio:ratio, cacheBust:true })
-        .then(url => { setCapturedDataUrl(url); setShareTask("done"); })
-        .catch(() => setShareTask(null));
-    });
-  }, [shareTask, shareImages, shareFormat]);
 
   useEffect(() => {
     if (!entry.tmdbId) { setProviders({ flatrate:[], link:null }); return; }
@@ -681,19 +689,15 @@ const DetailModal = ({ entry, users, onClose, onMarkWatched, onEdit, onSaveRevie
 
   const handleFormatChange = v => {
     setShareFormat(v);
-    if (shareTask === "done") { setShareTask(null); setCapturedDataUrl(null); }
+    if (capturedDataUrl) setCapturedDataUrl(null);
   };
 
   const handleShare = async () => {
-    setShareTask("loading");
+    setShareLoading(true);
     setCapturedDataUrl(null);
-    setShareImages(null);
-    const [posterData, backdropData] = await Promise.all([
-      entry.poster   ? fetchDataUrl(`${TMDB_IMG}${entry.poster}`)  : Promise.resolve(null),
-      entry.backdrop ? fetchDataUrl(`${TMDB_BG}${entry.backdrop}`) : Promise.resolve(null),
-    ]);
-    setShareImages({ poster:posterData, backdrop:backdropData });
-    setShareTask("capturing");
+    const url = await generateSharePng(entry, users, shareFormat);
+    setCapturedDataUrl(url);
+    setShareLoading(false);
   };
 
   const handleDownload = () => {
@@ -926,13 +930,13 @@ const DetailModal = ({ entry, users, onClose, onMarkWatched, onEdit, onSaveRevie
                 </button>
               ))}
             </div>
-            {shareTask===null && (
+            {!capturedDataUrl && !shareLoading && (
               <button onClick={handleShare} className="share-generate-btn">Gerar card para compartilhar</button>
             )}
-            {(shareTask==="loading"||shareTask==="capturing") && (
-              <div className="share-loading">{shareTask==="loading"?"Buscando imagens...":"Gerando card..."}</div>
+            {shareLoading && (
+              <div className="share-loading">Gerando card...</div>
             )}
-            {shareTask==="done"&&capturedDataUrl && (
+            {capturedDataUrl && !shareLoading && (
               <div className="share-done">
                 <img src={capturedDataUrl} alt="" className="share-preview"/>
                 <div className="share-actions">
@@ -940,11 +944,6 @@ const DetailModal = ({ entry, users, onClose, onMarkWatched, onEdit, onSaveRevie
                   <button onClick={handleWebShare} className="share-action-btn share-action-btn--primary">Compartilhar</button>
                 </div>
                 <button onClick={handleShare} className="share-reset">↺ Gerar de novo</button>
-              </div>
-            )}
-            {shareImages&&shareTask==="capturing" && (
-              <div style={{position:"fixed",left:-9999,top:-9999,pointerEvents:"none",zIndex:-1}}>
-                <ShareCard ref={shareCardRef} entry={entry} users={users} format={shareFormat} images={shareImages}/>
               </div>
             )}
           </div>
@@ -1147,8 +1146,85 @@ const InviteScreen = ({ inviteCode, couple }) => (
   </div>
 );
 
+// quick-add card — inline search that drops straight into WatchedForm
+const QuickAddCard = ({ onQuickAdd }) => {
+  const [q, setQ] = useState("");
+  const [results, setResults] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [fetching, setFetching] = useState(false);
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  const timer = useRef(null);
+
+  useEffect(() => {
+    clearTimeout(timer.current);
+    if (q.length < 2) { setResults([]); return; }
+    timer.current = setTimeout(async () => {
+      setLoading(true);
+      try { setResults(await tmdbSearch(q)); } catch { setResults([]); }
+      setLoading(false);
+    }, 400);
+  }, [q]);
+
+  useEffect(() => {
+    const handler = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const pick = async r => {
+    setQ(""); setResults([]); setOpen(false); setFetching(true);
+    try {
+      const full = await tmdbFetch(r.id, r.media_type);
+      onQuickAdd({ tmdbId: r.id, type: r.media_type, ...full });
+    } catch {}
+    setFetching(false);
+  };
+
+  return (
+    <div className="quick-add-card" ref={ref}>
+      <div className="quick-add-card__label">Que tal uma sessão hoje?</div>
+      <div className="quick-add-card__search">
+        <Ic n="search" s={15} style={{ color:"var(--text-secondary)", flexShrink:0 }}/>
+        <input
+          className="quick-add-card__input"
+          value={q}
+          onChange={e=>{ setQ(e.target.value); setOpen(true); }}
+          onFocus={()=>setOpen(true)}
+          placeholder={fetching?"Carregando...":"Buscar filme ou série..."}
+          disabled={fetching}
+        />
+        {loading && <span className="quick-add-card__spin"/>}
+        {q && !loading && (
+          <button className="quick-add-card__clear" onClick={()=>{ setQ(""); setResults([]); }}>
+            <Ic n="x" s={13}/>
+          </button>
+        )}
+      </div>
+      {open && results.length>0 && (
+        <div className="quick-add-card__dropdown">
+          {results.map(r=>(
+            <div key={r.id} className="quick-add-card__item" onClick={()=>pick(r)}>
+              {r.poster_path
+                ? <img src={`${TMDB_IMG}${r.poster_path}`} alt="" className="quick-add-card__poster"/>
+                : <div className="quick-add-card__poster quick-add-card__poster--fallback"/>}
+              <div className="quick-add-card__item-body">
+                <div className="quick-add-card__item-title">{r.title||r.name}</div>
+                <div className="quick-add-card__item-meta">
+                  {r.media_type==="tv"?"Série":"Filme"}
+                  {(r.release_date||r.first_air_date)&&" • "+(r.release_date||r.first_air_date).slice(0,4)}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
 // home page
-const HomePage = ({ watched, watchlist, couple, currentUser }) => {
+const HomePage = ({ watched, watchlist, couple, currentUser, onQuickAdd }) => {
   const totMovies = watched.filter(w => w.type === "movie").length;
   const totSeries = watched.filter(w => w.type === "tv").length;
   const totCinema = watched.filter(w => w.where === "cinema").length;
@@ -1163,8 +1239,19 @@ const HomePage = ({ watched, watchlist, couple, currentUser }) => {
     return (p[a.priority] ?? 1) - (p[b.priority] ?? 1);
   })[0];
 
+  const today = new Date();
+  const todayMMDD = `${String(today.getMonth()+1).padStart(2,"0")}-${String(today.getDate()).padStart(2,"0")}`;
+  const thisYear = today.getFullYear();
+  const onThisDay = watched
+    .filter(w => {
+      const d = w.date || (w.createdAt||"").slice(0,10);
+      return d && d.slice(5,10)===todayMMDD && parseInt(d.slice(0,4))<thisYear;
+    })
+    .sort((a,b)=>new Date(b.date||b.createdAt)-new Date(a.date||a.createdAt));
+
   return (
     <div>
+      {onQuickAdd && <QuickAddCard onQuickAdd={onQuickAdd}/>}
       <div className="hero-panel">
         <div className="hero-panel__eyebrow">BEM-VINDO DE VOLTA</div>
         <h2 className="hero-panel__title">Olá, {currentUser}</h2>
@@ -1190,6 +1277,32 @@ const HomePage = ({ watched, watchlist, couple, currentUser }) => {
           </div>
         )}
       </div>
+
+      {onThisDay.length>0 && (
+        <div className="on-this-day">
+          <div className="on-this-day__eyebrow"><Ic n="clock" s={12}/> NESSE DIA</div>
+          <div className="on-this-day__list">
+            {onThisDay.map(e=>{
+              const d = e.date||(e.createdAt||"").slice(0,10);
+              const yearsAgo = thisYear - parseInt(d.slice(0,4));
+              const rs = Object.values(e.reviews||{}).map(r=>r.rating).filter(Boolean);
+              const avg = rs.length?(rs.reduce((a,b)=>a+b,0)/rs.length).toFixed(1):null;
+              return (
+                <div key={e.id} className="on-this-day__item">
+                  {e.poster
+                    ?<img src={`${TMDB_IMG}${e.poster}`} alt="" className="on-this-day__poster"/>
+                    :<div className="on-this-day__poster on-this-day__poster--fallback"/>}
+                  <div className="on-this-day__body">
+                    <div className="on-this-day__ago">{yearsAgo===1?"Há 1 ano":`Há ${yearsAgo} anos`}</div>
+                    <div className="on-this-day__title">{e.title}</div>
+                    {avg && <div className="on-this-day__avg">★ {avg}</div>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {nextWatch && (
         <div className="surface-card surface-card--violet mb-22">
@@ -1273,6 +1386,70 @@ const HomePage = ({ watched, watchlist, couple, currentUser }) => {
   );
 };
 
+// timeline view
+const TimelineView = ({ items, users, onSelect, onDelete }) => {
+  const avgRating = w => {
+    const rs = Object.values(w.reviews||{}).map(r=>r.rating).filter(Boolean);
+    return rs.length ? (rs.reduce((a,b)=>a+b,0)/rs.length).toFixed(1) : null;
+  };
+
+  const fmtMonth = key => {
+    if (!key) return "Sem data";
+    const [y, m] = key.split("-");
+    const names = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
+    return `${names[parseInt(m)-1]} ${y}`;
+  };
+
+  const grouped = {};
+  for (const e of items) {
+    const key = (e.date || (e.createdAt||"").slice(0,10)).slice(0,7);
+    if (!grouped[key]) grouped[key] = [];
+    grouped[key].push(e);
+  }
+  const months = Object.keys(grouped).sort((a,b)=>b.localeCompare(a));
+
+  return (
+    <div className="timeline">
+      {months.map(month => (
+        <div key={month} className="timeline-month">
+          <div className="timeline-month__header">{fmtMonth(month)}</div>
+          <div className="timeline-track">
+            {grouped[month].map(e => {
+              const avg = avgRating(e);
+              return (
+                <div key={e.id} className="tl-entry" onClick={()=>onSelect(e)}>
+                  <div className="tl-entry__poster">
+                    {e.poster
+                      ? <img src={`${TMDB_IMG}${e.poster}`} alt=""/>
+                      : <PosterFallback type={e.type} h={54}/>}
+                  </div>
+                  <div className="tl-entry__body">
+                    <div className="tl-entry__title">{e.title}</div>
+                    <div className="tl-entry__meta">
+                      <Ic n={e.where==="cinema"?"film":"tv"} s={10}/>
+                      {e.where==="cinema"?"Cinema":"Streaming"}
+                      {e.date && " • "+new Date(e.date+"T12:00:00").toLocaleDateString("pt-BR",{day:"2-digit",month:"short"})}
+                      {avg && <span className="tl-entry__avg">★ {avg}</span>}
+                    </div>
+                    {(e.genres||[]).length>0 && (
+                      <div className="tl-entry__tags">
+                        {(e.genres||[]).slice(0,2).map(g=><span key={g} className="tl-entry__tag">{g}</span>)}
+                      </div>
+                    )}
+                  </div>
+                  <button className="tl-entry__del" onClick={ev=>{ev.stopPropagation();onDelete(e);}}>
+                    <Ic n="trash" s={12}/>
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+};
+
 // diary page
 const DiaryPage = ({ watched, users, currentUser, onDelete, onEdit, onSaveReview, onUpdateStatus }) => {
   const [sel, setSel] = useState(null);
@@ -1280,6 +1457,7 @@ const DiaryPage = ({ watched, users, currentUser, onDelete, onEdit, onSaveReview
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState({ type:"all", where:"all", rating:"all", genre:"all", sort:"recent", status:"all" });
   const [showFilters, setShowFilters] = useState(false);
+  const [view, setView] = useState("grid");
 
   const allGenres = [...new Set(watched.flatMap(w=>w.genres||[]))].sort();
   const setF = (k,v) => setFilters(f=>({...f,[k]:v}));
@@ -1350,6 +1528,14 @@ const DiaryPage = ({ watched, users, currentUser, onDelete, onEdit, onSaveReview
           <button onClick={clearAll} className="segmented-button">Limpar</button>
         )}
         <span className="filters-count">{items.length} título{items.length!==1?"s":""}</span>
+        <div className="view-toggle">
+          <button onClick={()=>setView("grid")} className={`view-toggle__btn ${view==="grid"?"view-toggle__btn--active":""}`} title="Grade">
+            <Ic n="grid4" s={14}/>
+          </button>
+          <button onClick={()=>setView("timeline")} className={`view-toggle__btn ${view==="timeline"?"view-toggle__btn--active":""}`} title="Linha do tempo">
+            <Ic n="list" s={14}/>
+          </button>
+        </div>
       </div>
 
       {showFilters && (
@@ -1411,6 +1597,8 @@ const DiaryPage = ({ watched, users, currentUser, onDelete, onEdit, onSaveReview
             {watched.length===0?"Nenhum filme registrado ainda":"Nenhum título encontrado com esses filtros"}
           </div>
         </div>
+      ) : view==="timeline" ? (
+        <TimelineView items={items} users={users} onSelect={setSel} onDelete={onDelete}/>
       ) : (
         <div className="card-grid">
             {items.map(e=>{
@@ -1788,6 +1976,76 @@ const RetroModal = ({ watched, users, couple, onClose }) => {
   );
 };
 
+function exportToPdf(watched, users, couple) {
+  const sorted = [...watched].sort((a,b)=>new Date(b.date||b.createdAt)-new Date(a.date||a.createdAt));
+  const avgR = w => { const rs=Object.values(w.reviews||{}).map(r=>r.rating).filter(Boolean); return rs.length?(rs.reduce((a,b)=>a+b,0)/rs.length).toFixed(1):null; };
+  const fmtDate = d => d?new Date(d+"T12:00:00").toLocaleDateString("pt-BR",{day:"2-digit",month:"short",year:"numeric"}):"";
+  const totalMins = watched.reduce((s,w)=>s+(w.runtime||0),0);
+  const cinemaCount = watched.filter(w=>w.where==="cinema").length;
+  const all = watched.flatMap(w=>Object.values(w.reviews||{}).map(r=>r.rating).filter(Boolean));
+  const globalAvg = all.length?(all.reduce((a,b)=>a+b,0)/all.length).toFixed(1):null;
+
+  const rows = sorted.map(e => {
+    const avg = avgR(e);
+    const stars = avg ? "★".repeat(Math.round(parseFloat(avg)))+"☆".repeat(5-Math.round(parseFloat(avg))) : "";
+    const uRatings = users.map(u=>{ const r=e.reviews?.[u]?.rating; return r?`${u}: ${"★".repeat(r)}`:null; }).filter(Boolean).join(" · ");
+    return `<tr>
+      <td class="t">${e.title}</td>
+      <td>${e.type==="tv"?"Série":"Filme"}</td>
+      <td>${e.year||""}</td>
+      <td>${e.where==="cinema"?"Cinema":"Streaming"}</td>
+      <td class="nowrap">${fmtDate(e.date)}</td>
+      <td class="nowrap">${avg?`${avg} <span class="stars">${stars}</span>`:"—"}</td>
+      <td class="small">${uRatings}</td>
+    </tr>`;
+  }).join("");
+
+  const html = `<!DOCTYPE html><html lang="pt-BR"><head>
+<meta charset="UTF-8">
+<title>Sessão — ${couple.name1} &amp; ${couple.name2}</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Georgia,'Times New Roman',serif;color:#1a1a1a;background:#fff;padding:32px 28px;font-size:13px}
+h1{font-size:26px;color:#c9394a;margin-bottom:3px}
+.sub{font-size:13px;color:#777;margin-bottom:20px}
+.stats{display:flex;gap:20px;margin-bottom:20px;padding-bottom:14px;border-bottom:2px solid #f0f0f0;flex-wrap:wrap}
+.stat{text-align:center}.stat b{display:block;font-size:18px;font-family:Arial,sans-serif;color:#1a1a1a}
+.stat span{font-size:11px;color:#888;text-transform:uppercase;letter-spacing:.5px}
+table{width:100%;border-collapse:collapse}
+th{text-align:left;padding:7px 6px;border-bottom:2px solid #c9394a;font-size:10px;text-transform:uppercase;letter-spacing:.8px;color:#c9394a;font-family:Arial,sans-serif}
+td{padding:6px 6px;border-bottom:1px solid #f0f0f0;vertical-align:top}
+tr:nth-child(even) td{background:#fafafa}
+td.t{font-weight:600;max-width:210px}
+td.nowrap{white-space:nowrap}
+td.small{font-size:11px;color:#666}
+.stars{color:#c9993a}
+.footer{margin-top:20px;font-size:11px;color:#bbb;text-align:right}
+@media print{body{padding:0}@page{margin:14mm}}
+</style></head><body>
+<h1>Sessão ❤️</h1>
+<div class="sub">${couple.name1} &amp; ${couple.name2} — Diário cinematográfico</div>
+<div class="stats">
+  <div class="stat"><b>${watched.length}</b><span>Títulos</span></div>
+  <div class="stat"><b>${watched.filter(w=>w.type==="movie").length}</b><span>Filmes</span></div>
+  <div class="stat"><b>${watched.filter(w=>w.type==="tv").length}</b><span>Séries</span></div>
+  <div class="stat"><b>${cinemaCount}</b><span>No cinema</span></div>
+  ${totalMins>0?`<div class="stat"><b>${Math.floor(totalMins/60)}h ${totalMins%60}min</b><span>Assistidos</span></div>`:""}
+  ${globalAvg?`<div class="stat"><b>${globalAvg} ★</b><span>Nota média</span></div>`:""}
+</div>
+<table><thead><tr>
+  <th>Título</th><th>Tipo</th><th>Ano</th><th>Onde</th><th>Data</th><th>Nota</th><th>Avaliações</th>
+</tr></thead><tbody>${rows}</tbody></table>
+<div class="footer">Gerado pelo Sessão • ${new Date().toLocaleDateString("pt-BR")}</div>
+</body></html>`;
+
+  const win = window.open("", "_blank");
+  if (!win) return;
+  win.document.write(html);
+  win.document.close();
+  win.focus();
+  setTimeout(() => win.print(), 400);
+}
+
 // profile page
 const ProfilePage = ({ watched, watchlist, couple, users }) => {
   const [showRetro, setShowRetro] = useState(false);
@@ -1866,7 +2124,10 @@ const ProfilePage = ({ watched, watchlist, couple, users }) => {
         {days!==null&&<p className="days-highlight">{days} dias juntos</p>}
         {couple.since&&<p className="text-muted text-muted--compact">Desde {new Date(couple.since+"T12:00:00").toLocaleDateString("pt-BR",{day:"2-digit",month:"long",year:"numeric"})}</p>}
         {watched.length>0 && (
-          <button onClick={()=>setShowRetro(true)} className="retro-btn">✦ Ver Retrospectiva</button>
+          <div className="profile-actions">
+            <button onClick={()=>setShowRetro(true)} className="retro-btn">✦ Ver Retrospectiva</button>
+            <button onClick={()=>exportToPdf(watched,users,couple)} className="export-btn">↓ Exportar lista</button>
+          </div>
         )}
       </div>
 
@@ -2319,7 +2580,7 @@ export default function App() {
 
         {/* pages */}
         <div className="app-shell__content">
-          {page==="home"      && <HomePage      watched={watched} watchlist={watchlist} couple={couple} currentUser={currentUser} users={users}/>}
+          {page==="home"      && <HomePage      watched={watched} watchlist={watchlist} couple={couple} currentUser={currentUser} users={users} onQuickAdd={m=>setAddModal({type:"watched",movie:m})}/>}
           {page==="diary"     && <DiaryPage     watched={watched} users={users} currentUser={currentUser}
                                    onDelete={e=>requestDelete(e,"watched")} onEdit={editWatched} onSaveReview={saveReview} onUpdateStatus={saveStatus}/>}
           {page==="watchlist" && <WatchlistPage watchlist={watchlist} users={users} currentUser={currentUser}

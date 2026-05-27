@@ -1,4 +1,5 @@
-﻿import { useState, useEffect, useRef } from "react";
+﻿import { useState, useEffect, useRef, forwardRef } from "react";
+import { createPortal } from "react-dom";
 import { auth, db } from "./firebase";
 import {
   onAuthStateChanged, signInWithPopup, signOut, GoogleAuthProvider,
@@ -8,10 +9,26 @@ import {
   onSnapshot, query, where, getDocs,
 } from "firebase/firestore";
 import "./App.css";
+import { toPng } from "html-to-image";
 
 const TMDB_BASE = "https://api.themoviedb.org/3";
 const TMDB_IMG = "https://image.tmdb.org/t/p/w500";
 const TMDB_BG   = "https://image.tmdb.org/t/p/w1280";
+
+async function fetchDataUrl(url) {
+  try {
+    const res = await fetch(url);
+    const blob = await res.blob();
+    return await new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(r.result);
+      r.onerror = reject;
+      r.readAsDataURL(blob);
+    });
+  } catch {
+    return null;
+  }
+}
 
 const TMDB_READ_TOKEN = import.meta.env.VITE_TMDB_READ_TOKEN;
 const TMDB_API_KEY = import.meta.env.VITE_TMDB_API_KEY;
@@ -106,6 +123,7 @@ const Ic = ({ n, s=20, style={} }) => {
     clock:    "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z M12 6v6l4 2",
     zap:      "M13 2L3 14h9l-1 8 10-12h-9l1-8z",
     chev:     "M6 9l6 6 6-6",
+    play:     "M5 3l14 9-14 9V3z",
   };
   return (
     <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={style}>
@@ -181,10 +199,11 @@ const ConfirmModal = ({ message, onConfirm, onCancel }) => (
 );
 
 // overlay / modal helpers
-const Overlay = ({ children, onClose }) => (
+const Overlay = ({ children, onClose }) => createPortal(
   <div onClick={e=>{ if(e.target===e.currentTarget) onClose(); }} className="modal-backdrop">
     {children}
-  </div>
+  </div>,
+  document.body
 );
 
 const Modal = ({ title, onClose, children, maxW=480, banner }) => (
@@ -361,6 +380,7 @@ const WatchedForm = ({ users, currentUser, initial, onSave, onClose, title }) =>
     Object.fromEntries(users.map(u=>[u,{ rating:initial?.reviews?.[u]?.rating||0, text:initial?.reviews?.[u]?.text||"" }]))
   );
   const [seasonsWatched, setSeasonsWatched] = useState(initial?.seasonsWatched||[]);
+  const [seriesStatus, setSeriesStatus] = useState(initial?.status||"completed");
 
   const setReview = (user,field,val) => setReviews(r=>({...r,[user]:{...r[user],[field]:val}}));
 
@@ -370,6 +390,7 @@ const WatchedForm = ({ users, currentUser, initial, onSave, onClose, title }) =>
       id: initial?.id||Date.now().toString(),
       ...movie,
       where, date, reviews, seasonsWatched,
+      status: movie.type==="tv" ? seriesStatus : "completed",
       addedBy: initial?.addedBy||currentUser,
       createdAt: initial?.createdAt||new Date().toISOString(),
     });
@@ -394,17 +415,29 @@ const WatchedForm = ({ users, currentUser, initial, onSave, onClose, title }) =>
           )}
         </div>
 
+        {movie.type==="tv" && (
+          <div className="field-block">
+            <Label>Status da série</Label>
+            <SegBtn options={[["watching","Assistindo"],["completed","Concluída"],["dropped","Abandonada"]]}
+              value={seriesStatus} onChange={setSeriesStatus}
+              colorMap={{watching:"#60a5fa",completed:"#22c55e",dropped:"#c9394a"}}/>
+          </div>
+        )}
+
         {movie.type==="tv" && movie.numberOfSeasons>0 && (
           <div className="field-block">
-            <Label>Temporadas assistidas</Label>
+            <Label>{seriesStatus==="watching"?"Até onde chegaram?":seriesStatus==="dropped"?"Até onde foram?":"Temporadas assistidas"}</Label>
+            {(seriesStatus==="watching"||seriesStatus==="dropped") && (
+              <div className="field-sub">{seriesStatus==="watching"?"Marque a última temporada que assistiram":"Até onde assistiram antes de parar"}</div>
+            )}
             <SeasonPills count={movie.numberOfSeasons} selected={seasonsWatched} onChange={setSeasonsWatched}/>
           </div>
         )}
 
         <div className="field-block">
           <Label>Onde assistiram?</Label>
-          <SegBtn options={[["cinema","🎬 Cinema"],["streaming","📺 Streaming"]]}
-            value={where} onChange={setWhere} colorMap={{cinema:"#d97706",streaming:"#0284c7"}}/>
+          <SegBtn options={[["cinema","Cinema"],["streaming","Streaming"]]}
+            value={where} onChange={setWhere} colorMap={{cinema:"#c9993a",streaming:"#60a5fa"}}/>
         </div>
 
         <div className="field-block field-block--wide">
@@ -421,7 +454,7 @@ const WatchedForm = ({ users, currentUser, initial, onSave, onClose, title }) =>
                   <Avatar name={u} size={26}/>
                   <span className="review-card__name">{u}</span>
                   <div className="ml-auto">
-                    <Stars val={reviews[u]?.rating} onChange={v=>setReview(u,"rating",v)} size={20}/>
+                    <Stars val={reviews[u]?.rating} onChange={v=>setReview(u,"rating",v)} size={22}/>
                   </div>
                 </div>
                 <textarea value={reviews[u]?.text} onChange={e=>setReview(u,"text",e.target.value)}
@@ -463,8 +496,8 @@ const AddWatchlistModal = ({ currentUser, onSave, onClose }) => {
         </div>
         <div className="field-block">
           <Label>Prioridade</Label>
-          <SegBtn options={[["baixa","🟢 Baixa"],["normal","🟡 Normal"],["alta","🔴 Alta"]]}
-            value={priority} onChange={setPriority} colorMap={{baixa:"#059669",normal:"#d97706",alta:"#e63946"}}/>
+          <SegBtn options={[["baixa","Baixa"],["normal","Normal"],["alta","Alta"]]}
+            value={priority} onChange={setPriority} colorMap={{baixa:"#22c55e",normal:"#c9993a",alta:"#c9394a"}}/>
         </div>
         <div className="field-block field-block--wide">
           <Label>Por que indicar?</Label>
@@ -484,11 +517,144 @@ const AddWatchlistModal = ({ currentUser, onSave, onClose }) => {
   );
 };
 
+// share card (rendered off-screen for html-to-image capture)
+const ShareCard = forwardRef(({ entry, users, format, images }, ref) => {
+  const isStory = format === "story";
+  const W = isStory ? 360 : 400;
+  const H = isStory ? 640 : 400;
+
+  const rs = Object.values(entry.reviews || {}).map(r => r.rating).filter(Boolean);
+  const avg = rs.length ? (rs.reduce((a,b) => a+b, 0) / rs.length).toFixed(1) : null;
+  const userRatings = users.map(u => ({ name:u, rating:entry.reviews?.[u]?.rating||0 })).filter(r => r.rating > 0);
+
+  const Stars = ({ n, size=14 }) => (
+    <span style={{ display:"flex", gap:2 }}>
+      {Array.from({length:5},(_,i) => (
+        <span key={i} style={{ color:i<n?"#c9993a":"rgba(255,255,255,0.15)", fontSize:size, lineHeight:1 }}>★</span>
+      ))}
+    </span>
+  );
+
+  if (isStory) {
+    return (
+      <div ref={ref} style={{ width:W, height:H, position:"relative", overflow:"hidden", background:"#08080f", fontFamily:"'Arial',sans-serif", boxSizing:"border-box" }}>
+        {images?.backdrop && (
+          <img src={images.backdrop} alt="" style={{ position:"absolute", inset:0, width:"100%", height:"100%", objectFit:"cover", filter:"brightness(0.3) saturate(0.5)" }}/>
+        )}
+        <div style={{ position:"absolute", inset:0, background:"linear-gradient(to bottom,rgba(8,8,15,0.1) 0%,rgba(8,8,15,0.4) 35%,rgba(8,8,15,0.9) 60%,#08080f 80%)" }}/>
+        <div style={{ position:"relative", width:"100%", height:"100%", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"flex-end", paddingBottom:32, boxSizing:"border-box" }}>
+          {images?.poster && (
+            <img src={images.poster} alt="" style={{ width:130, height:196, objectFit:"cover", borderRadius:12, boxShadow:"0 16px 48px rgba(0,0,0,0.85)", position:"absolute", top:"50%", left:"50%", transform:"translate(-50%,-50%) translateY(-70px)" }}/>
+          )}
+          <div style={{ textAlign:"center", padding:"0 28px", width:"100%", boxSizing:"border-box" }}>
+            <div style={{ display:"inline-block", background:entry.type==="tv"?"rgba(139,126,200,0.2)":"rgba(201,57,74,0.2)", border:`1px solid ${entry.type==="tv"?"rgba(139,126,200,0.4)":"rgba(201,57,74,0.4)"}`, borderRadius:20, padding:"3px 12px", fontSize:10, fontWeight:700, letterSpacing:1.2, color:entry.type==="tv"?"#a78bfa":"#f87171", marginBottom:10 }}>
+              {entry.type==="tv"?"SÉRIE":"FILME"}{entry.year?` • ${entry.year}`:""}
+            </div>
+            <div style={{ fontFamily:"'Georgia',serif", fontSize:22, fontWeight:700, color:"#f0ede8", lineHeight:1.25, marginBottom:14, textShadow:"0 2px 8px rgba(0,0,0,0.9)" }}>
+              {entry.title}
+            </div>
+            {userRatings.length>0 && (
+              <div style={{ display:"flex", flexDirection:"column", gap:6, alignItems:"center", marginBottom:16 }}>
+                {userRatings.map(({name,rating}) => (
+                  <div key={name} style={{ display:"flex", alignItems:"center", gap:8 }}>
+                    <span style={{ fontSize:11, color:"#9b98a3", minWidth:70, textAlign:"right" }}>{name}</span>
+                    <Stars n={rating} size={13}/>
+                    <span style={{ fontSize:11, color:"#c9993a", fontWeight:700 }}>{rating}/5</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div style={{ borderTop:"1px solid rgba(255,255,255,0.1)", paddingTop:10, fontSize:11, color:"rgba(255,255,255,0.3)", letterSpacing:0.5 }}>
+              Sessão ❤️
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // square format
+  return (
+    <div ref={ref} style={{ width:W, height:H, position:"relative", overflow:"hidden", background:"#0d0d1a", fontFamily:"'Arial',sans-serif", display:"flex", flexDirection:"column", boxSizing:"border-box" }}>
+      <div style={{ display:"flex", flex:1, minHeight:0 }}>
+        <div style={{ width:140, flexShrink:0, position:"relative", overflow:"hidden" }}>
+          {images?.poster
+            ? <img src={images.poster} alt="" style={{ width:"100%", height:"100%", objectFit:"cover" }}/>
+            : <div style={{ width:"100%", height:"100%", background:"#1a1a2e", display:"flex", alignItems:"center", justifyContent:"center" }}><span style={{ fontSize:28, color:"rgba(255,255,255,0.2)" }}>🎬</span></div>
+          }
+          <div style={{ position:"absolute", inset:0, background:"linear-gradient(to right,transparent 55%,#0d0d1a 100%)" }}/>
+        </div>
+        <div style={{ flex:1, padding:"22px 18px 18px 14px", display:"flex", flexDirection:"column", justifyContent:"center", minWidth:0 }}>
+          <div style={{ fontSize:10, fontWeight:700, letterSpacing:1.5, color:entry.type==="tv"?"#a78bfa":"#f87171", marginBottom:8, textTransform:"uppercase" }}>
+            {entry.type==="tv"?"SÉRIE":"FILME"}{entry.year?` • ${entry.year}`:""}
+          </div>
+          <div style={{ fontFamily:"'Georgia',serif", fontSize:17, fontWeight:700, color:"#f0ede8", lineHeight:1.3, marginBottom:14 }}>
+            {entry.title}
+          </div>
+          {avg && (
+            <div style={{ marginBottom:10 }}>
+              <Stars n={Math.round(parseFloat(avg))} size={15}/>
+              <div style={{ fontSize:11, color:"#5a5866", marginTop:3 }}>
+                Nota: <span style={{ color:"#c9993a", fontWeight:700 }}>{avg}</span>
+              </div>
+            </div>
+          )}
+          {userRatings.map(({name,rating}) => (
+            <div key={name} style={{ display:"flex", alignItems:"center", gap:6, marginBottom:4 }}>
+              <span style={{ fontSize:10, color:"#9b98a3", minWidth:55, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{name}</span>
+              <Stars n={rating} size={11}/>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div style={{ borderTop:"1px solid rgba(255,255,255,0.06)", padding:"7px 18px", display:"flex", justifyContent:"flex-end", flexShrink:0 }}>
+        <span style={{ fontSize:10, color:"rgba(255,255,255,0.22)", letterSpacing:0.5 }}>Sessão ❤️</span>
+      </div>
+    </div>
+  );
+});
+ShareCard.displayName = "ShareCard";
+
 // detail modal
-const DetailModal = ({ entry, users, onClose, onMarkWatched, onEdit, onSaveReview, currentUser, fromWatchlist }) => {
+const DetailModal = ({ entry, users, onClose, onMarkWatched, onEdit, onSaveReview, currentUser, fromWatchlist, onUpdateStatus }) => {
   const [inlineRating, setInlineRating] = useState(0);
   const [inlineText, setInlineText] = useState("");
   const [savingReview, setSavingReview] = useState(false);
+  const [statusDropdown, setStatusDropdown] = useState(false);
+  const statusRef = useRef(null);
+  const shareCardRef = useRef(null);
+  const [shareFormat, setShareFormat] = useState("story");
+  const [shareTask, setShareTask] = useState(null);
+  const [shareImages, setShareImages] = useState(null);
+  const [capturedDataUrl, setCapturedDataUrl] = useState(null);
+  const [providers, setProviders] = useState(null);
+  useEffect(() => {
+    if (!statusDropdown) return;
+    const close = e => { if (statusRef.current && !statusRef.current.contains(e.target)) setStatusDropdown(false); };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [statusDropdown]);
+
+  useEffect(() => {
+    if (shareTask !== "capturing" || !shareImages || !shareCardRef.current) return;
+    const ratio = shareFormat === "story" ? 3 : 2;
+    requestAnimationFrame(() => {
+      toPng(shareCardRef.current, { pixelRatio:ratio, cacheBust:true })
+        .then(url => { setCapturedDataUrl(url); setShareTask("done"); })
+        .catch(() => setShareTask(null));
+    });
+  }, [shareTask, shareImages, shareFormat]);
+
+  useEffect(() => {
+    if (!entry.tmdbId) { setProviders({ flatrate:[], link:null }); return; }
+    const ep = entry.type === "tv" ? "tv" : "movie";
+    tmdbRequest(`/${ep}/${entry.tmdbId}/watch/providers`)
+      .then(data => {
+        const br = data.results?.BR;
+        setProviders({ flatrate: br?.flatrate||[], link: br?.link||null });
+      })
+      .catch(() => setProviders({ flatrate:[], link:null }));
+  }, []);
 
   const poster   = entry.poster   ? `${TMDB_IMG}${entry.poster}` : null;
   const backdrop = entry.backdrop ? `${TMDB_BG}${entry.backdrop}` : null;
@@ -511,6 +677,47 @@ const DetailModal = ({ entry, users, onClose, onMarkWatched, onEdit, onSaveRevie
     if (s.length===1) return `T${s[0]}`;
     const seq = s.every((v,i)=>i===0||v===s[i-1]+1);
     return seq ? `T${s[0]}→T${s[s.length-1]}` : s.map(x=>`T${x}`).join(", ");
+  };
+
+  const handleFormatChange = v => {
+    setShareFormat(v);
+    if (shareTask === "done") { setShareTask(null); setCapturedDataUrl(null); }
+  };
+
+  const handleShare = async () => {
+    setShareTask("loading");
+    setCapturedDataUrl(null);
+    setShareImages(null);
+    const [posterData, backdropData] = await Promise.all([
+      entry.poster   ? fetchDataUrl(`${TMDB_IMG}${entry.poster}`)  : Promise.resolve(null),
+      entry.backdrop ? fetchDataUrl(`${TMDB_BG}${entry.backdrop}`) : Promise.resolve(null),
+    ]);
+    setShareImages({ poster:posterData, backdrop:backdropData });
+    setShareTask("capturing");
+  };
+
+  const handleDownload = () => {
+    if (!capturedDataUrl) return;
+    const a = document.createElement("a");
+    a.href = capturedDataUrl;
+    a.download = `sessao-${entry.title.replace(/[^a-z0-9]/gi,"-").toLowerCase()}.png`;
+    a.click();
+  };
+
+  const handleWebShare = async () => {
+    if (!capturedDataUrl) return;
+    try {
+      const res = await fetch(capturedDataUrl);
+      const blob = await res.blob();
+      const file = new File([blob], `sessao-${entry.title.slice(0,20).replace(/\s+/g,"-")}.png`, { type:"image/png" });
+      if (navigator.canShare?.({ files:[file] })) {
+        await navigator.share({ files:[file], title:entry.title });
+      } else {
+        handleDownload();
+      }
+    } catch {
+      handleDownload();
+    }
   };
 
   return (
@@ -543,7 +750,27 @@ const DetailModal = ({ entry, users, onClose, onMarkWatched, onEdit, onSaveRevie
               {isDiscord && <span className="detail-badge detail-badge--discord">⚡ Discordaram</span>}
               {seasonLabel() && <span className="detail-badge detail-badge--season">{seasonLabel()}</span>}
               {entry.tmdbRating && <span className="detail-badge detail-badge--rating">TMDB ★ {entry.tmdbRating}</span>}
+              {entry.type==="tv"&&entry.status==="watching" && <span className="detail-badge detail-badge--watching">● ASSISTINDO</span>}
+              {entry.type==="tv"&&entry.status==="dropped"  && <span className="detail-badge detail-badge--dropped">● ABANDONADA</span>}
             </div>
+            {entry.type==="tv" && !fromWatchlist && onUpdateStatus && (
+              <div className="status-update-wrap" ref={statusRef}>
+                <button onClick={()=>setStatusDropdown(d=>!d)} className="status-update-link">
+                  Atualizar status →
+                </button>
+                {statusDropdown && (
+                  <div className="status-mini-dropdown">
+                    {[["watching","Assistindo"],["completed","Concluída"],["dropped","Abandonada"]].map(([v,l])=>(
+                      <button key={v}
+                        className={`status-mini-item ${(entry.status||"completed")===v?"status-mini-item--active":""}`}
+                        onClick={async()=>{ await onUpdateStatus(entry.id,v); setStatusDropdown(false); }}>
+                        {l}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
           {onEdit && (
             <button onClick={onEdit} className={`icon-button icon-button--soft ${backdrop?"":"icon-button--floating"}`}>
@@ -593,6 +820,35 @@ const DetailModal = ({ entry, users, onClose, onMarkWatched, onEdit, onSaveRevie
               className="imdb-link">
               <Ic n="link" s={14}/> Ver no IMDB
             </a>
+          </div>
+        )}
+
+        {/* where to watch */}
+        {entry.tmdbId && (
+          <div className="field-block field-block--wide">
+            <Label>Onde assistir</Label>
+            {providers === null ? (
+              <p className="providers-loading">Verificando...</p>
+            ) : (
+              <>
+                {providers.flatrate.length > 0 ? (
+                  <div className="providers-row">
+                    {providers.flatrate.slice(0,6).map(p=>(
+                      <div key={p.provider_id} className="provider-chip" title={p.provider_name}>
+                        <img src={`https://image.tmdb.org/t/p/w92${p.logo_path}`} alt={p.provider_name} className="provider-logo"/>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="providers-empty">Não disponível em streaming no Brasil</p>
+                )}
+                {providers.link && (
+                  <a href={providers.link} target="_blank" rel="noopener noreferrer" className="justwatch-link">
+                    <Ic n="link" s={11}/> Ver no JustWatch
+                  </a>
+                )}
+              </>
+            )}
           </div>
         )}
 
@@ -654,6 +910,43 @@ const DetailModal = ({ entry, users, onClose, onMarkWatched, onEdit, onSaveRevie
           <div className="field-block field-block--wide">
             <Label>Sinopse</Label>
             <p className="detail-copy">{entry.overview}</p>
+          </div>
+        )}
+
+        {/* share */}
+        {!fromWatchlist && (
+          <div className="share-section">
+            <Label>Compartilhar</Label>
+            <div className="share-format-row">
+              {[["story","Stories 9:16"],["square","Feed 1:1"]].map(([v,l])=>(
+                <button key={v} onClick={()=>handleFormatChange(v)}
+                  className={`segmented-group__button ${shareFormat===v?"segmented-group__button--active":""}`}
+                  style={{"--segmented-accent":"#c9394a"}}>
+                  {l}
+                </button>
+              ))}
+            </div>
+            {shareTask===null && (
+              <button onClick={handleShare} className="share-generate-btn">Gerar card para compartilhar</button>
+            )}
+            {(shareTask==="loading"||shareTask==="capturing") && (
+              <div className="share-loading">{shareTask==="loading"?"Buscando imagens...":"Gerando card..."}</div>
+            )}
+            {shareTask==="done"&&capturedDataUrl && (
+              <div className="share-done">
+                <img src={capturedDataUrl} alt="" className="share-preview"/>
+                <div className="share-actions">
+                  <button onClick={handleDownload} className="share-action-btn share-action-btn--ghost">Salvar imagem</button>
+                  <button onClick={handleWebShare} className="share-action-btn share-action-btn--primary">Compartilhar</button>
+                </div>
+                <button onClick={handleShare} className="share-reset">↺ Gerar de novo</button>
+              </div>
+            )}
+            {shareImages&&shareTask==="capturing" && (
+              <div style={{position:"fixed",left:-9999,top:-9999,pointerEvents:"none",zIndex:-1}}>
+                <ShareCard ref={shareCardRef} entry={entry} users={users} format={shareFormat} images={shareImages}/>
+              </div>
+            )}
           </div>
         )}
 
@@ -863,6 +1156,7 @@ const HomePage = ({ watched, watchlist, couple, currentUser }) => {
   const avgR = allRatings.length ? (allRatings.reduce((a, b) => a + b, 0) / allRatings.length).toFixed(1) : null;
   const totalMins = watched.reduce((s, w) => s + (w.runtime || 0), 0);
   const recent = [...watched].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).slice(0, 4);
+  const watching = watched.filter(w=>w.type==="tv"&&w.status==="watching");
   const days = couple.since ? Math.floor((new Date() - new Date(couple.since)) / 86400000) : null;
   const nextWatch = [...watchlist].sort((a, b) => {
     const p = { alta: 0, normal: 1, baixa: 2 };
@@ -873,34 +1167,29 @@ const HomePage = ({ watched, watchlist, couple, currentUser }) => {
     <div>
       <div className="hero-panel">
         <div className="hero-panel__eyebrow">BEM-VINDO DE VOLTA</div>
-        <h2 className="hero-panel__title">Olá, {currentUser}!</h2>
+        <h2 className="hero-panel__title">Olá, {currentUser}</h2>
         {days !== null && <p className="hero-panel__meta">{couple.name1} & {couple.name2} • {days} dias juntos</p>}
       </div>
 
       <div className="stat-grid">
         {[
-          { v: totMovies + totSeries, l: "Total assistidos", icon: "film" },
-          { v: totCinema, l: "No cinema", icon: "star" },
-          { v: totMovies, l: "Filmes", icon: "film" },
-          { v: avgR ? `${avgR}  ★` : "—", l: "Nota média", icon: "star" },
+          { v: totMovies + totSeries, l: "Total assistidos" },
+          { v: totCinema, l: "No cinema" },
+          { v: totMovies, l: "Filmes" },
+          { v: avgR ? <>{avgR}<span className="stat-star">★</span></> : "—", l: "Nota média" },
         ].map(s => (
           <div key={s.l} className="stat-card">
-            <div className="stat-card__icon icon--info"><Ic n={s.icon} s={20} /></div>
             <div className="stat-card__value">{s.v}</div>
             <div className="stat-card__label">{s.l}</div>
           </div>
         ))}
-      </div>
-
-      {totalMins > 0 && (
-        <div className="info-card">
-          <span className="icon--info"><Ic n="clock" s={22} /></span>
-          <div>
-            <div className="value-large">{Math.floor(totalMins / 60)}h {totalMins % 60}min</div>
-            <div className="muted-small">assistidos juntos</div>
+        {totalMins > 0 && (
+          <div className="stat-card info-card" style={{ gridColumn: "span 2" }}>
+            <div className="stat-card__value" style={{ fontSize: "28px", letterSpacing: "-0.5px" }}>{Math.floor(totalMins / 60)}h {totalMins % 60}min</div>
+            <div className="stat-card__label">assistidos juntos</div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
       {nextWatch && (
         <div className="surface-card surface-card--violet mb-22">
@@ -916,6 +1205,32 @@ const HomePage = ({ watched, watchlist, couple, currentUser }) => {
         </div>
       )}
 
+      {watching.length>0 && (
+        <>
+          <div className="section-label watching-label">EM ANDAMENTO</div>
+          <div className="watching-scroll">
+            {watching.map(e=>{
+              const s=e.seasonsWatched||[];
+              const seasonText=s.length===0?"Em andamento":
+                s.length===1?`T${s[0]} assistida`:
+                s.every((v,i)=>i===0||v===s[i-1]+1)?`T${s[0]}-T${s[s.length-1]} assistidas`:
+                `Até T${Math.max(...s)}`;
+              return (
+                <div key={e.id} className="watching-card">
+                  {e.poster
+                    ?<img src={`${TMDB_IMG}${e.poster}`} alt="" className="watching-card__poster"/>
+                    :<div className="watching-card__poster watching-card__poster--fallback"><Ic n="tv" s={24}/></div>}
+                  <div className="watching-card__footer">
+                    <div className="watching-card__title">{e.title}</div>
+                    <div className="watching-card__seasons">{seasonText}</div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+
       {recent.length > 0 && (
         <>
           <div className="section-heading">ASSISTIDOS RECENTEMENTE</div>
@@ -924,7 +1239,7 @@ const HomePage = ({ watched, watchlist, couple, currentUser }) => {
               const rs = Object.values(e.reviews || {}).map(r => r.rating).filter(Boolean);
               const avg = rs.length ? (rs.reduce((a, b) => a + b, 0) / rs.length).toFixed(1) : null;
               return (
-                <div key={e.id} className="surface-card list-item">
+                <div key={e.id} className="list-item">
                   {e.poster
                     ? <img src={`${TMDB_IMG}${e.poster}`} alt="" className="poster-small" />
                     : <div className="poster-placeholder--small" />}
@@ -959,11 +1274,11 @@ const HomePage = ({ watched, watchlist, couple, currentUser }) => {
 };
 
 // diary page
-const DiaryPage = ({ watched, users, currentUser, onDelete, onEdit, onSaveReview }) => {
+const DiaryPage = ({ watched, users, currentUser, onDelete, onEdit, onSaveReview, onUpdateStatus }) => {
   const [sel, setSel] = useState(null);
   const [editing, setEditing] = useState(null);
   const [search, setSearch] = useState("");
-  const [filters, setFilters] = useState({ type:"all", where:"all", rating:"all", genre:"all", sort:"recent" });
+  const [filters, setFilters] = useState({ type:"all", where:"all", rating:"all", genre:"all", sort:"recent", status:"all" });
   const [showFilters, setShowFilters] = useState(false);
 
   const allGenres = [...new Set(watched.flatMap(w=>w.genres||[]))].sort();
@@ -987,13 +1302,14 @@ const DiaryPage = ({ watched, users, currentUser, onDelete, onEdit, onSaveReview
     if(filters.rating==="low") return avg>0&&avg<3;
     return true;
   });
+  if (filters.status==="watching") items = items.filter(w=>w.type==="tv"&&(w.status==="watching"));
   if (filters.sort==="recent")  items.sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt));
   if (filters.sort==="oldest")  items.sort((a,b)=>new Date(a.createdAt)-new Date(b.createdAt));
   if (filters.sort==="rated")   items.sort((a,b)=>avgRating(b)-avgRating(a));
   if (filters.sort==="az")      items.sort((a,b)=>a.title.localeCompare(b.title));
 
-  const hasActive = search||filters.type!=="all"||filters.where!=="all"||filters.rating!=="all"||filters.genre!=="all"||filters.sort!=="recent";
-  const clearAll = () => { setSearch(""); setFilters({type:"all",where:"all",rating:"all",genre:"all",sort:"recent"}); };
+  const hasActive = search||filters.type!=="all"||filters.where!=="all"||filters.rating!=="all"||filters.genre!=="all"||filters.sort!=="recent"||filters.status!=="all";
+  const clearAll = () => { setSearch(""); setFilters({type:"all",where:"all",rating:"all",genre:"all",sort:"recent",status:"all"}); };
 
   return (
     <div>
@@ -1001,7 +1317,8 @@ const DiaryPage = ({ watched, users, currentUser, onDelete, onEdit, onSaveReview
         <DetailModal entry={sel} users={users} currentUser={currentUser}
           onClose={()=>setSel(null)}
           onEdit={()=>{ setEditing(sel); setSel(null); }}
-          onSaveReview={onSaveReview}/>
+          onSaveReview={onSaveReview}
+          onUpdateStatus={onUpdateStatus}/>
       )}
       {editing && (
         <WatchedForm users={users} currentUser={currentUser}
@@ -1023,6 +1340,11 @@ const DiaryPage = ({ watched, users, currentUser, onDelete, onEdit, onSaveReview
       <div className="filters-row">
         <button onClick={()=>setShowFilters(f=>!f)} className={`segmented-button ${showFilters||hasActive?"segmented-button--active":""}`}>
           <Ic n="filter" s={14}/> Filtros {hasActive?" •":""}
+        </button>
+        <button onClick={()=>setF("status",filters.status==="watching"?"all":"watching")}
+          className={`segmented-button ${filters.status==="watching"?"segmented-button--active":""}`}
+          style={{"--segmented-accent":"#60a5fa"}}>
+          Em andamento
         </button>
         {hasActive && (
           <button onClick={clearAll} className="segmented-button">Limpar</button>
@@ -1107,6 +1429,8 @@ const DiaryPage = ({ watched, users, currentUser, onDelete, onEdit, onSaveReview
                   <div className={`poster-badge ${e.type==="tv"?"poster-badge--tv":"poster-badge--movie"}`}>
                     {e.type==="tv"?"SÉRIE":"FILME"}
                   </div>
+                  {e.type==="tv"&&e.status==="watching" && <div className="poster-status-badge poster-status-badge--watching">● ASSISTINDO</div>}
+                  {e.type==="tv"&&e.status==="dropped"  && <div className="poster-status-badge poster-status-badge--dropped">● ABANDONADA</div>}
                   {avg && <div className="poster-avg"><span className="avg-highlight">★ {avg}</span></div>}
                   {isDiscord && (
                     <div className="poster-flag">
@@ -1170,7 +1494,7 @@ const WatchlistPage = ({ watchlist, users, currentUser, onDelete, onMarkWatched 
       </div>
 
       <div className="filters-row">
-        {[ ["all","Todos"],["movie","Filmes"],["tv","SÉries"],["alta","Alta prioridade"] ].map(([v,l])=>(
+        {[ ["all","Todos"],["movie","Filmes"],["tv","Séries"],["alta","Alta prioridade"] ].map(([v,l])=>(
           <button key={v} onClick={() => setFilter(v)} className={`segmented-button ${filter === v ? "segmented-button--active" : ""} ${v==='tv'?'segmented-button--tv':v==='movie'?'segmented-button--movie':''}`}>{l}</button>
         ))}
           <div className="ml-auto">
@@ -1224,8 +1548,249 @@ const WatchlistPage = ({ watchlist, users, currentUser, onDelete, onMarkWatched 
   );
 };
 
+// retrospectiva modal
+const RetroModal = ({ watched, users, couple, onClose }) => {
+  const years = [...new Set(
+    watched.map(w => {
+      const ds = w.date || (w.createdAt||"").slice(0,10);
+      return ds ? new Date(ds+"T12:00:00").getFullYear() : null;
+    }).filter(Boolean)
+  )].sort((a,b) => b-a);
+
+  const [year, setYear] = useState(years[0] || new Date().getFullYear());
+
+  const items = watched.filter(w => {
+    const ds = w.date || (w.createdAt||"").slice(0,10);
+    return ds && new Date(ds+"T12:00:00").getFullYear() === year;
+  });
+
+  const avgR = w => {
+    const rs = Object.values(w.reviews||{}).map(r=>r.rating).filter(Boolean);
+    return rs.length ? rs.reduce((a,b)=>a+b,0)/rs.length : 0;
+  };
+
+  const totalMins   = items.reduce((s,w)=>s+(w.runtime||0),0);
+  const cinemaCount = items.filter(w=>w.where==="cinema").length;
+  const streamCount = items.filter(w=>w.where==="streaming").length;
+
+  const allRatings = items.flatMap(w=>Object.values(w.reviews||{}).map(r=>r.rating).filter(Boolean));
+  const globalAvg  = allRatings.length?(allRatings.reduce((a,b)=>a+b,0)/allRatings.length).toFixed(1):null;
+
+  const bestRated = [...items].filter(w=>avgR(w)>0).sort((a,b)=>avgR(b)-avgR(a))[0]||null;
+
+  const monthCount = {};
+  items.forEach(w=>{ const m=(w.date||w.createdAt||"").slice(0,7); if(m) monthCount[m]=(monthCount[m]||0)+1; });
+  const topMonth = Object.entries(monthCount).sort((a,b)=>b[1]-a[1])[0]||null;
+
+  const genreCount = {};
+  items.forEach(w=>(w.genres||[]).forEach(g=>{ genreCount[g]=(genreCount[g]||0)+1; }));
+  const topGenres = Object.entries(genreCount).sort((a,b)=>b[1]-a[1]).slice(0,4);
+  const maxGenre  = topGenres[0]?.[1]||1;
+
+  const discordItems = items.filter(w=>{
+    const rs = users.map(u=>w.reviews?.[u]?.rating||0).filter(Boolean);
+    return rs.length===2 && Math.abs(rs[0]-rs[1])>=2;
+  });
+  const biggestDiscord = discordItems.length ? discordItems.reduce((a,b)=>{
+    const da=Math.abs((a.reviews?.[users[0]]?.rating||0)-(a.reviews?.[users[1]]?.rating||0));
+    const db=Math.abs((b.reviews?.[users[0]]?.rating||0)-(b.reviews?.[users[1]]?.rating||0));
+    return db>da?b:a;
+  }) : null;
+
+  const sorted     = [...items].sort((a,b)=>new Date(a.date||a.createdAt)-new Date(b.date||b.createdAt));
+  const firstEntry = sorted[0]||null;
+  const lastEntry  = sorted.length>1 ? sorted[sorted.length-1] : null;
+
+  const fmtMonth = m => {
+    if(!m) return "";
+    const [y,mo]=m.split("-");
+    return new Date(+y,+mo-1,1).toLocaleDateString("pt-BR",{month:"long"});
+  };
+  const fmtDate = d => d?new Date(d+"T12:00:00").toLocaleDateString("pt-BR",{day:"2-digit",month:"short"}):"";
+
+  return (
+    <Overlay onClose={onClose}>
+      <Modal title="" onClose={onClose} maxW={540}
+        banner={
+          <div className="retro-banner">
+            <div className="retro-banner__lines"/>
+            <div className="retro-banner__glow"/>
+            <div className="retro-banner__content">
+              <div className="retro-banner__eyebrow">RETROSPECTIVA</div>
+              <div className="retro-banner__year">{year}</div>
+              <div className="retro-banner__couple">{couple.name1} & {couple.name2}</div>
+            </div>
+          </div>
+        }
+      >
+        {years.length>1 && (
+          <div className="retro-year-row">
+            {years.map(y=>(
+              <button key={y} onClick={()=>setYear(y)}
+                className={`segmented-group__button ${year===y?"segmented-group__button--active":""}`}
+                style={{"--segmented-accent":"#c9394a"}}>
+                {y}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {items.length===0 ? (
+          <div className="retro-empty">
+            <div style={{fontSize:40,marginBottom:12}}>🎬</div>
+            <p className="text-muted">Nenhuma sessão registrada em {year}</p>
+          </div>
+        ) : (
+          <>
+            {/* hero count */}
+            <div className="retro-hero">
+              <div className="retro-hero__number">{items.length}</div>
+              <div className="retro-hero__label">sessões em {year}</div>
+              <div className="retro-hero__sub">
+                {items.filter(w=>w.type==="movie").length} filmes · {items.filter(w=>w.type==="tv").length} séries
+              </div>
+            </div>
+
+            {/* hours + avg */}
+            <div className="retro-row-2">
+              {totalMins>0 && (
+                <div className="retro-mini retro-mini--gold">
+                  <div className="retro-mini__label">HORAS</div>
+                  <div className="retro-mini__value">{Math.floor(totalMins/60)}h {totalMins%60>0?`${totalMins%60}min`:""}</div>
+                </div>
+              )}
+              {globalAvg && (
+                <div className="retro-mini retro-mini--star">
+                  <div className="retro-mini__label">MÉDIA</div>
+                  <div className="retro-mini__value">{globalAvg}<span className="retro-mini__star">★</span></div>
+                </div>
+              )}
+            </div>
+
+            {/* cinema vs streaming */}
+            {(cinemaCount>0||streamCount>0) && (
+              <div className="retro-card">
+                <div className="retro-card__label">CINEMA vs STREAMING</div>
+                <div className="bar-row" style={{margin:"10px 0 8px"}}>
+                  {cinemaCount>0&&<div style={{flex:cinemaCount}} className="bar--cinema"/>}
+                  {streamCount>0&&<div style={{flex:streamCount}} className="bar--stream"/>}
+                </div>
+                <div className="retro-split">
+                  <span>🎬 Cinema <strong>{cinemaCount}</strong></span>
+                  <span>📺 Streaming <strong>{streamCount}</strong></span>
+                </div>
+              </div>
+            )}
+
+            {/* most active month */}
+            {topMonth && (
+              <div className="retro-card retro-card--accent">
+                <div className="retro-card__label">MÊS MAIS ATIVO</div>
+                <div className="retro-card__big">{fmtMonth(topMonth[0])}</div>
+                <div className="retro-card__sub">{topMonth[1]} sessão{topMonth[1]!==1?"ões":""} nesse mês</div>
+              </div>
+            )}
+
+            {/* top genres */}
+            {topGenres.length>0 && (
+              <div className="retro-card">
+                <div className="retro-card__label">GÊNEROS FAVORITOS</div>
+                <div className="retro-genres">
+                  {topGenres.map(([g,c])=>(
+                    <div key={g} className="retro-genre-row">
+                      <span className="retro-genre-name">{g}</span>
+                      <div className="retro-genre-track"><div className="retro-genre-fill" style={{width:`${c/maxGenre*100}%`}}/></div>
+                      <span className="retro-genre-count">{c}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* best rated */}
+            {bestRated && (
+              <div className="retro-card retro-card--gold">
+                <div className="retro-card__label">MELHOR AVALIADO DO ANO</div>
+                <div className="retro-movie-row">
+                  {bestRated.poster&&<img src={`${TMDB_IMG}${bestRated.poster}`} alt="" className="retro-poster"/>}
+                  <div>
+                    <div className="retro-movie-title">{bestRated.title}</div>
+                    <div className="retro-movie-meta">{bestRated.year} · ★ {avgR(bestRated).toFixed(1)}</div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* biggest discord */}
+            {biggestDiscord && (
+              <div className="retro-card retro-card--discord">
+                <div className="retro-card__label">⚡ MAIOR DISCORDÂNCIA</div>
+                <div className="retro-movie-row">
+                  {biggestDiscord.poster&&<img src={`${TMDB_IMG}${biggestDiscord.poster}`} alt="" className="retro-poster"/>}
+                  <div style={{flex:1}}>
+                    <div className="retro-movie-title">{biggestDiscord.title}</div>
+                    {users.map(u=>{
+                      const r=biggestDiscord.reviews?.[u]?.rating||0;
+                      return r>0?(
+                        <div key={u} className="retro-discord-line">
+                          <span>{u}</span><span className="retro-discord-rating">★{r}</span>
+                        </div>
+                      ):null;
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* first + last */}
+            {(firstEntry||lastEntry) && (
+              <div className="retro-row-2">
+                {firstEntry && (
+                  <div className="retro-mini-card">
+                    <div className="retro-card__label">PRIMEIRA DO ANO</div>
+                    {firstEntry.poster&&<img src={`${TMDB_IMG}${firstEntry.poster}`} alt="" className="retro-mini-card__img"/>}
+                    <div className="retro-mini-card__title">{firstEntry.title}</div>
+                    <div className="retro-mini-card__date">{fmtDate(firstEntry.date)}</div>
+                  </div>
+                )}
+                {lastEntry && (
+                  <div className="retro-mini-card">
+                    <div className="retro-card__label">ÚLTIMA DO ANO</div>
+                    {lastEntry.poster&&<img src={`${TMDB_IMG}${lastEntry.poster}`} alt="" className="retro-mini-card__img"/>}
+                    <div className="retro-mini-card__title">{lastEntry.title}</div>
+                    <div className="retro-mini-card__date">{fmtDate(lastEntry.date)}</div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* per-user cards */}
+            <div className="retro-row-2">
+              {users.map(u=>{
+                const myR=items.flatMap(w=>{const r=w.reviews?.[u];return r?.rating?[r.rating]:[];});
+                const myAvg=myR.length?(myR.reduce((a,b)=>a+b,0)/myR.length).toFixed(1):null;
+                const myBest=myR.length?[...items].filter(w=>w.reviews?.[u]?.rating>0).sort((a,b)=>b.reviews[u].rating-a.reviews[u].rating)[0]:null;
+                return (
+                  <div key={u} className="retro-user-card">
+                    <Avatar name={u} size={34}/>
+                    <div className="retro-user-card__name">{u}</div>
+                    {myAvg&&<div className="retro-user-card__avg">★ {myAvg}</div>}
+                    {myBest&&<div className="retro-user-card__best">{myBest.title}</div>}
+                    <div className="retro-user-card__count">{myR.length} avaliações</div>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
+      </Modal>
+    </Overlay>
+  );
+};
+
 // profile page
 const ProfilePage = ({ watched, watchlist, couple, users }) => {
+  const [showRetro, setShowRetro] = useState(false);
   const days = couple.since?Math.floor((new Date()-new Date(couple.since))/86400000):null;
   const first = watched.length?watched.reduce((a,b)=>new Date(a.createdAt)<new Date(b.createdAt)?a:b):null;
 
@@ -1278,13 +1843,17 @@ const ProfilePage = ({ watched, watchlist, couple, users }) => {
     const ug={};
     watched.forEach(w=>{ if(w.reviews?.[u]?.rating)(w.genres||[]).forEach(g=>{ug[g]=(ug[g]||0)+1;}); });
     const favGenre=Object.entries(ug).sort((a,b)=>b[1]-a[1])[0]?.[0]||null;
-    return {name:u,avg,suggested,registered,total:myRatings.length,favGenre};
+    const watching=watched.filter(w=>w.type==="tv"&&w.status==="watching").length;
+    return {name:u,avg,suggested,registered,total:myRatings.length,favGenre,watching};
   });
 
   const monthName = m => { if(!m) return null; const [y,mo]=m.split("-"); return new Date(+y,+mo-1,1).toLocaleDateString("pt-BR",{month:"long",year:"numeric"}); };
 
   return (
     <div>
+      {showRetro && (
+        <RetroModal watched={watched} users={users} couple={couple} onClose={()=>setShowRetro(false)}/>
+      )}
       <div className="hero-accent">
         <div className="avatar-row">
           {users.map((u,i)=>(
@@ -1296,6 +1865,9 @@ const ProfilePage = ({ watched, watchlist, couple, users }) => {
         <h2 className="profile-heading">{couple.name1} & {couple.name2}</h2>
         {days!==null&&<p className="days-highlight">{days} dias juntos</p>}
         {couple.since&&<p className="text-muted text-muted--compact">Desde {new Date(couple.since+"T12:00:00").toLocaleDateString("pt-BR",{day:"2-digit",month:"long",year:"numeric"})}</p>}
+        {watched.length>0 && (
+          <button onClick={()=>setShowRetro(true)} className="retro-btn">✦ Ver Retrospectiva</button>
+        )}
       </div>
 
       {/* couple stats */}
@@ -1304,6 +1876,7 @@ const ProfilePage = ({ watched, watchlist, couple, users }) => {
           {v:watched.length,l:"Total"},
           {v:watched.filter(w=>w.type==="movie").length,l:"Filmes"},
           {v:watched.filter(w=>w.type==="tv").length,l:"Séries"},
+          {v:watched.filter(w=>w.type==="tv"&&w.status==="watching").length,l:"Em andamento"},
         ].map(s=>(
           <div key={s.l} className="stat-card">
             <div className="stat-card__value">{s.v}</div>
@@ -1339,8 +1912,8 @@ const ProfilePage = ({ watched, watchlist, couple, users }) => {
               <div style={{ flex:streamCount }} className="bar--stream" />
             </div>
           <div className="space-between">
-            <span>🎬 {cinemaCount} ({watched.length?Math.round(cinemaCount/watched.length*100):0}%)</span>
-            <span>📺 {streamCount} ({watched.length?Math.round(streamCount/watched.length*100):0}%)</span>
+            <span>Cinema {cinemaCount} ({watched.length?Math.round(cinemaCount/watched.length*100):0}%)</span>
+            <span>Streaming {streamCount} ({watched.length?Math.round(streamCount/watched.length*100):0}%)</span>
           </div>
         </div>
       )}
@@ -1402,6 +1975,11 @@ const ProfilePage = ({ watched, watchlist, couple, users }) => {
                   </div>
                 ))}
               </div>
+              {u.watching>0 && (
+                <div className="user-watching-line">
+                  Séries em andamento: <span className="user-watching-count">{u.watching}</span>
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -1479,6 +2057,10 @@ export default function App() {
   const [addModal,  setAddModal]  = useState(null);
   const [toasts,    setToasts]    = useState([]);
   const [confirm,   setConfirm]   = useState(null);
+  const [menuOpen,  setMenuOpen]  = useState(false);
+  const menuRef = useRef(null);
+  const [installPrompt, setInstallPrompt] = useState(null);
+  const [showInstallBanner, setShowInstallBanner] = useState(false);
 
   // derived
   // currentUser remains a name string for UI compatibility
@@ -1519,6 +2101,43 @@ export default function App() {
       snap => setWatchlist(snap.docs.map(d=>({id:d.id,...d.data()}))));
     return () => { unW(); unWL(); };
   }, [coupleId]);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const close = e => { if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false); };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [menuOpen]);
+
+  useEffect(() => {
+    const handleOffline = () => addToast("Você está offline — salvando localmente", "warning");
+    const handleOnline  = () => addToast("Conexão restaurada — sincronizando...", "success");
+    window.addEventListener("offline", handleOffline);
+    window.addEventListener("online",  handleOnline);
+    return () => {
+      window.removeEventListener("offline", handleOffline);
+      window.removeEventListener("online",  handleOnline);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (localStorage.getItem("pwa-install-dismissed")) return;
+    const handler = e => { e.preventDefault(); setInstallPrompt(e); setShowInstallBanner(true); };
+    window.addEventListener("beforeinstallprompt", handler);
+    return () => window.removeEventListener("beforeinstallprompt", handler);
+  }, []);
+
+  const handleInstall = async () => {
+    if (!installPrompt) return;
+    installPrompt.prompt();
+    await installPrompt.userChoice;
+    setShowInstallBanner(false);
+    setInstallPrompt(null);
+  };
+  const dismissInstall = () => {
+    setShowInstallBanner(false);
+    localStorage.setItem("pwa-install-dismissed", "1");
+  };
 
   // auth actions
   const handleLogin = async () => {
@@ -1582,6 +2201,11 @@ export default function App() {
   const saveReview = async (id, user, review) => {
     await updateDoc(doc(db,"couples",coupleId,"watched",id), { [`reviews.${user}`]: review });
     addToast("Avaliação salva!","success");
+  };
+
+  const saveStatus = async (id, status) => {
+    await updateDoc(doc(db,"couples",coupleId,"watched",id), { status });
+    addToast("Status atualizado","info");
   };
 
   const addWatchlist = async entry => {
@@ -1665,12 +2289,31 @@ export default function App() {
               <Avatar name={currentUser} size={22}/>
               <span className="avatar-pill__name">{currentUser}</span>
             </button>
-            <button onClick={()=>setAddModal("watchlist")} className="action-btn action-btn--ghost">
-              <Ic n="bookmark" s={14}/> Lista
-            </button>
-            <button onClick={()=>setAddModal("watched")} className="action-btn action-btn--primary">
-              <Ic n="plus" s={14}/> Registrar
-            </button>
+            <div className="add-menu-wrap" ref={menuRef}>
+              <button onClick={()=>setMenuOpen(o=>!o)} className="action-btn action-btn--primary">
+                <Ic n="plus" s={15}/> Adicionar
+                <Ic n="chev" s={13} style={{ marginLeft:2, transform: menuOpen?"rotate(180deg)":"rotate(0deg)", transition:"transform 200ms" }}/>
+              </button>
+              {menuOpen && (
+                <div className="add-menu-dropdown">
+                  <button className="add-menu-item" onClick={()=>{ setAddModal("watched"); setMenuOpen(false); }}>
+                    <span className="add-menu-item__icon add-menu-item__icon--red"><Ic n="play" s={18}/></span>
+                    <span className="add-menu-item__text">
+                      <span className="add-menu-item__title">Registrar sessão</span>
+                      <span className="add-menu-item__sub">Filme ou série que assistiram</span>
+                    </span>
+                  </button>
+                  <div className="add-menu-divider"/>
+                  <button className="add-menu-item" onClick={()=>{ setAddModal("watchlist"); setMenuOpen(false); }}>
+                    <span className="add-menu-item__icon add-menu-item__icon--violet"><Ic n="bookmark" s={18}/></span>
+                    <span className="add-menu-item__text">
+                      <span className="add-menu-item__title">Adicionar à watchlist</span>
+                      <span className="add-menu-item__sub">Salvar pra assistir depois</span>
+                    </span>
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
@@ -1678,11 +2321,34 @@ export default function App() {
         <div className="app-shell__content">
           {page==="home"      && <HomePage      watched={watched} watchlist={watchlist} couple={couple} currentUser={currentUser} users={users}/>}
           {page==="diary"     && <DiaryPage     watched={watched} users={users} currentUser={currentUser}
-                                   onDelete={e=>requestDelete(e,"watched")} onEdit={editWatched} onSaveReview={saveReview}/>}
+                                   onDelete={e=>requestDelete(e,"watched")} onEdit={editWatched} onSaveReview={saveReview} onUpdateStatus={saveStatus}/>}
           {page==="watchlist" && <WatchlistPage watchlist={watchlist} users={users} currentUser={currentUser}
                                    onDelete={e=>requestDelete(e,"watchlist")} onMarkWatched={markWatched}/>}
           {page==="profile"   && <ProfilePage   watched={watched} watchlist={watchlist} couple={couple} users={users}/>}
         </div>
+
+        {/* Install banner */}
+        {showInstallBanner && (
+          <div className="install-banner">
+            <span className="install-banner__text">📱 Instale o Sessão no seu celular</span>
+            <button onClick={handleInstall} className="install-banner__btn">Instalar</button>
+            <button onClick={dismissInstall} className="install-banner__close"><Ic n="x" s={14}/></button>
+          </div>
+        )}
+
+        {/* FABs */}
+        {page==="diary" && (
+          <button className="fab fab--red" onClick={()=>setAddModal("watched")} aria-label="Registrar sessão">
+            <Ic n="plus" s={22}/>
+            <span className="fab__tooltip">Registrar sessão</span>
+          </button>
+        )}
+        {page==="watchlist" && (
+          <button className="fab fab--violet" onClick={()=>setAddModal("watchlist")} aria-label="Adicionar à watchlist">
+            <Ic n="plus" s={22}/>
+            <span className="fab__tooltip">Adicionar à watchlist</span>
+          </button>
+        )}
 
         {/* bottom nav */}
         <div className="app-shell__nav">

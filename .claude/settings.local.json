@@ -26,7 +26,8 @@
       "Bash(pkill -f \"vite\")",
       "Bash(npx playwright@1.60.0 screenshot --browser chromium --wait-for-timeout 5000 --viewport-size \"390,844\" http://localhost:5174 \"C:/Users/Natan/AppData/Local/Temp/sessao-login2.png\")",
       "Bash(npx firebase-tools *)",
-      "Bash(npx vite *)"
+      "Bash(npx vite *)",
+      "Bash(npx firebase *)"
     ]
   }
 }

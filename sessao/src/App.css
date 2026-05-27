@@ -679,14 +679,22 @@
 .small-muted { font-size:11px; color: var(--text-secondary); margin-top:2px; }
 .title-ellipsis { font-weight:700; color: var(--text-primary); font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .card-inner--padded { padding: 16px 18px; margin-bottom: 18px; }
-.card-inner--compact { padding: 14px 18px; margin-bottom: 18px; display:flex; gap:14px; align-items:center; justify-content:center; }
-.card-inner--compact > .icon--violet { flex: 0 0 24px; width: 24px; justify-content: center; }
-.card-inner--compact > div { display:flex; flex-direction:column; justify-content:center; align-items:center; min-width:0; text-align:center; }
+.card-inner--compact { padding: 14px 18px; margin-bottom: 18px; display:flex; gap:14px; align-items:center; }
+.card-inner--compact > .icon--violet {
+  flex-shrink: 0;
+  width: 40px; height: 40px;
+  border-radius: 10px;
+  background: rgba(139,126,200,0.12);
+  display: flex; align-items: center; justify-content: center;
+  color: #a78bfa;
+}
+.card-inner--compact > div { flex: 1; min-width: 0; }
 /* bar-row defined below near panel utilities */
 .genre-track { height:4px; background: rgba(255,255,255,0.05); border-radius:4px; overflow:hidden; }
 
-.section-eyebrow { font-size:11px; color: var(--text-secondary); font-weight:700; letter-spacing:1.2px; margin-bottom:6px; text-transform:uppercase; }
-.card-inner--compact .section-eyebrow { margin-bottom: 2px; }
+.section-eyebrow { font-family: var(--font-body); font-size:11px; color: var(--text-secondary); font-weight:700; letter-spacing:1.2px; margin-bottom:6px; text-transform:uppercase; }
+.card-inner--compact .section-eyebrow { margin-bottom: 3px; }
+.muted { font-family: var(--font-body); font-size:12px; color: var(--text-secondary); margin-top:3px; }
 .space-between { display:flex; justify-content:space-between; font-family: var(--font-body); font-size:12px; color: #5a5866; }
 .genre-label { font-family: var(--font-body); font-size:13px; color: #9b98a3; }
 .genre-count { font-family: var(--font-body); font-size:13px; font-weight:600; color: #f0ede8; }
@@ -1780,8 +1788,7 @@
 /* Panel stat values */
 .stat-value { font-family: var(--font-body); font-size: 28px; font-weight: 700; color: #f0ede8; line-height: 1; letter-spacing: -0.5px; }
 .stat-meta { font-family: var(--font-body); font-size: 12px; color: #5a5866; margin-top: 4px; }
-.stat-title { font-family: var(--font-display); font-size: 18px; font-weight: 700; color: #f0ede8; }
-.card-inner--compact .stat-title { font-family: var(--font-body); font-size: 16px; line-height: 1.15; letter-spacing: -0.01em; }
+.stat-title { font-family: var(--font-body); font-size: 17px; font-weight: 700; color: #f0ede8; line-height: 1.2; }
 
 /* Cinema/Streaming bars */
 .bar-row { height: 6px; border-radius: 20px; background: rgba(255,255,255,0.05); overflow: hidden; display: flex; gap: 0; margin-bottom: 8px; }

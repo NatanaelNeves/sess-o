@@ -635,6 +635,140 @@ const AddWatchlistModal = ({ currentUser, onSave, onClose }) => {
 };
 
 
+// roulette modal
+const ROULETTE_COLORS = ["#c9394a", "#8b7ec8", "#c9993a", "#2a2050"];
+
+const RouletteModal = ({ watchlist, onClose, onWatchNow }) => {
+  const [typeFilter, setTypeFilter] = useState("all");
+  const [rotation, setRotation]     = useState(0);
+  const [spinning,  setSpinning]    = useState(false);
+  const [result,    setResult]      = useState(null);
+
+  const filtered = watchlist.filter(w =>
+    typeFilter === "movie" ? w.type === "movie" :
+    typeFilter === "tv"    ? w.type === "tv"    : true
+  );
+
+  // shuffle for variety if >12; keep stable per filter change via useMemo
+  const wheelItems = filtered.length > 12
+    ? [...filtered].sort(() => Math.random() - 0.5).slice(0, 12)
+    : filtered;
+
+  const numItems   = wheelItems.length;
+  const SVG_SIZE   = 300;
+  const cx = SVG_SIZE / 2, cy = SVG_SIZE / 2, r = SVG_SIZE / 2 - 2;
+
+  const truncate = (s, max = 14) => s.length > max ? s.slice(0, max) + "…" : s;
+
+  const spin = () => {
+    if (spinning || numItems < 2) return;
+    const sliceAngle  = 360 / numItems;
+    const targetIndex = Math.floor(Math.random() * numItems);
+    const currentMod  = ((rotation % 360) + 360) % 360;
+    const targetAngle = ((360 - targetIndex * sliceAngle - sliceAngle / 2) % 360 + 360) % 360;
+    const delta       = ((targetAngle - currentMod) + 360) % 360;
+    const finalRot    = rotation + 5 * 360 + delta;
+    setResult(null);
+    setSpinning(true);
+    setRotation(finalRot);
+    setTimeout(() => { setSpinning(false); setResult(wheelItems[targetIndex]); }, 4100);
+  };
+
+  return createPortal(
+    <div className="roulette-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="roulette-modal">
+        <button className="roulette-close" onClick={onClose}><Ic n="x" s={20}/></button>
+
+        <h2 className="roulette-title">Que a sorte escolha ✦</h2>
+        <p className="roulette-subtitle">Girando entre {numItems} título{numItems !== 1 ? "s" : ""} da watchlist</p>
+
+        <div className="roulette-pills">
+          {[["all","Tudo"],["movie","Só filmes"],["tv","Só séries"]].map(([v,l]) => (
+            <button key={v} onClick={() => { if (!spinning) { setTypeFilter(v); setResult(null); } }}
+              className={`roulette-pill${typeFilter===v?" roulette-pill--active":""}`}>{l}</button>
+          ))}
+        </div>
+
+        {numItems < 2 ? (
+          <div className="roulette-empty">Poucos títulos com esse filtro</div>
+        ) : (
+          <>
+            <div className={`roulette-wheel-wrap${result?" roulette-wheel-wrap--done":""}`}>
+              <div className="roulette-pointer"/>
+              <svg
+                viewBox={`0 0 ${SVG_SIZE} ${SVG_SIZE}`}
+                className="roulette-wheel"
+                style={{
+                  transform: `rotate(${rotation}deg)`,
+                  transition: spinning ? "transform 4s cubic-bezier(0.17,0.67,0.12,0.99)" : "none",
+                }}
+              >
+                {wheelItems.map((item, i) => {
+                  const sliceAngle = 360 / numItems;
+                  const sa = (i * sliceAngle - 90) * Math.PI / 180;
+                  const ea = ((i + 1) * sliceAngle - 90) * Math.PI / 180;
+                  const x1 = cx + r * Math.cos(sa), y1 = cy + r * Math.sin(sa);
+                  const x2 = cx + r * Math.cos(ea), y2 = cy + r * Math.sin(ea);
+                  const large = sliceAngle > 180 ? 1 : 0;
+                  const pathD = `M${cx},${cy} L${x1},${y1} A${r},${r} 0 ${large},1 ${x2},${y2} Z`;
+                  const ma = ((i + 0.5) * sliceAngle - 90) * Math.PI / 180;
+                  const tr = r * 0.62;
+                  const tx = cx + tr * Math.cos(ma), ty = cy + tr * Math.sin(ma);
+                  const trot = (i + 0.5) * sliceAngle - 90;
+                  return (
+                    <g key={item.id || i}>
+                      <path d={pathD} fill={ROULETTE_COLORS[i % 4]} stroke="#0d0d1a" strokeWidth="2"/>
+                      <text
+                        x={tx} y={ty}
+                        transform={`rotate(${trot},${tx},${ty})`}
+                        textAnchor="middle" dominantBaseline="middle"
+                        fill="white" fontSize="11"
+                        fontFamily="Inter,sans-serif" fontWeight="600"
+                      >{truncate(item.title)}</text>
+                    </g>
+                  );
+                })}
+                <circle cx={cx} cy={cy} r={25} fill="#0d0d1a" stroke="#f0ede8" strokeWidth="3"/>
+                <text x={cx} y={cy+1} textAnchor="middle" dominantBaseline="middle" fill="#c9394a" fontSize="18">♥</text>
+              </svg>
+            </div>
+
+            {!result && (
+              <button onClick={spin} disabled={spinning} className={`roulette-spin-btn${spinning?" roulette-spin-btn--spinning":""}`}>
+                {spinning ? "Girando…" : "GIRAR"}
+              </button>
+            )}
+
+            {result && (
+              <div className="roulette-result">
+                <div className="roulette-result__label">A SORTE ESCOLHEU</div>
+                <div className="roulette-result__card">
+                  {result.poster
+                    ? <img src={`${TMDB_IMG}${result.poster}`} alt="" className="roulette-result__poster"/>
+                    : <div className="roulette-result__poster roulette-result__poster--fallback"/>}
+                  <div className="roulette-result__info">
+                    <div className="roulette-result__title">{result.title}</div>
+                    <div className="roulette-result__meta">
+                      {result.type==="tv"?"Série":"Filme"}
+                      {result.year ? ` • ${result.year}` : ""}
+                      {result.suggestedBy ? ` • Sugerido por ${result.suggestedBy}` : ""}
+                    </div>
+                  </div>
+                </div>
+                <div className="roulette-result__actions">
+                  <button onClick={() => onWatchNow(result)} className="roulette-btn roulette-btn--primary">✓ Bora assistir esse!</button>
+                  <button onClick={() => setResult(null)} className="roulette-btn roulette-btn--ghost">↻ Sortear de novo</button>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </div>,
+    document.body
+  );
+};
+
 // detail modal
 const DetailModal = ({ entry, users, onClose, onMarkWatched, onEdit, onSaveReview, currentUser, fromWatchlist, onUpdateStatus }) => {
   const [inlineRating, setInlineRating] = useState(0);
@@ -1224,7 +1358,7 @@ const QuickAddCard = ({ onQuickAdd }) => {
 };
 
 // home page
-const HomePage = ({ watched, watchlist, couple, currentUser, onQuickAdd }) => {
+const HomePage = ({ watched, watchlist, couple, currentUser, onQuickAdd, onRoulette }) => {
   const totMovies = watched.filter(w => w.type === "movie").length;
   const totSeries = watched.filter(w => w.type === "tv").length;
   const totCinema = watched.filter(w => w.where === "cinema").length;
@@ -1277,6 +1411,13 @@ const HomePage = ({ watched, watchlist, couple, currentUser, onQuickAdd }) => {
           </div>
         )}
       </div>
+
+      {watchlist.length >= 2 && (
+        <button className="home-roulette-card" onClick={onRoulette}>
+          <span className="home-roulette-card__text">Não sabem o que ver? Deixa a sorte decidir</span>
+          <span className="home-roulette-card__arrow">→</span>
+        </button>
+      )}
 
       {onThisDay.length>0 && (
         <div className="on-this-day">
@@ -1648,7 +1789,7 @@ const DiaryPage = ({ watched, users, currentUser, onDelete, onEdit, onSaveReview
 };
 
 // watchlist page
-const WatchlistPage = ({ watchlist, users, currentUser, onDelete, onMarkWatched }) => {
+const WatchlistPage = ({ watchlist, users, currentUser, onDelete, onMarkWatched, onRoulette }) => {
   const [sel, setSel] = useState(null);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all");
@@ -1680,6 +1821,15 @@ const WatchlistPage = ({ watchlist, users, currentUser, onDelete, onMarkWatched 
           <Ic n="search" s={16} />
         </div>
       </div>
+
+      {watchlist.length >= 2 && (
+        <button className="watchlist-roulette-btn" onClick={onRoulette}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6L12 2z"/>
+          </svg>
+          Sortear o que assistir
+        </button>
+      )}
 
       <div className="filters-row">
         {[ ["all","Todos"],["movie","Filmes"],["tv","Séries"],["alta","Alta prioridade"] ].map(([v,l])=>(
@@ -2317,8 +2467,9 @@ export default function App() {
   const [page,      setPage]      = useState("home");
   const [addModal,  setAddModal]  = useState(null);
   const [toasts,    setToasts]    = useState([]);
-  const [confirm,   setConfirm]   = useState(null);
-  const [menuOpen,  setMenuOpen]  = useState(false);
+  const [confirm,      setConfirm]      = useState(null);
+  const [showRoulette, setShowRoulette] = useState(false);
+  const [menuOpen,     setMenuOpen]     = useState(false);
   const menuRef = useRef(null);
   const [installPrompt, setInstallPrompt] = useState(null);
   const [showInstallBanner, setShowInstallBanner] = useState(false);
@@ -2531,6 +2682,13 @@ export default function App() {
       <div className="app-shell">
 
         {/* modals */}
+        {showRoulette && (
+          <RouletteModal
+            watchlist={watchlist}
+            onClose={() => setShowRoulette(false)}
+            onWatchNow={item => { setShowRoulette(false); setAddModal({ type: "watched", movie: item }); }}
+          />
+        )}
         {addModal==="watchlist" && (
           <AddWatchlistModal users={users} currentUser={currentUser} onSave={addWatchlist} onClose={()=>setAddModal(null)}/>
         )}
@@ -2580,11 +2738,11 @@ export default function App() {
 
         {/* pages */}
         <div className="app-shell__content">
-          {page==="home"      && <HomePage      watched={watched} watchlist={watchlist} couple={couple} currentUser={currentUser} users={users} onQuickAdd={m=>setAddModal({type:"watched",movie:m})}/>}
+          {page==="home"      && <HomePage      watched={watched} watchlist={watchlist} couple={couple} currentUser={currentUser} users={users} onQuickAdd={m=>setAddModal({type:"watched",movie:m})} onRoulette={()=>setShowRoulette(true)}/>}
           {page==="diary"     && <DiaryPage     watched={watched} users={users} currentUser={currentUser}
                                    onDelete={e=>requestDelete(e,"watched")} onEdit={editWatched} onSaveReview={saveReview} onUpdateStatus={saveStatus}/>}
           {page==="watchlist" && <WatchlistPage watchlist={watchlist} users={users} currentUser={currentUser}
-                                   onDelete={e=>requestDelete(e,"watchlist")} onMarkWatched={markWatched}/>}
+                                   onDelete={e=>requestDelete(e,"watchlist")} onMarkWatched={markWatched} onRoulette={()=>setShowRoulette(true)}/>}
           {page==="profile"   && <ProfilePage   watched={watched} watchlist={watchlist} couple={couple} users={users}/>}
         </div>
 

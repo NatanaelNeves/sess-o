@@ -2797,15 +2797,18 @@
   .avatar-pill__name { display: none; }
   .avatar-pill { padding: 5px 7px; }
   .action-btn--primary { padding: 8px 12px; font-size: 12px; gap: 4px; }
-  .add-menu-wrap { position: static; }
+  /* Mantém o menu ancorado ABAIXO do botão (absoluto relativo ao wrap).
+     position:fixed aqui quebrava: o backdrop-filter do header cria um
+     containing block, e o bottom: jogava o menu pra fora da tela. */
+  .add-menu-wrap { position: relative; }
   .add-menu-dropdown {
-    position: fixed;
-    bottom: calc(72px + env(safe-area-inset-bottom));
-    right: 14px;
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
     left: auto;
-    top: auto;
+    bottom: auto;
     min-width: 210px;
-    animation: menuEnterUp 180ms ease forwards;
+    animation: menuEnter 200ms ease forwards;
   }
 
   /* ── nav bar ───────────── */

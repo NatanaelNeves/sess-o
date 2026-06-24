@@ -2520,10 +2520,13 @@ export default function App() {
   // Firestore real-time listeners
   useEffect(() => {
     if (!coupleId) return;
+    // IMPORTANTE: id:d.id vem DEPOIS do spread pra que o ID real do documento
+    // sempre vença um eventual campo "id" antigo salvo nos dados (registros
+    // criados com id gerado no cliente). Sem isso, updateDoc aponta pro doc errado.
     const unW  = onSnapshot(collection(db,"couples",coupleId,"watched"),
-      snap => setWatched(snap.docs.map(d=>({id:d.id,...d.data()}))));
+      snap => setWatched(snap.docs.map(d=>({...d.data(),id:d.id}))));
     const unWL = onSnapshot(collection(db,"couples",coupleId,"watchlist"),
-      snap => setWatchlist(snap.docs.map(d=>({id:d.id,...d.data()}))));
+      snap => setWatchlist(snap.docs.map(d=>({...d.data(),id:d.id}))));
     return () => { unW(); unWL(); };
   }, [coupleId]);
 
@@ -2611,7 +2614,8 @@ export default function App() {
 
   // data operations (Firestore)
   const addWatched = async entry => {
-    const { ...data } = entry;
+    // descarta o "id" gerado no cliente — o Firestore gera o ID real do documento
+    const { id, ...data } = entry;
     await addDoc(collection(db,"couples",coupleId,"watched"), data);
     setAddModal(null);
     addToast("Sessão salva! 🎉");
@@ -2640,7 +2644,7 @@ export default function App() {
   };
 
   const addWatchlist = async entry => {
-    const { ...data } = entry;
+    const { id, ...data } = entry;
     await addDoc(collection(db,"couples",coupleId,"watchlist"), data);
     setAddModal(null);
     addToast("Adicionado à lista","info");

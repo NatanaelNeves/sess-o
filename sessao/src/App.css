@@ -489,6 +489,21 @@
   margin-bottom: 48px;
 }
 
+.auth-signout {
+  margin: -16px 0 24px;
+  background: none;
+  border: none;
+  color: var(--text-tertiary);
+  font-size: 13px;
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 4px;
+}
+
+.auth-signout:hover {
+  color: var(--text-secondary);
+}
+
 .auth-panel {
   background: var(--bg-surface);
   border: 1px solid var(--border-subtle);

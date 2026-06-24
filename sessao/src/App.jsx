@@ -808,9 +808,12 @@ const DetailModal = ({ entry, users, onClose, onMarkWatched, onEdit, onSaveRevie
 
   const handleInlineSave = async () => {
     setSavingReview(true);
-    await onSaveReview(entry.id, currentUser, { rating:inlineRating, text:inlineText });
-    setSavingReview(false);
-    onClose();
+    try {
+      await onSaveReview(entry.id, currentUser, { rating:inlineRating, text:inlineText });
+    } finally {
+      setSavingReview(false);
+      onClose();
+    }
   };
 
   const seasonLabel = () => {
@@ -1144,7 +1147,7 @@ const LoginScreen = ({ onLogin, loading }) => (
 );
 
 // couple setup (create or join)
-const CoupleSetup = ({ authUser, onCreate, onJoin }) => {
+const CoupleSetup = ({ authUser, onCreate, onJoin, onSignOut }) => {
   const [tab, setTab] = useState("create");
   const [myName, setMyName] = useState(authUser?.displayName || "");
   const [since, setSince] = useState("");
@@ -1200,6 +1203,11 @@ const CoupleSetup = ({ authUser, onCreate, onJoin }) => {
           Sessão <span className="days-highlight">❤️</span>
         </h1>
         <p className="auth-subtitle">Olá, {authUser?.displayName?.split(" ")[0]}! Configure seu diário.</p>
+        {onSignOut && (
+          <button type="button" onClick={onSignOut} className="auth-signout">
+            Sair / trocar de conta
+          </button>
+        )}
 
         <div className="auth-tabs">
           {[["create", "Criar casal"], ["join", "Tenho um convite"]].map(([value, label]) => (
@@ -1263,7 +1271,7 @@ const CoupleSetup = ({ authUser, onCreate, onJoin }) => {
 };
 
 // invite code display (after creating couple)
-const InviteScreen = ({ inviteCode, couple }) => (
+const InviteScreen = ({ inviteCode, couple, onSignOut }) => (
   <div className="auth-screen">
     <div className="auth-card">
       <div className="auth-icon">🎞️</div>
@@ -1276,6 +1284,11 @@ const InviteScreen = ({ inviteCode, couple }) => (
         <div className="invite-box__code">{inviteCode}</div>
       </div>
       <p className="auth-note">Aguardando sua pessoa entrar — assim que ela usar o código, o diário abrirá automaticamente.</p>
+      {onSignOut && (
+        <button type="button" onClick={onSignOut} className="auth-signout">
+          Sair / trocar de conta
+        </button>
+      )}
     </div>
   </div>
 );
@@ -2610,13 +2623,19 @@ export default function App() {
     addToast("Registro atualizado","info");
   };
 
+  // Fire-and-forget: com persistentLocalCache, a escrita aplica no cache local
+  // na hora e o onSnapshot atualiza a UI imediatamente. A Promise só resolve
+  // quando o servidor confirma — então NÃO esperamos por ela (senão a UI trava
+  // "Salvando..." pra sempre quando a conexão oscila).
   const saveReview = async (id, user, review) => {
-    await updateDoc(doc(db,"couples",coupleId,"watched",id), { [`reviews.${user}`]: review });
+    updateDoc(doc(db,"couples",coupleId,"watched",id), { [`reviews.${user}`]: review })
+      .catch(e => { console.error(e); addToast("Não foi possível salvar a avaliação","error"); });
     addToast("Avaliação salva!","success");
   };
 
   const saveStatus = async (id, status) => {
-    await updateDoc(doc(db,"couples",coupleId,"watched",id), { status });
+    updateDoc(doc(db,"couples",coupleId,"watched",id), { status })
+      .catch(e => { console.error(e); addToast("Não foi possível atualizar o status","error"); });
     addToast("Status atualizado","info");
   };
 
@@ -2658,12 +2677,12 @@ export default function App() {
   if (!authUser) return <LoginScreen onLogin={handleLogin} loading={loginLoading}/>;
 
   if (!couple) return (
-    <CoupleSetup authUser={authUser} onCreate={handleCreateCouple} onJoin={handleJoinCouple}/>
+    <CoupleSetup authUser={authUser} onCreate={handleCreateCouple} onJoin={handleJoinCouple} onSignOut={handleSignOut}/>
   );
 
   // First user created couple but partner hasn't joined yet (name2 is null)
   if (!couple.name2) return (
-    <InviteScreen inviteCode={couple.inviteCode} couple={couple}/>
+    <InviteScreen inviteCode={couple.inviteCode} couple={couple} onSignOut={handleSignOut}/>
   );
 
   return (

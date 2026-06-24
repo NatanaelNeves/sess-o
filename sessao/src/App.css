@@ -3562,3 +3562,111 @@
     to   { transform: translateY(0); }
   }
 }
+
+/* ════════════════════════════════════════════════════════════════════
+   CAMADA MOBILE-FIRST — conforto de toque, alcance e zero overflow
+   Mesma identidade visual; pensada primeiro para o smartphone na mão.
+   ════════════════════════════════════════════════════════════════════ */
+
+/* ── Trava global de overflow horizontal ────────────────────────────
+   'clip' clipa o eixo X sem virar container de rolagem (não quebra o
+   header sticky nem o scroll vertical, e não afeta modais/FAB fixos). */
+html, body { overflow-x: clip; }
+
+/* ── Títulos longos nunca saem da tela ──────────────────────────────── */
+.modal-panel__title,
+.detail-title,
+.detail-title--small,
+.hero-panel__title,
+.profile-heading,
+.watchlist-title,
+.preview-title,
+.nextwatch__title,
+.card-title,
+.retro-card__big { overflow-wrap: anywhere; }
+
+/* ── Apagar visível em telas de toque (sem hover) ───────────────────
+   Sem isso, o botão de excluir do card/timeline ficava inacessível no
+   celular. O toque dispara um modal de confirmação, então é seguro. */
+@media (hover: none) {
+  .poster-delete,
+  .tl-entry__del { opacity: 1; }
+  .poster-delete { background: rgba(0, 0, 0, 0.62); }
+}
+
+/* ════ Telefones (≤480px) ════════════════════════════════════════════ */
+@media (max-width: 480px) {
+
+  /* ── Alvos de toque ≥ ~44px ──────────────────────────────────────── */
+  .modal-close-float {
+    width: 40px; height: 40px; padding: 0;
+    top: 10px; right: 10px;
+  }
+  .modal-panel__header .icon-button {
+    padding: 10px;
+    margin: -10px -10px -10px 0;   /* expande o toque sem mover o visual */
+  }
+  .toast__close { padding: 8px; margin: -4px -6px -4px -2px; }
+  .roulette-close { width: 44px; height: 44px; }
+  .status-update-link { padding: 6px 0; }
+  .edit-switch { padding: 8px 12px; font-size: 12px; }
+  .review-edit-btn { padding: 6px 12px; }
+  .poster-delete { padding: 8px 9px; }
+
+  /* ── Controles de formulário mais altos = mais fáceis de tocar ───── */
+  .segmented-group__button,
+  .segmented-button { min-height: 44px; }
+  .season-pill {
+    min-height: 42px;
+    display: inline-flex;
+    align-items: center;
+    padding: 6px 16px;
+  }
+
+  /* ── Stats: 4 cards viram um 2×2 limpo (em vez de 3+1 espremido) ─── */
+  .grid-3:has(.stat-card) { grid-template-columns: 1fr 1fr; }
+  .stat-card { padding: 16px; }
+
+  /* ── Código de convite cabe em telas estreitas ──────────────────── */
+  .invite-box { padding: 24px 16px; }
+  .invite-box__code { font-size: 38px; letter-spacing: 7px; }
+
+  /* ── Melhor aproveitamento vertical (respiros levemente menores) ── */
+  .field-block { margin-bottom: 16px; }
+  .field-block--wide { margin-bottom: 18px; }
+  .preview-row, .watchlist-row { margin-bottom: 18px; }
+
+  /* ── Header: título nunca espreme os botões de ação ─────────────── */
+  .app-shell__brand {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* ── Cabeçalho do modal "gruda" ao rolar formulários longos ─────── */
+  .modal-panel__body { scroll-padding-top: 8px; }
+
+  /* ── Filtros: cada select com largura confortável ───────────────── */
+  .filters-grid { gap: 10px; }
+}
+
+/* ════ Telas estreitas (≤360px) — Android intermediário / iPhone mini ═ */
+@media (max-width: 360px) {
+  .app-shell__content { padding: 0 12px; }
+  .card-grid { gap: 8px; }
+  .stat-card__value { font-size: 26px; }
+  .modal-panel__title { font-size: 21px; }
+  .invite-box__code { font-size: 32px; letter-spacing: 5px; }
+  .hero-panel__title { font-size: 24px; }
+  .app-shell__brand { font-size: 19px; }
+  .action-btn--primary { padding: 8px 11px; }
+}
+
+/* ════ Telas muito pequenas (≤320px) — garante caber sem cortar ─────── */
+@media (max-width: 320px) {
+  .card-grid { grid-template-columns: 1fr 1fr; gap: 7px; }
+  .card-inner .poster-wrap { height: 178px; }
+  .invite-box__code { font-size: 28px; letter-spacing: 4px; }
+  .detail-title--small { font-size: 20px; }
+}

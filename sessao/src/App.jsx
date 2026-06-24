@@ -769,11 +769,22 @@ const RouletteModal = ({ watchlist, onClose, onWatchNow }) => {
   );
 };
 
+// Veredito fofo do casal conforme a diferença entre as duas notas (0 a 4+)
+const COUPLE_VERDICTS = [
+  { emoji:"💞", label:"Em perfeita sintonia" },
+  { emoji:"💕", label:"Quase a mesma vibe" },
+  { emoji:"🍿", label:"Gostos diferentes" },
+  { emoji:"🎭", label:"Opiniões opostas" },
+  { emoji:"🙃", label:"Polos opostos" },
+];
+const coupleVerdict = diff => COUPLE_VERDICTS[Math.min(diff,4)];
+
 // detail modal
 const DetailModal = ({ entry, users, onClose, onMarkWatched, onEdit, onSaveReview, currentUser, fromWatchlist, onUpdateStatus }) => {
   const [inlineRating, setInlineRating] = useState(0);
   const [inlineText, setInlineText] = useState("");
   const [savingReview, setSavingReview] = useState(false);
+  const [editingMine, setEditingMine] = useState(false);
   const [statusDropdown, setStatusDropdown] = useState(false);
   const statusRef = useRef(null);
   const [shareFormat, setShareFormat] = useState("story");
@@ -803,8 +814,18 @@ const DetailModal = ({ entry, users, onClose, onMarkWatched, onEdit, onSaveRevie
   const myReview = entry.reviews?.[currentUser];
   const hasMyReview = myReview?.rating || myReview?.text;
 
-  const ratings = users.map(u=>entry.reviews?.[u]?.rating||0).filter(Boolean);
-  const isDiscord = !fromWatchlist && ratings.length===2 && Math.abs(ratings[0]-ratings[1])>=2;
+  // Veredito do casal: média das duas notas + um rótulo fofo conforme a diferença
+  const coupleRatings = users.map(u=>entry.reviews?.[u]?.rating||0);
+  const bothRated = !fromWatchlist && users.length===2 && coupleRatings.every(r=>r>0);
+  const coupleAvg = bothRated ? coupleRatings.reduce((a,b)=>a+b,0)/coupleRatings.length : null;
+  const ratingDiff = bothRated ? Math.abs(coupleRatings[0]-coupleRatings[1]) : 0;
+  const verdict = bothRated ? coupleVerdict(ratingDiff) : null;
+
+  const startEditMine = () => {
+    setInlineRating(myReview?.rating||0);
+    setInlineText(myReview?.text||"");
+    setEditingMine(true);
+  };
 
   const handleInlineSave = async () => {
     setSavingReview(true);
@@ -812,7 +833,7 @@ const DetailModal = ({ entry, users, onClose, onMarkWatched, onEdit, onSaveRevie
       await onSaveReview(entry.id, currentUser, { rating:inlineRating, text:inlineText });
     } finally {
       setSavingReview(false);
-      onClose();
+      setEditingMine(false);
     }
   };
 
@@ -888,7 +909,7 @@ const DetailModal = ({ entry, users, onClose, onMarkWatched, onEdit, onSaveRevie
               </div>
             )}
             <div className="detail-badges">
-              {isDiscord && <span className="detail-badge detail-badge--discord">⚡ Discordaram</span>}
+              {verdict && <span className={`detail-badge detail-badge--verdict detail-badge--verdict-${Math.min(ratingDiff,4)}`}>{verdict.emoji} {verdict.label}</span>}
               {seasonLabel() && <span className="detail-badge detail-badge--season">{seasonLabel()}</span>}
               {entry.tmdbRating && <span className="detail-badge detail-badge--rating">TMDB ★ {entry.tmdbRating}</span>}
               {entry.type==="tv"&&entry.status==="watching" && <span className="detail-badge detail-badge--watching">● ASSISTINDO</span>}
@@ -997,15 +1018,33 @@ const DetailModal = ({ entry, users, onClose, onMarkWatched, onEdit, onSaveRevie
         {!fromWatchlist && entry.reviews && (
           <div className="field-block field-block--wide">
             <Label>Críticas do casal</Label>
+
+            {/* veredito do casal — média das duas notas */}
+            {bothRated && (
+              <div className={`couple-verdict couple-verdict--${Math.min(ratingDiff,4)}`}>
+                <div className="couple-verdict__score">
+                  <span className="couple-verdict__avg">{coupleAvg.toFixed(1)}</span>
+                  <span className="couple-verdict__outof">de 5</span>
+                </div>
+                <div className="couple-verdict__body">
+                  <Stars val={Math.round(coupleAvg)} size={16}/>
+                  <span className="couple-verdict__label">{verdict.emoji} {verdict.label}</span>
+                </div>
+              </div>
+            )}
+
             <div className="review-list">
               {Object.entries(entry.reviews).map(([user,rev]) => (
-                (rev.rating||rev.text) ? (
+                (rev.rating||rev.text) && !(user===currentUser && editingMine) ? (
                   <div key={user} className="review-card review-card--compact">
                     <div className={`review-card__header ${rev.text?"":"review-card__header--no-text"}`}>
                       <Avatar name={user} size={22}/>
                       <span className="review-card__name review-card__name--flex">{user}</span>
                       {rev.rating>0 && <Stars val={rev.rating} size={16}/>}
                       {rev.rating>0 && <span className="review-rating">{rev.rating}/5</span>}
+                      {user===currentUser && onSaveReview && (
+                        <button className="review-edit-btn" onClick={startEditMine}>Editar</button>
+                      )}
                     </div>
                     {rev.text && <p className="review-card__quote">“{rev.text}”</p>}
                   </div>
@@ -1028,10 +1067,10 @@ const DetailModal = ({ entry, users, onClose, onMarkWatched, onEdit, onSaveRevie
           );
         })}
 
-        {/* inline review if currentUser hasn't rated */}
-        {!fromWatchlist && !hasMyReview && onSaveReview && (
+        {/* inline review — aparece se ainda não avaliou OU se está editando a própria nota */}
+        {!fromWatchlist && onSaveReview && (!hasMyReview || editingMine) && (
           <div className="inline-review">
-            <div className="inline-review__title">Você ainda não avaliou esse filme</div>
+            <div className="inline-review__title">{editingMine ? "Editar sua avaliação" : "Você ainda não avaliou esse filme"}</div>
             <div className="inline-review__rating-row">
               <Avatar name={currentUser} size={24}/>
               <Stars val={inlineRating} onChange={setInlineRating} size={22}/>
@@ -1039,10 +1078,17 @@ const DetailModal = ({ entry, users, onClose, onMarkWatched, onEdit, onSaveRevie
             <textarea value={inlineText} onChange={e=>setInlineText(e.target.value)}
               placeholder="Sua crítica..." rows={2}
               className="review-inline__textarea" />
-            <button onClick={handleInlineSave} disabled={savingReview||!inlineRating}
-              className="review-inline__button">
-              {savingReview?"Salvando...":"Salvar avaliação"}
-            </button>
+            <div className="inline-review__actions">
+              {editingMine && (
+                <button onClick={()=>setEditingMine(false)} className="review-inline__button review-inline__button--ghost">
+                  Cancelar
+                </button>
+              )}
+              <button onClick={handleInlineSave} disabled={savingReview||!inlineRating}
+                className="review-inline__button">
+                {savingReview?"Salvando...":(editingMine?"Salvar alterações":"Salvar avaliação")}
+              </button>
+            </div>
           </div>
         )}
 
@@ -1645,13 +1691,18 @@ const DiaryPage = ({ watched, users, currentUser, onDelete, onEdit, onSaveReview
 
   return (
     <div>
-      {sel && (
-        <DetailModal entry={sel} users={users} currentUser={currentUser}
-          onClose={()=>setSel(null)}
-          onEdit={()=>{ setEditing(sel); setSel(null); }}
-          onSaveReview={onSaveReview}
-          onUpdateStatus={onUpdateStatus}/>
-      )}
+      {sel && (() => {
+        // sempre usa a versão ao vivo do registro (onSnapshot) pra refletir
+        // avaliações salvas/editadas na hora, sem fechar o modal
+        const liveEntry = watched.find(w=>w.id===sel.id) || sel;
+        return (
+          <DetailModal entry={liveEntry} users={users} currentUser={currentUser}
+            onClose={()=>setSel(null)}
+            onEdit={()=>{ setEditing(liveEntry); setSel(null); }}
+            onSaveReview={onSaveReview}
+            onUpdateStatus={onUpdateStatus}/>
+        );
+      })()}
       {editing && (
         <WatchedForm users={users} currentUser={currentUser}
           initial={{ ...editing, movie:editing }}
@@ -1759,7 +1810,8 @@ const DiaryPage = ({ watched, users, currentUser, onDelete, onEdit, onSaveReview
             const rs=Object.values(e.reviews||{}).map(r=>r.rating).filter(Boolean);
             const avg=rs.length?(rs.reduce((a,b)=>a+b,0)/rs.length).toFixed(1):null;
             const ratings=users.map(u=>e.reviews?.[u]?.rating||0).filter(Boolean);
-            const isDiscord=ratings.length===2&&Math.abs(ratings[0]-ratings[1])>=2;
+            const diff=ratings.length===2?Math.abs(ratings[0]-ratings[1]):0;
+            const cardVerdict=ratings.length===2&&diff>=2?coupleVerdict(diff):null;
             const pendingUsers=users.filter(u=>!e.reviews?.[u]?.rating&&!e.reviews?.[u]?.text);
             return (
               <div key={e.id} onClick={()=>setSel(e)} className="card-inner card-inner--clickable">
@@ -1774,9 +1826,9 @@ const DiaryPage = ({ watched, users, currentUser, onDelete, onEdit, onSaveReview
                   {e.type==="tv"&&e.status==="watching" && <div className="poster-status-badge poster-status-badge--watching">● ASSISTINDO</div>}
                   {e.type==="tv"&&e.status==="dropped"  && <div className="poster-status-badge poster-status-badge--dropped">● ABANDONADA</div>}
                   {avg && <div className="poster-avg"><span className="avg-highlight">★ {avg}</span></div>}
-                  {isDiscord && (
+                  {cardVerdict && (
                     <div className="poster-flag">
-                      <span className="poster-flag__label">Discordaram</span>
+                      <span className="poster-flag__label">{cardVerdict.emoji} {cardVerdict.label}</span>
                     </div>
                   )}
                   <div className="poster-avatar"><Avatar name={e.addedBy} size={22}/></div>

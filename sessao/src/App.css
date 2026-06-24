@@ -1527,6 +1527,11 @@
 }
 
 .detail-badge--discord { color: #f87171; background: rgba(230, 57, 70, 0.15); }
+.detail-badge--verdict-0 { color: #fb7185; background: rgba(244, 63, 94, 0.15); }
+.detail-badge--verdict-1 { color: #f472b6; background: rgba(236, 72, 153, 0.15); }
+.detail-badge--verdict-2 { color: #fbbf24; background: rgba(245, 158, 11, 0.15); }
+.detail-badge--verdict-3 { color: #a78bfa; background: rgba(124, 58, 237, 0.15); }
+.detail-badge--verdict-4 { color: #60a5fa; background: rgba(59, 130, 246, 0.15); }
 .detail-badge--season { color: #a78bfa; background: rgba(124, 58, 237, 0.15); }
 .detail-badge--rating { font-family: var(--font-body); font-size: 12px; color: #5a5866; background: none; padding: 0; }
 
@@ -1581,6 +1586,77 @@
   padding: 14px 16px;
 }
 
+/* ── veredito do casal (média das duas notas) ── */
+.couple-verdict {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 18px;
+  margin-bottom: 14px;
+  border-radius: 14px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+}
+.couple-verdict__score {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1;
+  padding-right: 16px;
+  border-right: 1px solid rgba(255,255,255,0.1);
+}
+.couple-verdict__avg {
+  font-family: var(--font-display);
+  font-size: 34px;
+  font-weight: 700;
+  color: #f0ede8;
+}
+.couple-verdict__outof {
+  font-family: var(--font-body);
+  font-size: 10px;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-top: 5px;
+}
+.couple-verdict__body {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.couple-verdict__label {
+  font-family: var(--font-body);
+  font-size: 14px;
+  font-weight: 700;
+}
+.couple-verdict--0 { background: linear-gradient(135deg, rgba(244,63,94,0.12), rgba(255,255,255,0.03)); }
+.couple-verdict--0 .couple-verdict__label { color: #fb7185; }
+.couple-verdict--1 { background: linear-gradient(135deg, rgba(236,72,153,0.10), rgba(255,255,255,0.03)); }
+.couple-verdict--1 .couple-verdict__label { color: #f472b6; }
+.couple-verdict--2 { background: linear-gradient(135deg, rgba(245,158,11,0.10), rgba(255,255,255,0.03)); }
+.couple-verdict--2 .couple-verdict__label { color: #fbbf24; }
+.couple-verdict--3 { background: linear-gradient(135deg, rgba(124,58,237,0.10), rgba(255,255,255,0.03)); }
+.couple-verdict--3 .couple-verdict__label { color: #a78bfa; }
+.couple-verdict--4 { background: linear-gradient(135deg, rgba(59,130,246,0.10), rgba(255,255,255,0.03)); }
+.couple-verdict--4 .couple-verdict__label { color: #60a5fa; }
+
+/* ── botão editar minha avaliação ── */
+.review-edit-btn {
+  margin-left: 8px;
+  flex-shrink: 0;
+  background: transparent;
+  border: 1px solid rgba(255,255,255,0.14);
+  color: var(--text-secondary);
+  border-radius: 8px;
+  padding: 3px 10px;
+  font-family: var(--font-body);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 150ms var(--ease), color 150ms var(--ease);
+}
+.review-edit-btn:hover { border-color: rgba(255,255,255,0.32); color: #f0ede8; }
+
 .review-rating { font-family: var(--font-body); color: #c9993a; font-weight: 700; font-size: 12px; }
 .review-card__name { font-family: var(--font-body); font-size: 13px; font-weight: 600; color: #f0ede8; }
 .review-card__quote { margin: 8px 0 0; font-family: var(--font-display); font-size: 15px; font-style: italic; color: #9b98a3; line-height: 1.5; }
@@ -1626,6 +1702,11 @@
   margin-bottom: 10px;
 }
 
+.inline-review__actions {
+  display: flex;
+  gap: 8px;
+}
+
 .review-inline__button {
   border: none;
   border-radius: 10px;
@@ -1635,6 +1716,16 @@
   font-size: 13px;
   cursor: pointer;
   background: linear-gradient(135deg, #e63946, #c1121f);
+}
+
+.review-inline__button--ghost {
+  background: transparent;
+  border: 1px solid rgba(255,255,255,0.16);
+  color: var(--text-secondary);
+}
+.review-inline__button--ghost:hover {
+  border-color: rgba(255,255,255,0.32);
+  color: #f0ede8;
 }
 
 .review-inline__button:disabled {

@@ -3670,3 +3670,130 @@ html, body { overflow-x: clip; }
   .invite-box__code { font-size: 28px; letter-spacing: 4px; }
   .detail-title--small { font-size: 20px; }
 }
+
+/* ════════════════════════════════════════════════════════════════════
+   TELA DE LOGIN — cinematográfica, premium e animada
+   ════════════════════════════════════════════════════════════════════ */
+.login-screen {
+  position: relative;
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 28px 24px calc(28px + env(safe-area-inset-bottom));
+  overflow: hidden;
+  isolation: isolate;
+  background: var(--bg-base);
+}
+
+/* fundo aurora — brilhos da paleta da marca, derivando devagar */
+.login-aurora { position: absolute; inset: 0; z-index: -2; pointer-events: none; }
+.login-aurora__blob {
+  position: absolute;
+  width: 62vmax;
+  height: 62vmax;
+  border-radius: 50%;
+  filter: blur(70px);
+  opacity: 0.45;
+}
+.login-aurora__blob--red    { background: radial-gradient(circle, rgba(201,57,74,0.55), transparent 64%);  top: -22vmax; left: -16vmax; animation: auroraA 19s var(--ease) infinite alternate; }
+.login-aurora__blob--violet { background: radial-gradient(circle, rgba(139,126,200,0.45), transparent 64%); bottom: -24vmax; right: -18vmax; animation: auroraB 23s var(--ease) infinite alternate; }
+.login-aurora__blob--gold   { background: radial-gradient(circle, rgba(201,153,58,0.28), transparent 66%);  top: 34%; left: 38%; animation: auroraC 27s var(--ease) infinite alternate; }
+@keyframes auroraA { to { transform: translate(7vmax, 9vmax) scale(1.12); } }
+@keyframes auroraB { to { transform: translate(-7vmax, -7vmax) scale(1.16); } }
+@keyframes auroraC { to { transform: translate(-9vmax, 6vmax) scale(0.92); } }
+
+.login-grain {
+  position: absolute; inset: 0; z-index: -1; pointer-events: none;
+  background-image: radial-gradient(rgba(255,255,255,0.05) 0.8px, transparent 0.8px);
+  background-size: 22px 22px;
+  opacity: 0.5;
+}
+
+.login-card { width: min(100%, 400px); text-align: center; }
+
+.login-logo { position: relative; display: inline-grid; place-items: center; margin-bottom: 16px; animation: fadeInUp 600ms var(--ease) both; }
+.login-logo__halo {
+  position: absolute; width: 94px; height: 94px; border-radius: 50%;
+  background: radial-gradient(circle, var(--accent-glow), transparent 70%);
+  filter: blur(6px);
+  animation: haloPulse 3.6s var(--ease) infinite;
+}
+.login-logo__emoji { position: relative; font-size: clamp(46px, 8vw, 58px); line-height: 1; }
+@keyframes haloPulse { 0%,100% { opacity: 0.45; transform: scale(1); } 50% { opacity: 0.85; transform: scale(1.14); } }
+
+.login-title {
+  margin: 0 0 8px;
+  font-family: var(--font-display);
+  font-size: clamp(40px, 9vw, 52px);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+  animation: fadeInUp 600ms var(--ease) both;
+  animation-delay: 80ms;
+}
+.login-heart { display: inline-block; animation: heartBeat 2.6s var(--ease) infinite; }
+@keyframes heartBeat { 0%,100%{transform:scale(1)} 12%{transform:scale(1.18)} 24%{transform:scale(1)} 36%{transform:scale(1.1)} 48%{transform:scale(1)} }
+
+.login-tagline {
+  margin: 0 0 26px;
+  color: var(--text-secondary);
+  font-size: 15px;
+  animation: fadeInUp 600ms var(--ease) both;
+  animation-delay: 140ms;
+}
+
+.login-features { list-style: none; margin: 0 0 26px; padding: 0; display: flex; flex-direction: column; gap: 10px; text-align: left; }
+.login-feature {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 15px;
+  background: rgba(255,255,255,0.035);
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  font-size: 14px; color: var(--text-primary);
+  animation: fadeInUp 600ms var(--ease) both;
+}
+.login-feature:nth-child(1) { animation-delay: 200ms; }
+.login-feature:nth-child(2) { animation-delay: 270ms; }
+.login-feature:nth-child(3) { animation-delay: 340ms; }
+.login-feature__ic { flex-shrink: 0; width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; font-size: 16px; }
+.login-feature__ic--gold   { background: var(--gold-muted); color: var(--gold); }
+.login-feature__ic--violet { background: var(--lilac-muted); color: var(--lilac); }
+.login-feature__ic--red    { background: var(--accent-muted); color: var(--accent); }
+
+.login-google {
+  position: relative; overflow: hidden;
+  display: flex; align-items: center; justify-content: center; gap: 12px;
+  width: 100%;
+  background: var(--text-primary);
+  border: none; border-radius: 14px;
+  padding: 15px 0;
+  color: #111; font-weight: 700; font-size: 15px;
+  cursor: pointer;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+  transition: transform 180ms var(--ease), box-shadow 180ms var(--ease), opacity 180ms var(--ease);
+  animation: fadeInUp 600ms var(--ease) both;
+  animation-delay: 430ms;
+}
+.login-google:hover { transform: translateY(-2px); box-shadow: 0 16px 38px rgba(0,0,0,0.45); }
+.login-google:active { transform: translateY(0) scale(0.99); }
+.login-google:disabled { cursor: not-allowed; opacity: 0.75; }
+.login-google::after {
+  content: ""; position: absolute; top: 0; left: -60%; width: 38%; height: 100%;
+  background: linear-gradient(100deg, transparent, rgba(255,255,255,0.5), transparent);
+  transform: skewX(-18deg);
+  animation: sheen 5s ease-in-out infinite;
+}
+@keyframes sheen { 0%, 62% { left: -60%; } 100% { left: 135%; } }
+.login-google__spinner { width: 18px; height: 18px; border-radius: 50%; border: 2px solid rgba(0,0,0,0.2); border-top-color: #111; animation: spin 700ms linear infinite; }
+
+.login-fineprint { margin: 16px 0 0; font-size: 12px; color: var(--text-tertiary); animation: fadeInUp 600ms var(--ease) both; animation-delay: 510ms; }
+
+@media (max-width: 360px) {
+  .login-feature { padding: 10px 13px; font-size: 13px; }
+  .login-features { gap: 9px; margin-bottom: 22px; }
+}
+
+/* ── Transição de página suave ao trocar de aba (sensação nativa) ──── */
+.page-fade { animation: pageIn 300ms var(--ease) both; }
+@keyframes pageIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }

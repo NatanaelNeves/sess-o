@@ -2,7 +2,8 @@
 import { createPortal } from "react-dom";
 import { auth, db } from "./firebase";
 import {
-  onAuthStateChanged, signInWithPopup, signOut, GoogleAuthProvider,
+  onAuthStateChanged, signInWithPopup, signInWithRedirect, getRedirectResult,
+  signOut, GoogleAuthProvider,
 } from "firebase/auth";
 import {
   collection, doc, addDoc, setDoc, updateDoc, deleteDoc,
@@ -1171,23 +1172,55 @@ const DetailModal = ({ entry, users, onClose, onMarkWatched, onEdit, onSaveRevie
 
 // login screen
 const LoginScreen = ({ onLogin, loading }) => (
-  <div className="auth-screen">
-    <div className="auth-card">
-      <div className="auth-icon">🎞️</div>
-      <h1 className="auth-title">
-        Sessão <span className="auth-brand-accent">❤️</span>
+  <div className="login-screen">
+    <div className="login-aurora" aria-hidden="true">
+      <span className="login-aurora__blob login-aurora__blob--red" />
+      <span className="login-aurora__blob login-aurora__blob--violet" />
+      <span className="login-aurora__blob login-aurora__blob--gold" />
+    </div>
+    <div className="login-grain" aria-hidden="true" />
+
+    <div className="login-card">
+      <div className="login-logo">
+        <span className="login-logo__halo" aria-hidden="true" />
+        <span className="login-logo__emoji">🎞️</span>
+      </div>
+
+      <h1 className="login-title">
+        Sessão <span className="login-heart">❤️</span>
       </h1>
-      <p className="auth-subtitle auth-subtitle--wide">O diário cinematográfico do casal</p>
-      <button onClick={onLogin} disabled={loading}
-        className="auth-google-btn">
-        <svg width="20" height="20" viewBox="0 0 24 24">
-          <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
-          <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
-          <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05"/>
-          <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
-        </svg>
+      <p className="login-tagline">O diário cinematográfico do casal</p>
+
+      <ul className="login-features">
+        <li className="login-feature">
+          <span className="login-feature__ic login-feature__ic--gold">★</span>
+          <span>Avaliem juntos cada sessão</span>
+        </li>
+        <li className="login-feature">
+          <span className="login-feature__ic login-feature__ic--violet">🍿</span>
+          <span>Montem a watchlist a dois</span>
+        </li>
+        <li className="login-feature">
+          <span className="login-feature__ic login-feature__ic--red">✦</span>
+          <span>Retrospectiva do casal no fim do ano</span>
+        </li>
+      </ul>
+
+      <button onClick={onLogin} disabled={loading} className="login-google">
+        {loading
+          ? <span className="login-google__spinner" aria-hidden="true" />
+          : (
+            <svg width="20" height="20" viewBox="0 0 24 24">
+              <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+              <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+              <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05"/>
+              <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+            </svg>
+          )}
         {loading ? "Entrando..." : "Entrar com Google"}
       </button>
+
+      <p className="login-fineprint">🔒 Privado — só entre vocês dois</p>
     </div>
   </div>
 );
@@ -2547,6 +2580,11 @@ export default function App() {
     : null;
   const users = couple ? [couple.name1, couple.name2].filter(Boolean) : [];
 
+  // captura o retorno do login via redirect (mobile/PWA)
+  useEffect(() => {
+    getRedirectResult(auth).catch(e => console.error(e));
+  }, []);
+
   // auth listener
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async user => {
@@ -2620,12 +2658,24 @@ export default function App() {
     localStorage.setItem("pwa-install-dismissed", "1");
   };
 
-  // auth actions
+  // auth actions — popup primeiro (suave no desktop); se o navegador bloquear
+  // o popup (comum em mobile/PWA), cai pro redirect, que é mais robusto.
   const handleLogin = async () => {
     setLoginLoading(true);
-    try { await signInWithPopup(auth, new GoogleAuthProvider()); }
-    catch(e) { console.error(e); }
-    finally { setLoginLoading(false); }
+    const provider = new GoogleAuthProvider();
+    try {
+      await signInWithPopup(auth, provider);
+    } catch (e) {
+      const fallback = ["auth/popup-blocked","auth/popup-closed-by-user","auth/cancelled-popup-request","auth/operation-not-supported-in-environment"];
+      if (fallback.includes(e.code)) {
+        try { await signInWithRedirect(auth, provider); return; }
+        catch (re) { console.error(re); }
+      } else {
+        console.error(e);
+      }
+    } finally {
+      setLoginLoading(false);
+    }
   };
 
   const handleSignOut = async () => {
@@ -2815,12 +2865,14 @@ export default function App() {
 
         {/* pages */}
         <div className="app-shell__content">
-          {page==="home"      && <HomePage      watched={watched} watchlist={watchlist} couple={couple} currentUser={currentUser} users={users} onQuickAdd={m=>setAddModal({type:"watched",movie:m})} onRoulette={()=>setShowRoulette(true)}/>}
-          {page==="diary"     && <DiaryPage     watched={watched} users={users} currentUser={currentUser}
-                                   onDelete={e=>requestDelete(e,"watched")} onEdit={editWatched} onSaveReview={saveReview} onUpdateStatus={saveStatus}/>}
-          {page==="watchlist" && <WatchlistPage watchlist={watchlist} users={users} currentUser={currentUser}
-                                   onDelete={e=>requestDelete(e,"watchlist")} onMarkWatched={markWatched} onRoulette={()=>setShowRoulette(true)}/>}
-          {page==="profile"   && <ProfilePage   watched={watched} watchlist={watchlist} couple={couple} users={users}/>}
+          <div key={page} className="page-fade">
+            {page==="home"      && <HomePage      watched={watched} watchlist={watchlist} couple={couple} currentUser={currentUser} users={users} onQuickAdd={m=>setAddModal({type:"watched",movie:m})} onRoulette={()=>setShowRoulette(true)}/>}
+            {page==="diary"     && <DiaryPage     watched={watched} users={users} currentUser={currentUser}
+                                     onDelete={e=>requestDelete(e,"watched")} onEdit={editWatched} onSaveReview={saveReview} onUpdateStatus={saveStatus}/>}
+            {page==="watchlist" && <WatchlistPage watchlist={watchlist} users={users} currentUser={currentUser}
+                                     onDelete={e=>requestDelete(e,"watchlist")} onMarkWatched={markWatched} onRoulette={()=>setShowRoulette(true)}/>}
+            {page==="profile"   && <ProfilePage   watched={watched} watchlist={watchlist} couple={couple} users={users}/>}
+          </div>
         </div>
 
         {/* Install banner */}

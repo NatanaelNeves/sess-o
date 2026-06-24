@@ -1274,10 +1274,10 @@ const CoupleSetup = ({ authUser, onCreate, onJoin, onSignOut }) => {
 
         {tab === "create" && (
           <div className="auth-stack">
-            <input value={myName} onChange={e => setMyName(e.target.value)} placeholder="Seu nome" style={inp} />
+            <input className="auth-input" value={myName} onChange={e => setMyName(e.target.value)} placeholder="Seu nome" style={inp} />
             <p className="auth-note">Você receberá um código para convidar sua pessoa</p>
             <p className="auth-note auth-note--compact">Desde quando juntos? (opcional)</p>
-            <input type="date" value={since} onChange={e => setSince(e.target.value)} style={inp} />
+            <input type="date" className="auth-input" value={since} onChange={e => setSince(e.target.value)} style={inp} />
             {err && <p className="error-text">{err}</p>}
             <button
               onClick={handleCreate}
@@ -1292,8 +1292,9 @@ const CoupleSetup = ({ authUser, onCreate, onJoin, onSignOut }) => {
 
         {tab === "join" && (
           <div className="auth-stack">
-            <input value={joinName} onChange={e => setJoinName(e.target.value)} placeholder="Seu nome" style={inp} />
+            <input className="auth-input" value={joinName} onChange={e => setJoinName(e.target.value)} placeholder="Seu nome" style={inp} />
             <input
+              className="auth-input"
               value={code}
               onChange={e => setCode(e.target.value.toUpperCase())}
               placeholder="Código de convite (ex: ABC123)"
@@ -2725,8 +2726,9 @@ export default function App() {
 
   // render guards
   if (authLoading) return (
-    <div style={{ minHeight:"100vh",background:"#08080f",display:"flex",alignItems:"center",justifyContent:"center" }}>
-      <div className="text-muted">Carregando...</div>
+    <div className="app-loading">
+      <div className="app-loading__spinner" />
+      <div className="app-loading__text">Carregando...</div>
     </div>
   );
 

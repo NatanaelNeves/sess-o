@@ -3324,3 +3324,241 @@
   margin-left: 12px;
   flex-shrink: 0;
 }
+
+/* ════════════════════════════════════════════════════════════════════
+   CAMADA DE POLIMENTO PREMIUM
+   Refinamentos de acabamento sobre o design existente — mesma identidade,
+   só mais bem acabado. Anexado por último de propósito (vence empates de
+   especificidade sem precisar editar centenas de regras).
+   ════════════════════════════════════════════════════════════════════ */
+
+/* ── A11y: respeita quem prefere menos movimento ───────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ── Inputs: anel de foco unificado e elegante + hover sutil ───────── */
+.text-input,
+.form-input,
+.form-select,
+.auth-input,
+.review-card__textarea,
+.note-textarea,
+.review-inline__textarea,
+.quick-add-card__input {
+  transition: border-color 180ms var(--ease), box-shadow 180ms var(--ease), background 180ms var(--ease);
+}
+.text-input:hover,
+.form-input:hover,
+.form-select:hover,
+.auth-input:hover,
+.review-card__textarea:hover,
+.note-textarea:hover,
+.review-inline__textarea:hover {
+  border-color: rgba(255, 255, 255, 0.18);
+}
+.text-input:focus,
+.form-input:focus,
+.form-select:focus,
+.auth-input:focus,
+.review-card__textarea:focus,
+.note-textarea:focus,
+.review-inline__textarea:focus,
+.quick-add-card__input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+/* ── Selects: seta custom no lugar da nativa (mesma cor da UI) ─────── */
+.form-select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239b98a3' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 13px center;
+  padding-right: 36px;
+}
+
+/* ── Botões: feedback de "press" tátil e consistente ──────────────── */
+.action-btn:active,
+.cta-button:active,
+.auth-btn:active,
+.button:active,
+.review-inline__button:active,
+.segmented-button:active,
+.segmented-group__button:active,
+.install-banner__btn:active,
+.auth-google-btn:active,
+.export-btn:active,
+.retro-btn:active,
+.avatar-pill:active,
+.review-edit-btn:active,
+.add-menu-item:active,
+.season-pill:active {
+  transform: scale(0.97);
+}
+.action-btn,
+.cta-button,
+.auth-btn,
+.button,
+.review-inline__button,
+.avatar-pill,
+.review-edit-btn {
+  transition: transform 140ms var(--ease), background 180ms var(--ease),
+    border-color 180ms var(--ease), color 180ms var(--ease), box-shadow 180ms var(--ease);
+}
+
+/* ── Cards de pôster: zoom cinematográfico sutil no hover ─────────── */
+.poster-img,
+.watching-card__poster {
+  transition: transform 520ms var(--ease);
+}
+.card-inner--clickable:hover .poster-img {
+  transform: scale(1.05);
+}
+.watching-card:hover .watching-card__poster {
+  transform: scale(1.05);
+}
+.card-inner--clickable {
+  transition: transform 250ms var(--spring), box-shadow 250ms var(--ease), border-color 250ms var(--ease);
+}
+.card-inner--clickable:hover {
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+/* ── Modais: entrada suave (pop no desktop, sheet no mobile) ───────── */
+.modal-backdrop {
+  animation: backdropIn 200ms ease both;
+}
+.modal-panel {
+  animation: modalPop 300ms var(--ease) both;
+}
+@keyframes backdropIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes modalPop {
+  from { opacity: 0; transform: translateY(10px) scale(0.985); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* ── Toasts: superfície glassy premium com acento semântico ───────── */
+.toast {
+  background: rgba(13, 13, 26, 0.92);
+  backdrop-filter: blur(18px) saturate(1.4);
+  -webkit-backdrop-filter: blur(18px) saturate(1.4);
+  border: 1px solid var(--border-default);
+  border-left: 3px solid var(--border-default);
+  border-radius: 14px;
+  box-shadow: 0 14px 44px rgba(0, 0, 0, 0.5);
+}
+.toast--success { border-left-color: var(--success); }
+.toast--error   { border-left-color: var(--danger); }
+.toast--info    { border-left-color: var(--info); }
+.toast--warn,
+.toast--warning { border-left-color: var(--warning); }
+
+/* ── Números: alinhados (não "dançam" ao mudar) ───────────────────── */
+.stat-card__value,
+.stat-value,
+.retro-mini__value,
+.retro-hero__number,
+.retro-banner__year,
+.couple-verdict__avg,
+.invite-box__code,
+.review-rating,
+.avg-highlight,
+.poster-avg {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+/* ── Estado vazio: respiro maior + leve flutuação no ícone ────────── */
+.empty-state {
+  padding: 72px 24px;
+}
+.empty-state .text-muted {
+  font-size: 15px;
+}
+.empty-svg {
+  opacity: 0.28;
+  animation: emptyFloat 3.4s var(--ease) infinite;
+}
+@keyframes emptyFloat {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-6px); }
+}
+
+/* ── Dropdowns/menus: sombra e profundidade mais refinadas ────────── */
+.add-menu-dropdown,
+.status-mini-dropdown,
+.quick-add-card__dropdown {
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+/* ── Scrollbar: aparece com mais presença ao passar o mouse ───────── */
+::-webkit-scrollbar-thumb:hover {
+  background: var(--border-strong);
+}
+
+/* ── Nav: indicador ativo com transição natural ───────────────────── */
+.nav-item::before {
+  transition: opacity 220ms var(--ease), transform 220ms var(--ease);
+}
+
+/* ── FAB: feedback de pressão ─────────────────────────────────────── */
+.fab:active {
+  transform: scale(0.94);
+}
+
+/* ── Avatares: micro-realce no hover de cards de pessoa ───────────── */
+.avatar-pill:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* ── Tela de carregamento inicial: spinner elegante ───────────────── */
+.app-loading {
+  min-height: 100vh;
+  min-height: 100dvh;
+  background: var(--bg-base);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  animation: fadeIn 300ms ease both;
+}
+.app-loading__spinner {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 2.5px solid rgba(255, 255, 255, 0.1);
+  border-top-color: var(--accent);
+  animation: spin 720ms linear infinite;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+.app-loading__text {
+  font-family: var(--font-body);
+  font-size: 13px;
+  color: var(--text-tertiary);
+  letter-spacing: 0.4px;
+}
+
+/* ── Mobile: modal entra deslizando de baixo (bottom sheet) ───────── */
+@media (max-width: 480px) {
+  .modal-backdrop:not(.modal-backdrop--confirm) .modal-panel {
+    animation: sheetUp 340ms var(--ease) both;
+  }
+  @keyframes sheetUp {
+    from { transform: translateY(100%); }
+    to   { transform: translateY(0); }
+  }
+}

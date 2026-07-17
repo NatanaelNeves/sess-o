@@ -12,6 +12,19 @@ service cloud.firestore {
     function coupleData(coupleId) {
       return get(/databases/$(database)/documents/couples/$(coupleId)).data;
     }
+    function reviewOwnerName(coupleData) {
+      if (request.auth.uid == coupleData.uid1) return coupleData.name1;
+      if (request.auth.uid == coupleData.uid2) return coupleData.name2;
+      return null;
+    }
+    function ownReviewUpdate(coupleData) {
+      let owner = reviewOwnerName(coupleData);
+      return owner != null
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["reviews"])
+        && request.resource.data.reviews.keys().hasOnly(resource.data.reviews.keys().union([owner]))
+        && request.resource.data.reviews.keys().hasAll(resource.data.reviews.keys())
+        && request.resource.data.reviews[owner] != null;
+    }
 
     // Couples collection
     match /couples/{coupleId} {
@@ -33,7 +46,16 @@ service cloud.firestore {
 
       // Watched subcollection
       match /watched/{entryId} {
-        allow read, write: if isAuth() && isMember(coupleData(coupleId));
+        allow read: if isAuth() && isMember(coupleData(coupleId));
+        allow create: if isAuth() && isMember(coupleData(coupleId)) && (
+          !('reviews' in request.resource.data)
+          || request.resource.data.reviews.keys().hasOnly([reviewOwnerName(coupleData(coupleId))])
+        );
+        allow update: if isAuth() && isMember(coupleData(coupleId)) && (
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny(["reviews"])
+          || ownReviewUpdate(coupleData(coupleId))
+        );
+        allow delete: if isAuth() && isMember(coupleData(coupleId));
       }
 
       // Watchlist subcollection

@@ -27,7 +27,20 @@
       "Bash(npx playwright@1.60.0 screenshot --browser chromium --wait-for-timeout 5000 --viewport-size \"390,844\" http://localhost:5174 \"C:/Users/Natan/AppData/Local/Temp/sessao-login2.png\")",
       "Bash(npx firebase-tools *)",
       "Bash(npx vite *)",
-      "Bash(npx firebase *)"
+      "Bash(npx firebase *)",
+      "Bash(npx eslint *)",
+      "Bash(gh auth *)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)",
+      "Bash(curl -s https://sess-80b2c.web.app/)",
+      "Bash(git commit --allow-empty -m 'chore: dispara deploy via Actions \\(secrets configurados\\) *)",
+      "Bash(cd /tmp)",
+      "Bash(curl -s --compressed https://sess-80b2c.web.app/assets/index-XgzgR-O8.js -o live.js)",
+      "Bash(grep -oE '.{0,40}apiKey:[^}]{0,200}' live.js)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" https://api.github.com/repos/NatanaelNeves/sess-o)",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(python -c ' *)"
     ]
   }
 }

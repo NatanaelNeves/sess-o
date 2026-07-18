@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useRef, Component } from "react";
+﻿import { useState, useEffect, useRef, useMemo, Component } from "react";
 import { createPortal } from "react-dom";
 import { auth, db } from "./firebase";
 import {
@@ -775,131 +775,142 @@ const AddWatchlistModal = ({ currentUser, onSave, onClose }) => {
 // roulette modal
 const ROULETTE_COLORS = ["#c9394a", "#8b7ec8", "#c9993a", "#2a2050"];
 
+// Roleta da noite — evento cinematográfico em tela cheia (com suspense do Lumi)
 const RouletteModal = ({ watchlist, onClose, onWatchNow }) => {
   const [typeFilter, setTypeFilter] = useState("all");
   const [rotation, setRotation]     = useState(0);
-  const [spinning,  setSpinning]    = useState(false);
-  const [result,    setResult]      = useState(null);
+  const [phase, setPhase]           = useState("idle"); // idle | spinning | result
+  const [result, setResult]         = useState(null);
 
-  const filtered = watchlist.filter(w =>
-    typeFilter === "movie" ? w.type === "movie" :
-    typeFilter === "tv"    ? w.type === "tv"    : true
-  );
+  // IMPORTANTE: a lista da roda é congelada (useMemo) — sem isso o embaralhamento
+  // roda a cada render e o resultado deixa de bater com a fatia sob o ponteiro.
+  const wheelItems = useMemo(() => {
+    const f = watchlist.filter(w =>
+      typeFilter === "movie" ? w.type === "movie" :
+      typeFilter === "tv"    ? w.type === "tv"    : true
+    );
+    if (f.length <= 12) return f;
+    return [...f].sort(() => Math.random() - 0.5).slice(0, 12);
+  }, [watchlist, typeFilter]);
 
-  // shuffle for variety if >12; keep stable per filter change via useMemo
-  const wheelItems = filtered.length > 12
-    ? [...filtered].sort(() => Math.random() - 0.5).slice(0, 12)
-    : filtered;
-
-  const numItems   = wheelItems.length;
-  const SVG_SIZE   = 300;
-  const cx = SVG_SIZE / 2, cy = SVG_SIZE / 2, r = SVG_SIZE / 2 - 2;
-
+  const numItems = wheelItems.length;
+  const SVG = 300;
+  const cx = SVG / 2, cy = SVG / 2, r = SVG / 2 - 2;
   const truncate = (s, max = 14) => s.length > max ? s.slice(0, max) + "…" : s;
 
   const spin = () => {
-    if (spinning || numItems < 2) return;
+    if (phase === "spinning" || numItems < 2) return;
     const sliceAngle  = 360 / numItems;
     const targetIndex = Math.floor(Math.random() * numItems);
+    const chosen      = wheelItems[targetIndex]; // congela o vencedor agora
     const currentMod  = ((rotation % 360) + 360) % 360;
-    const targetAngle = ((360 - targetIndex * sliceAngle - sliceAngle / 2) % 360 + 360) % 360;
+    // rotação (mod 360) que coloca o meio da fatia targetIndex sob o ponteiro (topo)
+    const targetAngle = ((360 - (targetIndex + 0.5) * sliceAngle) % 360 + 360) % 360;
     const delta       = ((targetAngle - currentMod) + 360) % 360;
-    const finalRot    = rotation + 5 * 360 + delta;
+    const finalRot    = rotation + 6 * 360 + delta;
     setResult(null);
-    setSpinning(true);
+    setPhase("spinning");
     setRotation(finalRot);
-    setTimeout(() => { setSpinning(false); setResult(wheelItems[targetIndex]); }, 4100);
+    setTimeout(() => { setResult(chosen); setPhase("result"); }, 4300);
   };
 
+  const spinning = phase === "spinning";
+  const fmtRuntime = m => m ? `${Math.floor(m / 60)}h${m % 60 ? String(m % 60).padStart(2, "0") : ""}` : null;
+
   return createPortal(
-    <div className="roulette-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="roulette-modal">
-        <button className="roulette-close" onClick={onClose}><Ic n="x" s={20}/></button>
+    <div className={`rl-cine rl-cine--${phase}`} onClick={e => e.target === e.currentTarget && !spinning && onClose()}>
+      {phase === "result" && <Confetti count={40}/>}
+      <button className="rl-cine__close" onClick={onClose} aria-label="Fechar"><Ic n="x" s={22}/></button>
 
-        <p className="roulette-subtitle" style={{ marginBottom: 2 }}>Não sabem o que ver?</p>
-        <h2 className="roulette-title" style={{ fontFamily: "var(--font-display)", fontWeight: 600 }}>Roleta da noite</h2>
-        <Lumi name="roulette" size={120} breathe className="roulette-lumi" alt="Lumi girando a roleta" />
+      <div className="rl-cine__header">
+        <div className="rl-cine__eyebrow">Roleta da noite</div>
+        <div className="rl-cine__title">
+          {phase === "idle" ? "Não conseguem decidir?" : phase === "spinning" ? "Preparando a sessão…" : "A sorte escolheu ✦"}
+        </div>
+      </div>
 
-        <div className="roulette-pills">
-          {[["all","Tudo"],["movie","Só filmes"],["tv","Só séries"]].map(([v,l]) => (
-            <button key={v} onClick={() => { if (!spinning) { setTypeFilter(v); setResult(null); } }}
-              className={`roulette-pill${typeFilter===v?" roulette-pill--active":""}`}>{l}</button>
+      <Lumi name={phase === "result" ? "celebrating" : phase === "spinning" ? "animado" : "roulette"}
+        size={phase === "result" ? 120 : 104} breathe className="rl-cine__lumi"
+        alt="Lumi na roleta"/>
+
+      {phase === "idle" && (
+        <div className="rl-cine__pills">
+          {[["all", "Tudo"], ["movie", "Só filmes"], ["tv", "Só séries"]].map(([v, l]) => (
+            <button key={v} onClick={() => { setTypeFilter(v); setResult(null); }}
+              className={`rl-cine__pill ${typeFilter === v ? "rl-cine__pill--active" : ""}`}>{l}</button>
           ))}
         </div>
+      )}
 
-        {numItems < 2 ? (
-          <div className="roulette-empty">Poucos títulos com esse filtro</div>
-        ) : (
-          <>
-            <div className={`roulette-wheel-wrap${result?" roulette-wheel-wrap--done":""}`}>
-              <div className="roulette-pointer"/>
-              <svg
-                viewBox={`0 0 ${SVG_SIZE} ${SVG_SIZE}`}
-                className="roulette-wheel"
-                style={{
-                  transform: `rotate(${rotation}deg)`,
-                  transition: spinning ? "transform 4s cubic-bezier(0.17,0.67,0.12,0.99)" : "none",
-                }}
-              >
-                {wheelItems.map((item, i) => {
-                  const sliceAngle = 360 / numItems;
-                  const sa = (i * sliceAngle - 90) * Math.PI / 180;
-                  const ea = ((i + 1) * sliceAngle - 90) * Math.PI / 180;
-                  const x1 = cx + r * Math.cos(sa), y1 = cy + r * Math.sin(sa);
-                  const x2 = cx + r * Math.cos(ea), y2 = cy + r * Math.sin(ea);
-                  const large = sliceAngle > 180 ? 1 : 0;
-                  const pathD = `M${cx},${cy} L${x1},${y1} A${r},${r} 0 ${large},1 ${x2},${y2} Z`;
-                  const ma = ((i + 0.5) * sliceAngle - 90) * Math.PI / 180;
-                  const tr = r * 0.62;
-                  const tx = cx + tr * Math.cos(ma), ty = cy + tr * Math.sin(ma);
-                  const trot = (i + 0.5) * sliceAngle - 90;
-                  return (
-                    <g key={item.id || i}>
-                      <path d={pathD} fill={ROULETTE_COLORS[i % 4]} stroke="#0d0d1a" strokeWidth="2"/>
-                      <text
-                        x={tx} y={ty}
-                        transform={`rotate(${trot},${tx},${ty})`}
-                        textAnchor="middle" dominantBaseline="middle"
-                        fill="white" fontSize="11"
-                        fontFamily="Inter,sans-serif" fontWeight="600"
-                      >{truncate(item.title)}</text>
-                    </g>
-                  );
-                })}
-                <circle cx={cx} cy={cy} r={25} fill="#0d0d1a" stroke="#f0ede8" strokeWidth="3"/>
-                <text x={cx} y={cy+1} textAnchor="middle" dominantBaseline="middle" fill="#c9394a" fontSize="18">♥</text>
-              </svg>
-            </div>
+      {numItems < 2 ? (
+        <div className="rl-cine__empty">
+          <p>Poucos títulos com esse filtro.<br/>Adicionem mais à lista a dois 🍿</p>
+        </div>
+      ) : (
+        <>
+          <div className={`rl-cine__wheel ${spinning ? "rl-cine__wheel--spin" : ""} ${phase === "result" ? "rl-cine__wheel--done" : ""}`}>
+            <div className="rl-cine__glow" aria-hidden="true"/>
+            <div className="rl-cine__pointer"/>
+            <svg viewBox={`0 0 ${SVG} ${SVG}`} className="rl-cine__svg"
+              style={{ transform: `rotate(${rotation}deg)`, transition: spinning ? "transform 4.2s cubic-bezier(0.16,0.84,0.14,1)" : "none" }}>
+              {wheelItems.map((item, i) => {
+                const sliceAngle = 360 / numItems;
+                const sa = (i * sliceAngle - 90) * Math.PI / 180;
+                const ea = ((i + 1) * sliceAngle - 90) * Math.PI / 180;
+                const x1 = cx + r * Math.cos(sa), y1 = cy + r * Math.sin(sa);
+                const x2 = cx + r * Math.cos(ea), y2 = cy + r * Math.sin(ea);
+                const large = sliceAngle > 180 ? 1 : 0;
+                const pathD = `M${cx},${cy} L${x1},${y1} A${r},${r} 0 ${large},1 ${x2},${y2} Z`;
+                const ma = ((i + 0.5) * sliceAngle - 90) * Math.PI / 180;
+                const tr = r * 0.62;
+                const tx = cx + tr * Math.cos(ma), ty = cy + tr * Math.sin(ma);
+                let trot = (i + 0.5) * sliceAngle - 90;
+                if (trot > 90 && trot < 270) trot += 180; // mantém o texto legível na metade de baixo
+                return (
+                  <g key={item.id || i}>
+                    <path d={pathD} fill={ROULETTE_COLORS[i % 4]} stroke="#0d0d1a" strokeWidth="2"/>
+                    <text x={tx} y={ty} transform={`rotate(${trot},${tx},${ty})`}
+                      textAnchor="middle" dominantBaseline="middle"
+                      fill="white" fontSize="11" fontFamily="Inter,sans-serif" fontWeight="600">
+                      {truncate(item.title)}
+                    </text>
+                  </g>
+                );
+              })}
+              <circle cx={cx} cy={cy} r={26} fill="#0d0d1a" stroke="#f0ede8" strokeWidth="3"/>
+              <text x={cx} y={cy + 1} textAnchor="middle" dominantBaseline="middle" fill="#c9394a" fontSize="20">♥</text>
+            </svg>
+          </div>
 
-            {!result && (
-              <button onClick={spin} disabled={spinning} className={`roulette-spin-btn${spinning?" roulette-spin-btn--spinning":""}`}>
-                {spinning ? "Girando…" : "GIRAR"}
-              </button>
-            )}
-
-            {result && (
-              <div className="roulette-result">
-                <div className="rl-result-card">
-                  <div className="rl-result-card__label">a sorte escolheu</div>
-                  <div className="rl-result-card__title">{result.title}</div>
-                  <div className="rl-result-card__sub">
-                    {result.type === "tv" ? "série" : "filme"}
-                    {result.runtime ? ` · cabe em ${Math.floor(result.runtime/60)}h${result.runtime%60 ? String(result.runtime%60).padStart(2,"0") : ""} da noite de vocês` : result.year ? ` · ${result.year}` : ""}
-                  </div>
-                </div>
-                <div className="roulette-result__actions" style={{ display: "flex", gap: 10, width: "100%", marginTop: 14 }}>
-                  <button onClick={() => onWatchNow(result)} className="pill pill--primary" style={{ flex: 1 }}>Aceitar destino ✦</button>
-                  <button onClick={() => setResult(null)} className="pill pill--outline pill--sm">Girar de novo</button>
+          {phase === "idle" && (
+            <button onClick={spin} className="rl-cine__spin">🎲 Girar a roleta</button>
+          )}
+          {phase === "spinning" && (
+            <div className="rl-cine__suspense">🍿 quem será a memória de hoje…</div>
+          )}
+          {phase === "result" && result && (
+            <div className="rl-cine__result">
+              <div className="rl-result-card">
+                <div className="rl-result-card__label">a sorte escolheu</div>
+                <div className="rl-result-card__title">{result.title}</div>
+                <div className="rl-result-card__sub">
+                  {result.type === "tv" ? "série" : "filme"}
+                  {result.runtime ? ` · cabe em ${fmtRuntime(result.runtime)} da noite de vocês` : result.year ? ` · ${result.year}` : ""}
                 </div>
               </div>
-            )}
-          </>
-        )}
-      </div>
+              <div className="rl-cine__actions">
+                <button onClick={() => onWatchNow(result)} className="pill pill--primary" style={{ flex: 1 }}>Aceitar destino ✦</button>
+                <button onClick={() => { setResult(null); setPhase("idle"); }} className="pill pill--outline pill--sm">Girar de novo</button>
+              </div>
+            </div>
+          )}
+        </>
+      )}
     </div>,
     document.body
   );
 };
+
 
 // ---------- helpers do design v3 ----------
 // Notas exibidas na escala 0–10 do design (média das estrelas ×2, vírgula pt-BR)
@@ -1837,6 +1848,15 @@ const V3Demo = () => {
       perfil: <ProfilePage watched={DEMO_WATCHED} watchlist={DEMO_WATCHLIST} couple={DEMO_COUPLE} users={DEMO_USERS}
         prefs={demoPrefs} onOpenSettings={noop}/>,
       episodio: <EpisodeSheet entry={DEMO_WATCHED[5]} coupleId={null} onClose={noop} addToast={noop}/>,
+      cinema: <CinemaPage watched={DEMO_WATCHED} couple={DEMO_COUPLE} coupleId={null}
+        initialPlan={{ title: "Superman", poster: null, date: new Date().toISOString().slice(0, 10), time: "21:40",
+          venue: "Cinemark Iguatemi · Sala 6", seats: "H7 · H8",
+          movie: { title: "Superman", type: "movie", genres: ["Ação"], cast: [] } }}
+        onClose={noop} onRegister={noop} addToast={noop}/>,
+      roleta: <RouletteModal watchlist={Array.from({ length: 14 }, (_, i) => ({
+        id: `r${i}`, title: ["Dark", "Homem-Aranha", "Arcane", "Gente Grande", "Coringa", "Socorro!", "Rogue One", "As Crônicas de Nárnia", "Batman", "O Cavaleiro das Trevas", "Supergirl", "Interestelar", "Duna", "La La Land"][i],
+        type: i % 4 === 0 ? "tv" : "movie", runtime: 90 + i * 6, year: `20${10 + i}`,
+      }))} onClose={noop} onWatchNow={noop}/>,
     };
     return (
       <div className="v3-shell">
@@ -3755,11 +3775,39 @@ const SettingsPage = ({ couple, users, watched, prefs, onPref, onClose, onSignOu
 };
 
 // modo cinema — hub + ingresso + check-in (v3)
-const CinemaPage = ({ watched, couple, coupleId, onClose, onRegister, addToast }) => {
-  const [view, setView] = useState("hub"); // hub | ticket | checkin | plan
-  const [plan, setPlan] = useState(null);
-  const [planLoaded, setPlanLoaded] = useState(false);
-  const [form, setForm] = useState({ title: "", date: "", time: "", venue: "", seats: "" });
+// modo cinema — "quando a sessão é fora de casa" (fiel ao canvas ROW 7)
+// hub âmbar · marcar sessão com filme real (TMDB) · ingresso admit-two · check-in
+const icsEscape = s => String(s || "").replace(/\\/g, "\\\\").replace(/[,;]/g, m => "\\" + m).replace(/\n/g, "\\n");
+const downloadIcs = plan => {
+  const [y, mo, d] = plan.date.split("-");
+  const [h, mi] = (plan.time || "20:00").split(":");
+  const pad = n => String(n).padStart(2, "0");
+  const start = `${y}${mo}${d}T${pad(h)}${pad(mi)}00`;
+  const endH = (parseInt(h) + 3) % 24;
+  const end = `${y}${mo}${d}T${pad(endH)}${pad(mi)}00`;
+  const ics = [
+    "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Sessao//PT-BR",
+    "BEGIN:VEVENT",
+    `UID:sessao-cinema-${plan.date}@sessao.app`,
+    `DTSTART:${start}`, `DTEND:${end}`,
+    `SUMMARY:${icsEscape(`🎟 Cinema: ${plan.title}`)}`,
+    `LOCATION:${icsEscape(plan.venue)}`,
+    `DESCRIPTION:${icsEscape(`Sessão a dois${plan.seats ? ` · lugares ${plan.seats}` : ""} — marcada no Sessão ❤`)}`,
+    "END:VEVENT", "END:VCALENDAR",
+  ].join("\r\n");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([ics], { type: "text/calendar" }));
+  a.download = `sessao-cinema-${plan.date}.ics`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+};
+
+const CinemaPage = ({ watched, couple, coupleId, onClose, onRegister, addToast, initialPlan = null }) => {
+  const [view, setView] = useState("hub"); // hub | pick | plan | ticket | checkin
+  const [plan, setPlan] = useState(coupleId ? null : initialPlan);
+  const [planLoaded, setPlanLoaded] = useState(!coupleId);
+  const [movie, setMovie] = useState(null); // filme escolhido na TMDB para o plano
+  const [form, setForm] = useState({ date: "", time: "", venue: "", seats: "" });
 
   useEffect(() => {
     if (!coupleId) return;
@@ -3771,99 +3819,109 @@ const CinemaPage = ({ watched, couple, coupleId, onClose, onRegister, addToast }
   }, [coupleId]);
 
   const savePlan = async () => {
-    if (!form.title.trim() || !form.date) return;
-    await setDoc(doc(db, "couples", coupleId, "cinema", "plan"), form);
+    if (!movie?.title || !form.date) return;
+    // guarda o filme completo da TMDB — o ingresso vira memória com pôster, gêneros etc.
+    const payload = JSON.parse(JSON.stringify({ title: movie.title, poster: movie.poster || null, movie, ...form }));
+    if (coupleId) await setDoc(doc(db, "couples", coupleId, "cinema", "plan"), payload);
+    else setPlan(payload);
     setView("hub");
-    addToast?.("Sessão marcada 🎟");
+    addToast?.("Sessão marcada 🎟", "success");
   };
-  const clearPlan = async () => {
-    await deleteDoc(doc(db, "couples", coupleId, "cinema", "plan")).catch(() => {});
+  const clearPlan = () => {
+    if (coupleId) deleteDoc(doc(db, "couples", coupleId, "cinema", "plan")).catch(() => {});
+    else setPlan(null);
+  };
+  const editPlan = () => {
+    if (plan) {
+      setMovie(plan.movie || { title: plan.title, type: "movie", genres: [], cast: [] });
+      setForm({ date: plan.date || "", time: plan.time || "", venue: plan.venue || "", seats: plan.seats || "" });
+    }
+    setView("plan");
+  };
+  const registerNow = () => {
+    const m = plan?.movie || { title: plan?.title, type: "movie", genres: [], cast: [] };
+    clearPlan();
+    onRegister(m);
   };
 
-  const cinemaEntries = watched.filter(w => w.where === "cinema")
+  const yearNow = String(new Date().getFullYear());
+  const allCinema = watched.filter(w => w.where === "cinema")
     .sort((a, b) => new Date(b.date || b.createdAt) - new Date(a.date || a.createdAt));
+  const cinemaYear = allCinema.filter(w => (w.date || (w.createdAt || "").slice(0, 10)).startsWith(yearNow));
+  const cinemaEntries = cinemaYear.length ? cinemaYear : allCinema;
+
   const fmtPlanDate = d => d ? new Date(d + "T12:00:00").toLocaleDateString("pt-BR", { weekday: "short", day: "2-digit", month: "short" }).replace(/\./g, "") : "";
+  const fmtRowDate = d => d ? new Date(d + "T12:00:00").toLocaleDateString("pt-BR", { day: "2-digit", month: "short" }).replace(".", "") : "";
   const isToday = plan?.date === new Date().toISOString().slice(0, 10);
-  const nextMilestone = plan ? "Ingresso pronto" : cinemaEntries.length >= 3 ? "Ritual de cinema consolidado" : "Primeira ida ao cinema";
-  const cinemaMood = cinemaEntries.length === 0
-    ? "Seu primeiro cinema ainda vai virar uma memória de verdade."
-    : cinemaEntries.length < 3
-      ? "Cada sessão nova dá mais personalidade à rotina de vocês."
-      : "Vocês já têm um ritual cinematográfico digno de destaque.";
+  // nota de personalidade da linha: um trecho da crítica do casal
+  const rowNote = e => {
+    for (const rv of Object.values(e.reviews || {})) {
+      const t = rv?.text?.trim();
+      if (t) return t.length > 34 ? t.slice(0, 34) + "…" : t;
+    }
+    return null;
+  };
 
   return createPortal(
-    <div className="subpage">
+    <div className="subpage subpage--cine">
       <div className="subpage__inner">
-        <div className="cfg-head">
-          <button className="cfg-back" onClick={() => view === "hub" ? onClose() : setView("hub")} aria-label="Voltar">←</button>
-          <div style={{ flex: 1 }}/>
-          {view === "hub" && <Lumi name="cinemaSign" size={74} breathe/>}
-        </div>
+        <button className="cfg-back" onClick={() => view === "hub" ? onClose() : setView("hub")} aria-label="Voltar" style={{ marginBottom: 6 }}>←</button>
 
+        {/* ===== HUB ===== */}
         {view === "hub" && (
-          <div className="cine-wrap" style={{ padding: "0 0 20px" }}>
-            <div className="cine-head" style={{ paddingTop: 0 }}>
+          <>
+            <div className="cine-head">
               <div>
                 <div className="cine-head__eyebrow">Modo cinema 🎟</div>
-                <div className="cine-head__title">Noite fora de casa</div>
+                <div className="cine-head__title">Noite fora<br/>de casa</div>
               </div>
-            </div>
-
-            <div className="cine-highlight-grid">
-              <div className="cine-highlight-card">
-                <div className="cine-highlight-card__eyebrow">ritual</div>
-                <div className="cine-highlight-card__value">{cinemaEntries.length}</div>
-                <div className="cine-highlight-card__text">sessões registradas · cada uma vira uma memória.</div>
-              </div>
-              <div className="cine-highlight-card">
-                <div className="cine-highlight-card__eyebrow">próximo passo</div>
-                <div className="cine-highlight-card__value">{plan ? "ingresso" : "marcar"}</div>
-                <div className="cine-highlight-card__text">{nextMilestone}</div>
-              </div>
-              <div className="cine-highlight-card">
-                <div className="cine-highlight-card__eyebrow">estado</div>
-                <div className="cine-highlight-card__value">{plan ? "feito" : "a abrir"}</div>
-                <div className="cine-highlight-card__text">{cinemaMood}</div>
-              </div>
+              <Lumi name="cinemaSign" size={84} breathe alt="Lumi com plaquinha de cinema"/>
             </div>
 
             {plan ? (
               <div className="cine-next">
-                <div className="cine-next__label">próxima sessão marcada</div>
-                <div className="cine-next__title">{plan.title}</div>
-                <div className="cine-next__meta">
-                  {[fmtPlanDate(plan.date), plan.time, plan.venue].filter(Boolean).join(" · ")}
+                {plan.poster && <img src={`${TMDB_IMG}${plan.poster}`} alt="" className="cine-next__poster"/>}
+                <div className="cine-next__body">
+                  <div className="cine-next__label">próxima sessão marcada</div>
+                  <div className="cine-next__title">{plan.title}</div>
+                  <div className="cine-next__meta">
+                    {[fmtPlanDate(plan.date), plan.time, plan.venue].filter(Boolean).join(" · ")}
+                  </div>
+                  <button className="cine-next__btn" onClick={() => setView(isToday ? "checkin" : "ticket")}>
+                    {isToday ? "Fazer check-in 🍿" : "Ver ingressos"}
+                  </button>
                 </div>
-                <button className="cine-next__btn" onClick={() => setView(isToday ? "checkin" : "ticket")}>
-                  {isToday ? "Fazer check-in 🍿" : "Ver ingresso"}
-                </button>
               </div>
             ) : planLoaded && (
-              <div className="cine-next" style={{ display: "flex", flexDirection: "column", alignItems: "flex-start" }}>
-                <div className="cine-next__label">nenhuma sessão marcada</div>
-                <div className="cine-next__title" style={{ fontSize: 22 }}>Que tal uma tela grande?</div>
-                <button className="cine-next__btn" onClick={() => setView("plan")}>＋ Marcar sessão</button>
+              <div className="cine-next">
+                <div className="cine-next__body">
+                  <div className="cine-next__label">nenhuma sessão marcada</div>
+                  <div className="cine-next__title">Que tal uma tela grande?</div>
+                  <div className="cine-next__meta">marquem a próxima ida ao cinema e o ingresso de vocês nasce aqui.</div>
+                  <button className="cine-next__btn" onClick={() => setView("pick")}>＋ Marcar sessão</button>
+                </div>
               </div>
             )}
 
             {cinemaEntries.length > 0 && (
               <>
-                <div className="home-last-label" style={{ color: "var(--amber-hi)", marginTop: 18 }}>Sessões no cinema</div>
+                <div className="cine-section-label">Sessões no cinema · {cinemaYear.length ? "este ano" : "todas"}</div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                  {cinemaEntries.slice(0, 5).map(e => {
+                  {cinemaEntries.slice(0, 6).map(e => {
                     const avg = mediaEntry(e);
+                    const note = rowNote(e);
                     return (
                       <div key={e.id} className="cine-row">
                         {e.poster
-                          ? <img src={`${TMDB_IMG}${e.poster}`} alt="" style={{ width: 40, height: 56, borderRadius: 8, objectFit: "cover", flexShrink: 0 }}/>
-                          : <div style={{ width: 40, height: 56, borderRadius: 8, background: "linear-gradient(160deg,#8a5c30,#33200f)", flexShrink: 0 }}/>}
+                          ? <img src={`${TMDB_IMG}${e.poster}`} alt="" className="cine-row__poster"/>
+                          : <div className="cine-row__poster cine-row__poster--fallback"/>}
                         <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontWeight: 600, fontSize: 14 }}>{e.title}</div>
+                          <div className="cine-row__title">{e.title}</div>
                           <div className="cine-row__meta">
-                            {e.date ? new Date(e.date + "T12:00:00").toLocaleDateString("pt-BR", { day: "2-digit", month: "short" }).replace(".", "") : ""}
+                            {[fmtRowDate(e.date || (e.createdAt || "").slice(0, 10)), note].filter(Boolean).join(" · ")}
                           </div>
                         </div>
-                        {avg > 0 && <span style={{ fontSize: 12, color: "var(--gold-soft)", flexShrink: 0 }}>★ {nota10(avg)}</span>}
+                        {avg > 0 && <span className="cine-row__nota">★ {nota10(avg)}</span>}
                       </div>
                     );
                   })}
@@ -3873,36 +3931,57 @@ const CinemaPage = ({ watched, couple, coupleId, onClose, onRegister, addToast }
 
             <div className="cine-foot">
               <img src={lumiSrc("holdingPopcorn")} alt=""/>
-              {cinemaEntries.length > 0
-                ? `${cinemaEntries.length} ida${cinemaEntries.length !== 1 ? "s" : ""} ao cinema · vocês amam uma tela grande`
+              {allCinema.length > 0
+                ? `${allCinema.length} ida${allCinema.length !== 1 ? "s" : ""} ao cinema · vocês amam uma tela grande`
                 : "a primeira ida ao cinema vira uma memória especial"}
             </div>
-          </div>
+          </>
         )}
 
-        {view === "plan" && (
-          <div style={{ marginTop: 10 }}>
-            <div className="cine-head__title" style={{ fontSize: 26 }}>Marcar sessão</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 16 }}>
-              <input className="auth-input" placeholder="Filme (ex.: Superman)" value={form.title}
-                onChange={e => setForm(f => ({ ...f, title: e.target.value }))}/>
-              <div style={{ display: "flex", gap: 10 }}>
-                <input className="auth-input" type="date" value={form.date}
-                  onChange={e => setForm(f => ({ ...f, date: e.target.value }))}/>
-                <input className="auth-input" type="time" value={form.time}
-                  onChange={e => setForm(f => ({ ...f, time: e.target.value }))}/>
+        {/* ===== ESCOLHER O FILME (TMDB) ===== */}
+        {view === "pick" && (
+          <SearchModal
+            headTitle="Marcar sessão" headSub="qual filme vocês vão ver no cinema?" headLumi="cinemaSign"
+            onSelect={m => { setMovie(m); setView("plan"); }}
+            onClose={() => setView("hub")}/>
+        )}
+
+        {/* ===== DETALHES DA SESSÃO ===== */}
+        {view === "plan" && movie && (
+          <>
+            <div className="cine-head" style={{ marginBottom: 4 }}>
+              <div>
+                <div className="cine-head__eyebrow">Marcar sessão 🎟</div>
+                <div className="cine-head__title" style={{ fontSize: 26 }}>{movie.title}</div>
               </div>
-              <input className="auth-input" placeholder="Cinema · sala (ex.: Cinemark Sala 6)" value={form.venue}
-                onChange={e => setForm(f => ({ ...f, venue: e.target.value }))}/>
-              <input className="auth-input" placeholder="Lugares (ex.: H7 · H8)" value={form.seats}
-                onChange={e => setForm(f => ({ ...f, seats: e.target.value }))}/>
-              <button className="pill pill--primary pill--block" onClick={savePlan} disabled={!form.title.trim() || !form.date}>
-                Marcar 🎟
+              {movie.poster && <img src={`${TMDB_IMG}${movie.poster}`} alt="" style={{ width: 56, height: 80, borderRadius: 10, objectFit: "cover", boxShadow: "0 10px 24px rgba(0,0,0,.5)" }}/>}
+            </div>
+            <button className="edit-switch" style={{ marginBottom: 12 }} onClick={() => setView("pick")}>trocar filme</button>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <div className="ep-input-row">
+                <label className="ep-input"><span>Data</span>
+                  <input className="text-input" type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))}/>
+                </label>
+                <label className="ep-input"><span>Horário</span>
+                  <input className="text-input" type="time" value={form.time} onChange={e => setForm(f => ({ ...f, time: e.target.value }))}/>
+                </label>
+              </div>
+              <label className="ep-input"><span>Cinema · sala</span>
+                <input className="text-input" placeholder="ex.: Cinemark Iguatemi · Sala 6" value={form.venue}
+                  onChange={e => setForm(f => ({ ...f, venue: e.target.value }))} style={{ textAlign: "left" }}/>
+              </label>
+              <label className="ep-input"><span>Lugares</span>
+                <input className="text-input" placeholder="ex.: H7 · H8" value={form.seats}
+                  onChange={e => setForm(f => ({ ...f, seats: e.target.value }))} style={{ textAlign: "left" }}/>
+              </label>
+              <button className="pill pill--primary pill--block" onClick={savePlan} disabled={!form.date}>
+                Gerar o ingresso 🎟
               </button>
             </div>
-          </div>
+          </>
         )}
 
+        {/* ===== INGRESSO ===== */}
         {view === "ticket" && plan && (
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
             <div style={{ fontSize: 13, color: "var(--text-secondary)", textAlign: "center" }}>o ingresso de vocês</div>
@@ -3933,18 +4012,20 @@ const CinemaPage = ({ watched, couple, coupleId, onClose, onRegister, addToast }
             <p style={{ fontSize: 13, color: "var(--text-secondary)", textAlign: "center", margin: "22px 0 0", lineHeight: 1.5 }}>
               depois da sessão, eu transformo<br/>esse ingresso numa memória.
             </p>
-            <div style={{ width: "100%", display: "flex", flexDirection: "column", gap: 10, marginTop: 26 }}>
-              <button className="pill pill--primary pill--block"
-                onClick={() => { clearPlan(); onRegister({ title: plan.title, type: "movie", genres: [], cast: [] }); }}>
-                Já assistimos ✦
-              </button>
-              <button className="pill pill--outline pill--block" onClick={() => setView("plan")}>Editar sessão</button>
+            <div style={{ width: "100%", display: "flex", flexDirection: "column", gap: 10, marginTop: 24 }}>
+              <button className="pill pill--primary pill--block" onClick={registerNow}>Já assistimos ✦</button>
+              <button className="pill pill--outline pill--block" onClick={() => downloadIcs(plan)}>Adicionar ao calendário</button>
+              <div style={{ display: "flex", gap: 10 }}>
+                <button className="pill pill--outline pill--sm" style={{ flex: 1 }} onClick={editPlan}>Editar</button>
+                <button className="pill pill--outline pill--sm" style={{ flex: 1 }} onClick={() => { clearPlan(); setView("hub"); addToast?.("Sessão desmarcada", "info"); }}>Desmarcar</button>
+              </div>
             </div>
           </div>
         )}
 
+        {/* ===== CHECK-IN ===== */}
         {view === "checkin" && plan && (
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", position: "relative", paddingTop: 10 }}>
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", position: "relative", paddingTop: 10, minHeight: "72vh" }}>
             <div className="retro-story__glow" style={{ background: "radial-gradient(circle,rgba(201,153,58,.16),transparent 68%)", top: 0 }}/>
             <div className="cine-head__eyebrow" style={{ position: "relative" }}>Check-in{plan.time ? ` · ${plan.time}` : ""}</div>
             <Lumi name="holdingPopcorn" size={200} breathe style={{ marginTop: 16, position: "relative" }}/>
@@ -3958,11 +4039,9 @@ const CinemaPage = ({ watched, couple, coupleId, onClose, onRegister, addToast }
               <span className="chip">🔕 silencioso</span>
               {plan.seats && <span className="chip">🎟 {plan.seats}</span>}
             </div>
-            <div style={{ width: "100%", marginTop: 34, position: "relative" }}>
-              <button className="pill pill--primary pill--block"
-                onClick={() => { clearPlan(); onRegister({ title: plan.title, type: "movie", genres: [], cast: [] }); }}>
-                Avaliar quando acabar
-              </button>
+            <div style={{ width: "100%", marginTop: "auto", paddingTop: 30, position: "relative" }}>
+              <button className="pill pill--primary pill--block" onClick={registerNow}>Avaliar quando acabar</button>
+              <button className="pill pill--outline pill--block" style={{ marginTop: 10 }} onClick={() => setView("ticket")}>Ver ingresso</button>
             </div>
           </div>
         )}
@@ -3971,6 +4050,7 @@ const CinemaPage = ({ watched, couple, coupleId, onClose, onRegister, addToast }
     document.body
   );
 };
+
 
 // error boundary — o Lumi assume quando algo quebra
 export class ErrorBoundary extends Component {

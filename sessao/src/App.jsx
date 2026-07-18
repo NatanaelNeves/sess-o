@@ -221,7 +221,30 @@ async function tmdbFetch(id, type) {
     backdrop: d.backdrop_path||null,
     title: d.title||d.name,
     year: (d.release_date||d.first_air_date||"").slice(0,4),
+    // saga/franquia (TMDB collection) — base do tracker de maratonas
+    collection: (type==="movie" && d.belongs_to_collection)
+      ? { id: d.belongs_to_collection.id, name: d.belongs_to_collection.name, poster: d.belongs_to_collection.poster_path||null }
+      : null,
   };
+}
+
+// Busca de franquias/coleções na TMDB (para começar uma maratona planejada).
+// Sem forçar idioma na busca — casa melhor os nomes de franquia; os detalhes
+// dos filmes ainda vêm em pt-BR via tmdbCollection.
+async function tmdbSearchCollection(q) {
+  const d = await tmdbRequest("/search/collection", { query: q });
+  return (d.results || []).slice(0, 8).map(c => ({ id: c.id, name: c.name, poster: c.poster_path || null }));
+}
+
+// Coleção/saga da TMDB — só os filmes já lançados formam o "total" (denominador honesto)
+async function tmdbCollection(id) {
+  const d = await tmdbRequest(`/collection/${id}`, { language: "pt-BR" });
+  const today = new Date().toISOString().slice(0, 10);
+  const parts = (d.parts || [])
+    .filter(p => p.release_date && p.release_date <= today)
+    .sort((a, b) => (a.release_date || "").localeCompare(b.release_date || ""))
+    .map(p => ({ id: p.id, title: p.title, poster: p.poster_path || null, year: (p.release_date || "").slice(0, 4) }));
+  return { id, name: d.name, poster: d.poster_path || null, backdrop: d.backdrop_path || null, parts };
 }
 
 // Lista de temporadas (com contagem) — usada quando o registro antigo não tem `seasons`
@@ -556,6 +579,19 @@ const SeasonPills = ({ count, selected, onChange }) => {
   );
 };
 
+// Emoções da sessão — "Como foi essa sessão?" (multi-seleção, alimenta estatísticas)
+const SESSION_EMOTIONS = [
+  { id: "romantica",     emoji: "❤️", label: "Romântica" },
+  { id: "engracada",     emoji: "😂", label: "Engraçada" },
+  { id: "choramos",      emoji: "😭", label: "Choramos" },
+  { id: "tensa",         emoji: "😱", label: "Tensa" },
+  { id: "favorita",      emoji: "🔥", label: "Favorita" },
+  { id: "surpreendente", emoji: "🤯", label: "Surpreendente" },
+  { id: "aconchego",     emoji: "🥰", label: "Aconchego" },
+  { id: "dormimos",      emoji: "😴", label: "Dormimos" },
+];
+const emotionById = id => SESSION_EMOTIONS.find(e => e.id === id);
+
 // watched form — bottom sheet premium "A nota do casal" (v3, shared Add + Edit)
 const WatchedForm = ({ users, currentUser, initial, onSave, onClose, title }) => {
   const [step, setStep] = useState(initial?.movie ? 1 : 0);
@@ -571,8 +607,10 @@ const WatchedForm = ({ users, currentUser, initial, onSave, onClose, title }) =>
   const [seasonsWatched, setSeasonsWatched] = useState(initial?.seasonsWatched || []);
   const [seriesStatus, setSeriesStatus] = useState(initial?.status || "completed");
   const [together, setTogether] = useState(initial?.watchedTogether !== false);
+  const [emotions, setEmotions] = useState(initial?.emotions || []);
 
   const setReview = (user, field, val) => setReviews(r => ({ ...r, [user]: { ...r[user], [field]: val } }));
+  const toggleEmotion = id => setEmotions(e => e.includes(id) ? e.filter(x => x !== id) : [...e, id]);
 
   // nota do casal ao vivo (média das notas dadas)
   const given = [reviews[currentUser]?.rating || 0].filter(Boolean);
@@ -596,6 +634,7 @@ const WatchedForm = ({ users, currentUser, initial, onSave, onClose, title }) =>
       seasonsWatched,
       status: movie.type === "tv" ? seriesStatus : "completed",
       watchedTogether: together,
+      emotions,
       // séries em andamento: o marcador de episódio é definido no navegador real
       // (TMDB) pelo botão "Escolher onde pararam" — sem contador manual aqui.
       addedBy: initial?.addedBy || currentUser,
@@ -675,6 +714,21 @@ const WatchedForm = ({ users, currentUser, initial, onSave, onClose, title }) =>
         <div className="field-block field-block--wide">
           <Label>Data</Label>
           <Input type="date" value={date} onChange={e => setDate(e.target.value)}/>
+        </div>
+
+        <div className="field-block field-block--wide">
+          <Label>Como foi essa sessão?</Label>
+          <div className="field-sub">Marquem as emoções da noite — vira estatística de vocês</div>
+          <div className="emotion-grid">
+            {SESSION_EMOTIONS.map(em => (
+              <button key={em.id} type="button"
+                className={`emotion-chip ${emotions.includes(em.id) ? "emotion-chip--on" : ""}`}
+                onClick={() => toggleEmotion(em.id)}>
+                <span className="emotion-chip__emoji">{em.emoji}</span>
+                <span className="emotion-chip__label">{em.label}</span>
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* bottom sheet: a nota do casal */}
@@ -1117,6 +1171,19 @@ const DetailModal = ({ entry, users, onClose, onMarkWatched, onEdit, onSaveRevie
                     <span>{u}</span><span>{r ? nota10(r) : "—"}</span>
                   </div>
                 );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* emoções da sessão */}
+        {!fromWatchlist && entry.emotions?.length > 0 && (
+          <div className="field-block field-block--wide">
+            <Label>A vibe dessa noite</Label>
+            <div className="emotion-tags">
+              {entry.emotions.map(id => {
+                const em = emotionById(id);
+                return em ? <span key={id} className="emotion-tag">{em.emoji} {em.label}</span> : null;
               })}
             </div>
           </div>
@@ -1808,11 +1875,14 @@ const demoEntry = (i, over = {}) => ({
   watchedTogether: true, addedBy: "Ana", ...over,
 });
 const DEMO_WATCHED = [
-  demoEntry(1, { title: "Duna: Parte II", genres: ["Ficção científica"] }),
-  demoEntry(2, { title: "La La Land", genres: ["Romance", "Musical"] }),
-  demoEntry(3, { title: "Interestelar", genres: ["Ficção científica"] }),
-  demoEntry(4, { title: "Oppenheimer" }),
-  demoEntry(5, { title: "Retrato de uma Jovem em Chamas" }),
+  // Duna (collection 726871) e O Senhor dos Anéis (119) — sagas parciais
+  demoEntry(1, { title: "Duna: Parte II", tmdbId: 693134, genres: ["Ficção científica"], emotions: ["favorita", "tensa"], collection: { id: 726871, name: "Duna — Coleção", poster: null } }),
+  demoEntry(2, { title: "La La Land", genres: ["Romance", "Musical"], emotions: ["romantica", "choramos"] }),
+  demoEntry(3, { title: "Interestelar", genres: ["Ficção científica"], emotions: ["choramos", "surpreendente"] }),
+  demoEntry(4, { title: "Oppenheimer", emotions: ["tensa", "surpreendente"] }),
+  demoEntry(5, { title: "Retrato de uma Jovem em Chamas", emotions: ["romantica", "choramos", "favorita"] }),
+  // O Senhor dos Anéis (collection 119) — só 1 de 3 assistido = maratona em andamento
+  demoEntry(7, { title: "O Senhor dos Anéis: A Sociedade do Anel", tmdbId: 120, genres: ["Fantasia"], emotions: ["favorita"], collection: { id: 119, name: "O Senhor dos Anéis — Coleção", poster: null } }),
   demoEntry(6, {
     title: "The Last of Us", type: "tv", status: "watching", tmdbId: 100088, numberOfSeasons: 2, seasonsWatched: [1],
     seasons: [{ season: 1, episodeCount: 9, name: "Temporada 1" }, { season: 2, episodeCount: 7, name: "Temporada 2" }],
@@ -1848,6 +1918,8 @@ const V3Demo = () => {
       perfil: <ProfilePage watched={DEMO_WATCHED} watchlist={DEMO_WATCHLIST} couple={DEMO_COUPLE} users={DEMO_USERS}
         prefs={demoPrefs} onOpenSettings={noop}/>,
       episodio: <EpisodeSheet entry={DEMO_WATCHED[5]} coupleId={null} onClose={noop} addToast={noop}/>,
+      sagas: <SagasPage watched={DEMO_WATCHED} plannedSagas={[{ id: 1241, name: "Harry Potter — Coleção", poster: null }]}
+        onClose={noop} onRegisterMovie={noop} onAddSaga={noop} onRemoveSaga={noop}/>,
       cinema: <CinemaPage watched={DEMO_WATCHED} couple={DEMO_COUPLE} coupleId={null}
         initialPlan={{ title: "Superman", poster: null, date: new Date().toISOString().slice(0, 10), time: "21:40",
           venue: "Cinemark Iguatemi · Sala 6", seats: "H7 · H8",
@@ -2677,6 +2749,9 @@ const DiaryPage = ({ watched, users, currentUser, onDelete, onEdit, onSaveReview
                     {e.poster && <img src={`${TMDB_IMG}${e.poster}`} alt="" loading="lazy"/>}
                     {avg > 0 && <span className="acervo-item__nota">{nota10(avg)}</span>}
                     {e.type === "tv" && e.status === "watching" && <span className="acervo-item__flag">● JUNTOS</span>}
+                    {e.emotions?.length > 0 && (
+                      <span className="acervo-item__emo">{e.emotions.slice(0, 3).map(id => emotionById(id)?.emoji).filter(Boolean).join("")}</span>
+                    )}
                   </div>
                   <span className="acervo-item__title">{e.title}</span>
                 </button>
@@ -2956,10 +3031,13 @@ const coupleAchievements = (watched, users, couple) => {
   const epDays = {};
   watched.forEach(w => (w.episodeHistory || []).forEach(h => { if (h.date) epDays[h.date] = (epDays[h.date] || 0) + 1; }));
   const maratona = Object.values(epDays).some(n => n >= 4);
-  const choramos = watched.some(w => {
-    const rs = users.map(u => w.reviews?.[u]?.rating || 0);
-    return rs.length === 2 && rs.every(r => r === 5) && (w.genres || []).some(g => /romance|drama/i.test(g));
-  });
+  const choramos = watched.some(w =>
+    (w.emotions || []).includes("choramos") ||
+    (() => {
+      const rs = users.map(u => w.reviews?.[u]?.rating || 0);
+      return rs.length === 2 && rs.every(r => r === 5) && (w.genres || []).some(g => /romance|drama/i.test(g));
+    })()
+  );
   const coruja = watched.some(w => { const h = new Date(w.createdAt || 0).getHours(); return h >= 0 && h < 5; });
   const semana3 = (() => {
     const ds = dates.map(d => new Date(d + "T12:00:00").getTime()).sort((a, b) => a - b);
@@ -3484,11 +3562,186 @@ const StoryTimelinePage = ({ watched, users, couple, retroYears = [], onOpenRetr
   );
 };
 
+// maratonas & sagas — progresso real das franquias (TMDB collections)
+// busca de franquia (TMDB collections) para começar uma maratona
+const CollectionSearchModal = ({ onSelect, onClose }) => {
+  const [q, setQ] = useState("");
+  const [res, setRes] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const inputRef = useRef();
+  useEffect(() => { setTimeout(() => inputRef.current?.focus(), 80); }, []);
+  useEffect(() => {
+    const t = setTimeout(async () => {
+      if (q.length < 2) { setRes([]); return; }
+      setLoading(true);
+      try { setRes(await tmdbSearchCollection(q)); } catch { setRes([]); }
+      setLoading(false);
+    }, 400);
+    return () => clearTimeout(t);
+  }, [q]);
+  return (
+    <Overlay onClose={onClose}>
+      <Modal title="" onClose={onClose} maxW={480}>
+        <div className="ns-head">
+          <img src={lumiSrc("clapper")} alt=""/>
+          <div>
+            <div className="ns-head__t">Começar uma maratona</div>
+            <div className="ns-head__s">qual franquia vocês querem ver juntos?</div>
+          </div>
+        </div>
+        <div className="search-pill" style={{ marginTop: 14 }}>
+          <span className="search-pill__icon"><Ic n="search" s={16}/></span>
+          <input ref={inputRef} value={q} onChange={e => setQ(e.target.value)} placeholder="ex.: Harry Potter, Star Wars, Vingadores…"/>
+          {loading && <span className="quick-add-card__spin"/>}
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 12 }}>
+          {res.map(c => (
+            <button key={c.id} className="saga-search-row" onClick={() => onSelect(c)}>
+              {c.poster
+                ? <img src={`${TMDB_IMG}${c.poster}`} alt=""/>
+                : <div className="saga-search-row__fallback"><Ic n="film" s={16}/></div>}
+              <span>{c.name}</span>
+              <span className="saga-search-row__plus">＋</span>
+            </button>
+          ))}
+          {q.length >= 2 && !loading && res.length === 0 && (
+            <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 2px" }}>
+              <img src={lumiSrc("confuso")} alt="" style={{ width: 48, height: 48, objectFit: "contain" }}/>
+              <div className="lumi-note__text">"Não achei essa franquia. Tenta outro nome?"</div>
+            </div>
+          )}
+        </div>
+      </Modal>
+    </Overlay>
+  );
+};
+
+const SagasPage = ({ watched, plannedSagas = [], onClose, onRegisterMovie, onAddSaga, onRemoveSaga }) => {
+  const [adding, setAdding] = useState(false);
+
+  // ids de todas as sagas (começadas via filmes + planejadas manualmente)
+  const startedMap = useMemo(() => {
+    const map = {};
+    watched.filter(w => w.type === "movie" && w.collection?.id).forEach(w => {
+      const c = w.collection;
+      if (!map[c.id]) map[c.id] = { id: c.id, name: c.name, poster: c.poster, ids: new Set(), planned: false };
+      if (w.tmdbId) map[c.id].ids.add(w.tmdbId);
+    });
+    return map;
+  }, [watched]);
+
+  const merged = useMemo(() => {
+    const map = { ...startedMap };
+    plannedSagas.forEach(p => {
+      if (map[p.id]) map[p.id] = { ...map[p.id], planned: true };
+      else map[p.id] = { id: p.id, name: p.name, poster: p.poster, ids: new Set(), planned: true };
+    });
+    return Object.values(map);
+  }, [startedMap, plannedSagas]);
+
+  const [details, setDetails] = useState({});
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!merged.length) { setLoading(false); return; }
+    let alive = true;
+    setLoading(true);
+    Promise.all(merged.map(s => tmdbCollection(s.id).then(d => [s.id, d]).catch(() => [s.id, null])))
+      .then(entries => { if (alive) { setDetails(Object.fromEntries(entries)); setLoading(false); } });
+    return () => { alive = false; };
+  }, [merged.map(m => m.id).join(",")]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const sagas = merged.map(s => {
+    const d = details[s.id];
+    const total = d?.parts?.length || s.ids.size;
+    const watchedCount = d ? d.parts.filter(p => s.ids.has(p.id)).length : s.ids.size;
+    const next = d ? d.parts.find(p => !s.ids.has(p.id)) : null;
+    const complete = total > 0 && watchedCount >= total;
+    const cleanName = (s.name || "").replace(/\s*(Collection|Coleção|— Coleção|Saga)$/i, "").trim();
+    return { ...s, name: cleanName, total, watchedCount, next, complete, poster: d?.poster || s.poster };
+  }).sort((a, b) => b.complete - a.complete || (b.watchedCount / (b.total || 1)) - (a.watchedCount / (a.total || 1)));
+
+  const doneCount = sagas.filter(s => s.complete).length;
+
+  return createPortal(
+    <div className="subpage">
+      {adding && (
+        <CollectionSearchModal
+          onSelect={c => { onAddSaga?.(c); setAdding(false); }}
+          onClose={() => setAdding(false)}/>
+      )}
+      <div className="subpage__inner">
+        <div className="cfg-head">
+          <button className="cfg-back" onClick={onClose} aria-label="Voltar">←</button>
+          <div style={{ flex: 1 }}>
+            <div className="cfg-title" style={{ lineHeight: 1 }}>Maratonas</div>
+            {sagas.length > 0 && <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 2 }}>{sagas.length} saga{sagas.length !== 1 ? "s" : ""}{doneCount ? ` · ${doneCount} completa${doneCount !== 1 ? "s" : ""}` : ""}</div>}
+          </div>
+        </div>
+
+        <button className="saga-add-btn" onClick={() => setAdding(true)}>
+          <span className="saga-add-btn__plus">＋</span> Começar uma maratona
+        </button>
+
+        {loading ? (
+          <div className="saga-list">
+            {[0, 1].map(i => <div key={i} className="skel" style={{ height: 96, borderRadius: 20 }}/>)}
+          </div>
+        ) : sagas.length === 0 ? (
+          <LumiState lumi="clapper" title="Ainda sem maratonas"
+            text="Escolham uma franquia acima (Harry Potter, Star Wars…) — ou registrem um filme de uma saga — e o progresso aparece aqui."/>
+        ) : (
+          <div className="saga-list">
+            {sagas.map(s => {
+              const pct = s.total ? Math.round(s.watchedCount / s.total * 100) : 0;
+              const notStarted = s.watchedCount === 0;
+              return (
+                <div key={s.id} className={`saga-card ${s.complete ? "saga-card--done" : ""} ${notStarted ? "saga-card--planned" : ""}`}>
+                  <div className="saga-card__poster">
+                    {s.poster
+                      ? <img src={`${TMDB_IMG}${s.poster}`} alt=""/>
+                      : <div className="saga-card__poster--fallback"><Ic n="film" s={22}/></div>}
+                    {s.complete && <span className="saga-card__crown">✦</span>}
+                  </div>
+                  <div className="saga-card__body">
+                    <div className="saga-card__name">{s.name}</div>
+                    <div className="saga-card__count">
+                      {s.complete ? "Saga completa ✦"
+                        : notStarted ? `${s.total || "?"} filmes · querem maratonar`
+                        : `${s.watchedCount} de ${s.total} filmes`}
+                    </div>
+                    <div className="saga-bar"><span style={{ width: `${pct}%` }}/></div>
+                    {!s.complete && s.next && (
+                      <button className="saga-card__next" onClick={() => onRegisterMovie(s.next.id)}>
+                        ▶ {notStarted ? "Começar por" : "Próximo"}: {s.next.title}{s.next.year ? ` (${s.next.year})` : ""}
+                      </button>
+                    )}
+                  </div>
+                  {s.planned && notStarted && onRemoveSaga && (
+                    <button className="saga-card__remove" onClick={() => onRemoveSaga(s.id)} aria-label="Remover maratona">
+                      <Ic n="x" s={15}/>
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+            <div className="profile-lumi-footer" style={{ marginTop: 8 }}>
+              <img src={lumiSrc("holdingPopcorn")} alt=""/> uma franquia inteira é uma maratona a dois
+            </div>
+          </div>
+        )}
+      </div>
+    </div>,
+    document.body
+  );
+};
+
 // profile page — "Perfil do casal · conquistas" + estatísticas (v3)
-const ProfilePage = ({ watched, watchlist, couple, users, prefs, onOpenSettings }) => {
+const ProfilePage = ({ watched, watchlist, couple, users, prefs, onOpenSettings, onRegisterMovie, plannedSagas, onAddSaga, onRemoveSaga }) => {
   const [showRetro, setShowRetro] = useState(false);
   const [showAwards, setShowAwards] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [showSagas, setShowSagas] = useState(false);
   const [showAnnualSurprise, setShowAnnualSurprise] = useState(false);
   const [showWrappedIntro, setShowWrappedIntro] = useState(false);
   const statsRef = useRef(null);
@@ -3549,6 +3802,22 @@ const ProfilePage = ({ watched, watchlist, couple, users, prefs, onOpenSettings 
     return `${alto.name} dá notas mais altas. ${baixo.name} é o crítico severo do sofá.`;
   })();
 
+  // emoções das noites de vocês — contagem por emoção, ordenada
+  const emotionCounts = SESSION_EMOTIONS
+    .map(em => ({ ...em, count: watched.filter(w => (w.emotions || []).includes(em.id)).length }))
+    .filter(e => e.count > 0)
+    .sort((a, b) => b.count - a.count);
+  const maxEmotion = emotionCounts[0]?.count || 1;
+  const emotionLine = (() => {
+    const cry = emotionCounts.find(e => e.id === "choramos");
+    const fav = emotionCounts.find(e => e.id === "favorita");
+    const top = emotionCounts[0];
+    if (cry && cry.count >= 2) return `Vocês choraram juntos em ${cry.count} sessões. 😭`;
+    if (fav && fav.count >= 2) return `${fav.count} noites entraram para as favoritas. 🔥`;
+    if (top) return `A vibe de vocês é ${top.label.toLowerCase()} ${top.emoji}`;
+    return null;
+  })();
+
   useEffect(() => {
     if (typeof window === "undefined") return;
     const now = new Date();
@@ -3565,7 +3834,10 @@ const ProfilePage = ({ watched, watchlist, couple, users, prefs, onOpenSettings 
   return (
     <div>
       {showRetro && <RetroStory watched={watched} users={users} couple={couple} onClose={() => setShowRetro(false)}/>} 
-      {showAwards && <AchievementsPage watched={watched} users={users} couple={couple} prefs={prefs} onClose={() => setShowAwards(false)}/>} 
+      {showAwards && <AchievementsPage watched={watched} users={users} couple={couple} prefs={prefs} onClose={() => setShowAwards(false)}/>}
+      {showSagas && <SagasPage watched={watched} plannedSagas={plannedSagas} onClose={() => setShowSagas(false)}
+        onRegisterMovie={id => { setShowSagas(false); onRegisterMovie?.(id); }}
+        onAddSaga={onAddSaga} onRemoveSaga={onRemoveSaga}/>}
       {showHistory && <StoryTimelinePage watched={watched} users={users} couple={couple}
         retroYears={retroYears} onOpenRetro={() => setShowRetro(true)} onClose={() => setShowHistory(false)}/>}
       {showAnnualSurprise && <AnnualWrappedPrompt couple={couple} onOpen={() => { setShowRetro(true); setShowWrappedIntro(true); }} onClose={() => setShowAnnualSurprise(false)}/>} 
@@ -3613,6 +3885,13 @@ const ProfilePage = ({ watched, watchlist, couple, users, prefs, onOpenSettings 
           <div>
             <div className="profile-nav__title">Conquistas</div>
             <div className="profile-nav__text">Marcos que vocês conquistam juntos</div>
+          </div>
+        </button>
+        <button className="profile-nav__card" onClick={() => setShowSagas(true)}>
+          <div className="profile-nav__icon">🍿</div>
+          <div>
+            <div className="profile-nav__title">Maratonas</div>
+            <div className="profile-nav__text">O progresso das sagas de vocês</div>
           </div>
         </button>
       </div>
@@ -3690,6 +3969,31 @@ const ProfilePage = ({ watched, watchlist, couple, users, prefs, onOpenSettings 
               <img src={lumiSrc("thinking")} alt="Lumi"/>
               <div style={{ fontSize: 12, color: "#c9b8a3", lineHeight: 1.4 }}>{insight}</div>
             </div>
+          )}
+
+          {/* emoções das noites de vocês */}
+          {emotionCounts.length > 0 && (
+            <>
+              <div className="home-last-label" style={{ marginTop: 22 }}>As emoções das noites de vocês</div>
+              <div className="v3-card" style={{ padding: 16 }}>
+                <div className="emotion-bars">
+                  {emotionCounts.slice(0, 6).map(em => (
+                    <div key={em.id} className="emotion-bar">
+                      <span className="emotion-bar__face">{em.emoji}</span>
+                      <span className="emotion-bar__label">{em.label}</span>
+                      <div className="emotion-bar__track"><span style={{ width: `${em.count / maxEmotion * 100}%` }}/></div>
+                      <span className="emotion-bar__count">{em.count}</span>
+                    </div>
+                  ))}
+                </div>
+                {emotionLine && (
+                  <div className="lumi-insight lumi-insight--teal" style={{ marginTop: 14 }}>
+                    <img src={lumiSrc("apaixonado")} alt="Lumi"/>
+                    <div className="lumi-insight__text">{emotionLine}</div>
+                  </div>
+                )}
+              </div>
+            </>
           )}
         </div>
       )}
@@ -4091,6 +4395,7 @@ export default function App() {
   // app state
   const [watched,   setWatched]   = useState([]);
   const [watchlist, setWatchlist] = useState([]);
+  const [plannedSagas, setPlannedSagas] = useState([]);
   const [dataReadyFor, setDataReadyFor] = useState(null);
   const [bootDelay, setBootDelay] = useState(true);
   const [celebration, setCelebration] = useState(null);
@@ -4170,7 +4475,9 @@ export default function App() {
       snap => { setWatched(snap.docs.map(d=>({...d.data(),id:d.id}))); setDataReadyFor(coupleId); });
     const unWL = onSnapshot(collection(db,"couples",coupleId,"watchlist"),
       snap => setWatchlist(snap.docs.map(d=>({...d.data(),id:d.id}))));
-    return () => { unW(); unWL(); };
+    const unSG = onSnapshot(collection(db,"couples",coupleId,"sagas"),
+      snap => setPlannedSagas(snap.docs.map(d=>d.data())));
+    return () => { unW(); unWL(); unSG(); };
   }, [coupleId]);
 
   useEffect(() => {
@@ -4339,6 +4646,27 @@ export default function App() {
   // O próprio EpisodeSheet salva progresso/histórico no Firestore.
   const continueEpisode = entry => setEpSheet(entry);
 
+  // registra o próximo filme de uma saga: busca os dados completos e abre "Nova sessão"
+  const registerMovieByTmdb = async tmdbId => {
+    try {
+      const full = await tmdbFetch(tmdbId, "movie");
+      setAddModal({ type: "watched", movie: { tmdbId, type: "movie", ...full } });
+    } catch (e) {
+      console.error(e);
+      addToast("Não foi possível carregar o filme", "error");
+    }
+  };
+
+  // maratonas planejadas — franquia que o casal quer ver
+  const addSaga = col => {
+    setDoc(doc(db,"couples",coupleId,"sagas",String(col.id)), { id: col.id, name: col.name, poster: col.poster || null })
+      .catch(e => { console.error(e); addToast("Não foi possível salvar a maratona","error"); });
+    addToast("Maratona adicionada 🍿","success");
+  };
+  const removeSaga = id => {
+    deleteDoc(doc(db,"couples",coupleId,"sagas",String(id))).catch(e => console.error(e));
+  };
+
   // "Assistimos juntos" — só conta o que o casal viu junto
   const toggleTogether = entry => {
     const next = entry.watchedTogether === false;
@@ -4478,7 +4806,8 @@ export default function App() {
                                        compat={coupleCompat(watched, users)}
                                        onDelete={e=>requestDelete(e,"watchlist")} onMarkWatched={markWatched} onRoulette={()=>setShowRoulette(true)} onAlsoWant={alsoWant} prefs={prefs}/>}
               {page==="profile"   && <ProfilePage   watched={watched} watchlist={watchlist} couple={couple} users={users} prefs={prefs}
-                                       onOpenSettings={()=>setShowSettings(true)}/>}
+                                       onOpenSettings={()=>setShowSettings(true)} onRegisterMovie={registerMovieByTmdb}
+                                       plannedSagas={plannedSagas} onAddSaga={addSaga} onRemoveSaga={removeSaga}/>}
             </div>
           )}
         </div>

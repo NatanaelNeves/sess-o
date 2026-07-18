@@ -1,0 +1,31 @@
+rules_version = '2';
+
+// Fotos das memórias de cinema (o casal, os ingressos, a pipoca).
+// Caminho: couples/{coupleId}/cinema/{arquivo}.jpg
+// Só membros do casal (uid1/uid2, verificados no Firestore) leem e escrevem.
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function isMember(coupleId) {
+      return request.auth != null
+        && firestore.exists(/databases/(default)/documents/couples/$(coupleId))
+        && (
+          firestore.get(/databases/(default)/documents/couples/$(coupleId)).data.uid1 == request.auth.uid
+          || firestore.get(/databases/(default)/documents/couples/$(coupleId)).data.uid2 == request.auth.uid
+        );
+    }
+
+    match /couples/{coupleId}/cinema/{fileName} {
+      allow read:   if isMember(coupleId);
+      allow write:  if isMember(coupleId)
+        && request.resource.size < 8 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+      allow delete: if isMember(coupleId);
+    }
+
+    // qualquer outro caminho é negado por padrão
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

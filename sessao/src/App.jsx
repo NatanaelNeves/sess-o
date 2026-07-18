@@ -1,14 +1,15 @@
 ﻿import { useState, useEffect, useRef, useMemo, Component } from "react";
 import { createPortal } from "react-dom";
-import { auth, db } from "./firebase";
+import { auth, db, storage } from "./firebase";
 import {
   onAuthStateChanged, signInWithPopup, signInWithRedirect, getRedirectResult,
   signOut, GoogleAuthProvider,
 } from "firebase/auth";
 import {
-  collection, doc, addDoc, setDoc, updateDoc, deleteDoc,
+  collection, doc, addDoc, setDoc, updateDoc, deleteDoc, deleteField,
   onSnapshot, query, where, getDocs,
 } from "firebase/firestore";
+import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
 import { toPng } from "html-to-image";
 import "./App.css";
 import { Lumi, lumiSrc } from "./lumi.jsx";
@@ -226,14 +227,6 @@ async function tmdbFetch(id, type) {
       ? { id: d.belongs_to_collection.id, name: d.belongs_to_collection.name, poster: d.belongs_to_collection.poster_path||null }
       : null,
   };
-}
-
-// Busca de franquias/coleções na TMDB (para começar uma maratona planejada).
-// Sem forçar idioma na busca — casa melhor os nomes de franquia; os detalhes
-// dos filmes ainda vêm em pt-BR via tmdbCollection.
-async function tmdbSearchCollection(q) {
-  const d = await tmdbRequest("/search/collection", { query: q });
-  return (d.results || []).slice(0, 8).map(c => ({ id: c.id, name: c.name, poster: c.poster_path || null }));
 }
 
 // Coleção/saga da TMDB — só os filmes já lançados formam o "total" (denominador honesto)
@@ -495,6 +488,8 @@ const SearchModal = ({ onSelect, onClose, headTitle = "Nova sessão", headSub = 
         genres: full.genres || [],
         runtime: full.runtime || null,
         numberOfSeasons: full.numberOfSeasons || null,
+        seasons: full.seasons || null,
+        collection: full.collection || null,
         cast: full.cast || [],
         director: full.director || null,
         imdbId: full.imdbId || null,
@@ -592,12 +587,90 @@ const SESSION_EMOTIONS = [
 ];
 const emotionById = id => SESSION_EMOTIONS.find(e => e.id === id);
 
+// ---------- Cinema: o plano vive na jornada do filme ----------
+// O plano de ida ao cinema fica NO item da watchlist (campo `plan`), então o
+// filme carrega seu próprio estado pela jornada inteira — sem "Modo Cinema" à parte.
+const daysUntil = d => {
+  if (!d) return null;
+  const t = new Date(); t.setHours(0, 0, 0, 0);
+  const target = new Date(d + "T12:00:00"); target.setHours(0, 0, 0, 0);
+  return Math.round((target - t) / 86400000);
+};
+// estado do item na watchlist ao longo da jornada
+const wlState = e => {
+  if (!e?.plan?.date) return "quero";   // ❤️ Quero assistir
+  const dd = daysUntil(e.plan.date);
+  if (dd > 0) return "marcada";          // 🎟️ Sessão marcada
+  if (dd === 0) return "hoje";           // 🍿 Hoje é o dia
+  return "passou";                       // ⏰ passou — aguardando avaliação
+};
+const WL_STATE_META = {
+  quero:   { emoji: "❤️", label: "Quero assistir" },
+  marcada: { emoji: "🎟️", label: "Sessão marcada" },
+  hoje:    { emoji: "🍿", label: "Hoje é o dia" },
+  passou:  { emoji: "⏰", label: "Aguardando avaliação" },
+};
+const countdownCopy = d => {
+  const dd = daysUntil(d);
+  if (dd === null) return "";
+  if (dd > 1) return `Faltam ${dd} dias ❤️`;
+  if (dd === 1) return "Amanhã é o dia ❤️";
+  if (dd === 0) return "Hoje é o dia 🍿";
+  if (dd === -1) return "Foi ontem — já assistiram?";
+  return `Passou há ${Math.abs(dd)} dias`;
+};
+const fmtSessionDate = d => d
+  ? new Date(d + "T12:00:00").toLocaleDateString("pt-BR", { weekday: "short", day: "2-digit", month: "short" }).replace(/\./g, "")
+  : "";
+const fmtShortDate = d => d
+  ? new Date(d + "T12:00:00").toLocaleDateString("pt-BR", { day: "2-digit", month: "short" }).replace(".", "")
+  : "";
+
+// comprime a foto no navegador antes de subir pro Storage (memórias leves)
+const compressImage = (file, maxDim = 1280, quality = 0.82) => new Promise((resolve, reject) => {
+  const img = new Image();
+  const url = URL.createObjectURL(file);
+  img.onload = () => {
+    URL.revokeObjectURL(url);
+    let { width, height } = img;
+    if (width > height && width > maxDim) { height = Math.round(height * maxDim / width); width = maxDim; }
+    else if (height > maxDim) { width = Math.round(width * maxDim / height); height = maxDim; }
+    const canvas = document.createElement("canvas");
+    canvas.width = width; canvas.height = height;
+    canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+    canvas.toBlob(b => b ? resolve(b) : reject(new Error("compress failed")), "image/jpeg", quality);
+  };
+  img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("load failed")); };
+  img.src = url;
+});
+// sobe uma foto da sessão pro Storage e devolve a URL pública
+const uploadSessionPhoto = async (coupleId, kind, file) => {
+  const blob = await compressImage(file);
+  const path = `couples/${coupleId}/cinema/${Date.now()}-${kind}.jpg`;
+  const r = storageRef(storage, path);
+  await uploadBytes(r, blob, { contentType: "image/jpeg" });
+  return await getDownloadURL(r);
+};
+
 // watched form — bottom sheet premium "A nota do casal" (v3, shared Add + Edit)
-const WatchedForm = ({ users, currentUser, initial, onSave, onClose, title }) => {
+const PHOTO_KINDS = [
+  { key: "couple",  emoji: "❤️", label: "O casal" },
+  { key: "tickets", emoji: "🎟️", label: "Ingressos" },
+  { key: "popcorn", emoji: "🍿", label: "A pipoca" },
+];
+
+const WatchedForm = ({ users, currentUser, initial, onSave, onClose, title, coupleId, addToast }) => {
   const [step, setStep] = useState(initial?.movie ? 1 : 0);
   const [movie, setMovie] = useState(initial?.movie || null);
   const [where, setWhere] = useState(initial?.where || "streaming");
   const [date, setDate] = useState(initial?.date || new Date().toISOString().slice(0, 10));
+  // detalhes + álbum da ida ao cinema (herdados do plano quando vem da watchlist)
+  const [venue, setVenue] = useState(initial?.venue || "");
+  const [cinemaTime, setCinemaTime] = useState(initial?.cinemaTime || initial?.time || "");
+  const [seats, setSeats] = useState(initial?.seats || "");
+  const [imax, setImax] = useState(initial?.imax || false);
+  const [photos, setPhotos] = useState(initial?.photos || {});
+  const [uploading, setUploading] = useState(null);
   const [reviews, setReviews] = useState(() => ({
     [currentUser]: {
       rating: initial?.reviews?.[currentUser]?.rating || 0,
@@ -611,6 +684,22 @@ const WatchedForm = ({ users, currentUser, initial, onSave, onClose, title }) =>
 
   const setReview = (user, field, val) => setReviews(r => ({ ...r, [user]: { ...r[user], [field]: val } }));
   const toggleEmotion = id => setEmotions(e => e.includes(id) ? e.filter(x => x !== id) : [...e, id]);
+
+  const handlePhoto = async (kind, file) => {
+    if (!file) return;
+    if (!coupleId) { addToast?.("Conecte a conta do casal para anexar fotos", "warning"); return; }
+    setUploading(kind);
+    try {
+      const url = await uploadSessionPhoto(coupleId, kind, file);
+      setPhotos(p => ({ ...p, [kind]: url }));
+    } catch (err) {
+      console.error(err);
+      addToast?.("Não foi possível enviar a foto", "error");
+    } finally {
+      setUploading(null);
+    }
+  };
+  const removePhoto = kind => setPhotos(p => { const n = { ...p }; delete n[kind]; return n; });
 
   // nota do casal ao vivo (média das notas dadas)
   const given = [reviews[currentUser]?.rating || 0].filter(Boolean);
@@ -627,6 +716,14 @@ const WatchedForm = ({ users, currentUser, initial, onSave, onClose, title }) =>
     };
     const allowed = canWriteReview({ currentUserName: ownerName, reviewData: reviewPayload, previousReviews: initial?.reviews || {} });
     if (!allowed) return;
+    // detalhes da ida ao cinema — só quando a sessão foi fora de casa (sem undefined pro Firestore)
+    const cinemaFields = where === "cinema" ? {
+      venue: venue || "",
+      time: cinemaTime || "",
+      seats: seats || "",
+      imax: !!imax,
+      ...(Object.keys(photos).length ? { photos } : {}),
+    } : {};
     onSave({
       id: initial?.id || Date.now().toString(),
       ...movie,
@@ -635,6 +732,7 @@ const WatchedForm = ({ users, currentUser, initial, onSave, onClose, title }) =>
       status: movie.type === "tv" ? seriesStatus : "completed",
       watchedTogether: together,
       emotions,
+      ...cinemaFields,
       // séries em andamento: o marcador de episódio é definido no navegador real
       // (TMDB) pelo botão "Escolher onde pararam" — sem contador manual aqui.
       addedBy: initial?.addedBy || currentUser,
@@ -711,6 +809,57 @@ const WatchedForm = ({ users, currentUser, initial, onSave, onClose, title }) =>
             value={where} onChange={setWhere} colorMap={{ cinema: "#c9993a", streaming: "#8fd0c0" }}/>
         </div>
 
+        {/* detalhes da ida ao cinema + álbum de fotos da noite */}
+        {where === "cinema" && (
+          <>
+            <div className="field-block field-block--wide">
+              <div className="ep-input-row">
+                <label className="ep-input" style={{ flex: 2 }}><span>📍 Cinema</span>
+                  <input className="text-input" placeholder="ex.: Kinoplex" value={venue}
+                    onChange={e => setVenue(e.target.value)} style={{ textAlign: "left" }}/>
+                </label>
+                <label className="ep-input"><span>🕒 Horário</span>
+                  <input className="text-input" type="time" value={cinemaTime}
+                    onChange={e => setCinemaTime(e.target.value)}/>
+                </label>
+              </div>
+              <label className="ep-input" style={{ marginTop: 10 }}><span>🎟️ Lugares</span>
+                <input className="text-input" placeholder="ex.: H7 · H8" value={seats}
+                  onChange={e => setSeats(e.target.value)} style={{ textAlign: "left" }}/>
+              </label>
+              <button type="button" onClick={() => setImax(v => !v)}
+                className={`together-toggle ${imax ? "together-toggle--on" : ""}`} style={{ marginTop: 10 }}>
+                <span className="together-toggle__check">{imax ? "✦" : "○"}</span>
+                <span className="together-toggle__body">
+                  <span className="together-toggle__title">Sessão especial (IMAX · 3D · estreia)</span>
+                </span>
+              </button>
+            </div>
+
+            <div className="field-block field-block--wide">
+              <Label>Fotos da noite</Label>
+              <div className="field-sub">o casal, os ingressos, a pipoca — viram o álbum dessa memória</div>
+              <div className="cine-photos">
+                {PHOTO_KINDS.map(k => (
+                  <label key={k.key} className={`cine-photo ${photos[k.key] ? "cine-photo--filled" : ""}`}>
+                    {photos[k.key]
+                      ? <img src={photos[k.key]} alt={k.label}/>
+                      : uploading === k.key
+                        ? <span className="cine-photo__ph"><span className="cine-photo__spin"/>enviando…</span>
+                        : <span className="cine-photo__ph"><span className="cine-photo__emoji">{k.emoji}</span>{k.label}</span>}
+                    <input type="file" accept="image/*" hidden disabled={!!uploading}
+                      onChange={e => handlePhoto(k.key, e.target.files?.[0])}/>
+                    {photos[k.key] && (
+                      <button type="button" className="cine-photo__x"
+                        onClick={e => { e.preventDefault(); removePhoto(k.key); }} aria-label="Remover foto">✕</button>
+                    )}
+                  </label>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
+
         <div className="field-block field-block--wide">
           <Label>Data</Label>
           <Input type="date" value={date} onChange={e => setDate(e.target.value)}/>
@@ -776,22 +925,43 @@ const WatchedForm = ({ users, currentUser, initial, onSave, onClose, title }) =>
 };
 
 // watchlist form — "Lista a dois" (v3)
-const AddWatchlistModal = ({ currentUser, onSave, onClose }) => {
+const sagaCleanName = n => (n || "")
+  .replace(/\s*(—\s*)?(Cole[çc][ãa]o|Collection)\s*$/i, "")
+  .replace(/\s*[:\-–—]\s*$/, "")
+  .replace(/^A\s+Saga\s+/i, "")
+  .trim();
+
+const AddWatchlistModal = ({ currentUser, onSave, onSaveSaga, onClose }) => {
   const [step, setStep] = useState(0);
   const [movie, setMovie] = useState(null);
   const [priority, setPriority] = useState("normal");
   const [note, setNote] = useState("");
+  const [mode, setMode] = useState("single"); // single | saga
+  const [savingSaga, setSavingSaga] = useState(false);
 
   if (step === 0) return (
-    <SearchModal onSelect={m => { setMovie(m); setStep(1); }} onClose={onClose}
+    <SearchModal onSelect={m => { setMovie(m); setMode(m.collection ? "single" : "single"); setStep(1); }} onClose={onClose}
       headTitle="Lista a dois" headSub="o que vocês querem ver juntos?" headLumi="pointing"/>
   );
+
+  const hasSaga = !!movie.collection?.id;
+  const sagaName = hasSaga ? sagaCleanName(movie.collection.name) : "";
+
+  const submit = async () => {
+    if (mode === "saga" && hasSaga && onSaveSaga) {
+      setSavingSaga(true);
+      await onSaveSaga(movie.collection, { priority, suggestedBy: currentUser });
+      setSavingSaga(false);
+    } else {
+      onSave({ id: Date.now().toString(), ...movie, priority, note, suggestedBy: currentUser, wantedBy: [currentUser], addedAt: new Date().toISOString() });
+    }
+  };
 
   return (
     <Overlay onClose={onClose}>
       <Modal title="" onClose={onClose} maxW={460}>
         <div className="ns-head">
-          <img src={lumiSrc("pointing")} alt=""/>
+          <img src={lumiSrc(hasSaga ? "clapper" : "pointing")} alt=""/>
           <div>
             <div className="ns-head__t">Lista a dois</div>
             <div className="ns-head__s">guardar pra uma próxima noite</div>
@@ -806,20 +976,44 @@ const AddWatchlistModal = ({ currentUser, onSave, onClose }) => {
             <div className="preview-meta__line">{movie.type === "tv" ? "Série" : "Filme"} · {movie.year}</div>
           </div>
         </div>
-        <div className="field-block">
-          <Label>Vontade de ver</Label>
-          <SegBtn options={[["baixa", "Um dia"], ["normal", "Em breve"], ["alta", "❤ Muita"]]}
-            value={priority} onChange={setPriority} colorMap={{ baixa: "#8fd0c0", normal: "#c9993a", alta: "#c9394a" }}/>
-        </div>
-        <div className="field-block field-block--wide">
-          <Label>Por que indicar?</Label>
-          <textarea value={note} onChange={e => setNote(e.target.value)}
-            placeholder="conta por que querem assistir..." rows={2}
-            className="note-textarea"/>
-        </div>
-        <button onClick={() => onSave({ id: Date.now().toString(), ...movie, priority, note, suggestedBy: currentUser, wantedBy: [currentUser], addedAt: new Date().toISOString() })}
-          className="pill pill--primary pill--block" style={{ marginTop: 6 }}>
-          Adicionar à lista ✦
+
+        {/* detecção automática de saga */}
+        {hasSaga && (
+          <div className="saga-detect">
+            <div className="saga-detect__head">
+              <span className="saga-detect__badge">🎬 Saga detectada</span>
+            </div>
+            <div className="saga-detect__text">Este filme faz parte da <strong>{sagaName}</strong>. O que vocês querem fazer?</div>
+            <button type="button" className={`saga-detect__opt ${mode === "single" ? "saga-detect__opt--on" : ""}`} onClick={() => setMode("single")}>
+              <span className="saga-detect__radio">{mode === "single" ? "●" : "○"}</span>
+              <span>Adicionar apenas este filme</span>
+            </button>
+            <button type="button" className={`saga-detect__opt ${mode === "saga" ? "saga-detect__opt--on" : ""}`} onClick={() => setMode("saga")}>
+              <span className="saga-detect__radio">{mode === "saga" ? "●" : "○"}</span>
+              <span>Adicionar a <strong>saga completa</strong> 🍿</span>
+            </button>
+          </div>
+        )}
+
+        {mode === "single" && (
+          <>
+            <div className="field-block">
+              <Label>Vontade de ver</Label>
+              <SegBtn options={[["baixa", "Um dia"], ["normal", "Em breve"], ["alta", "❤ Muita"]]}
+                value={priority} onChange={setPriority} colorMap={{ baixa: "#8fd0c0", normal: "#c9993a", alta: "#c9394a" }}/>
+            </div>
+            <div className="field-block field-block--wide">
+              <Label>Por que indicar?</Label>
+              <textarea value={note} onChange={e => setNote(e.target.value)}
+                placeholder="conta por que querem assistir..." rows={2}
+                className="note-textarea"/>
+            </div>
+          </>
+        )}
+
+        <button onClick={submit} disabled={savingSaga}
+          className="pill pill--primary pill--block" style={{ marginTop: 8 }}>
+          {savingSaga ? "Montando a maratona…" : mode === "saga" ? `Adicionar a ${sagaName} 🍿` : "Adicionar à lista ✦"}
         </button>
       </Modal>
     </Overlay>
@@ -1172,6 +1366,36 @@ const DetailModal = ({ entry, users, onClose, onMarkWatched, onEdit, onSaveRevie
                   </div>
                 );
               })}
+            </div>
+          </div>
+        )}
+
+        {/* ida ao cinema — onde foi essa memória */}
+        {!fromWatchlist && entry.where === "cinema" && (entry.venue || entry.seats || entry.imax) && (
+          <div className="field-block field-block--wide">
+            <div className="cine-memory-strip">
+              <span className="cine-memory-strip__icon">🎟️</span>
+              <div>
+                <div className="cine-memory-strip__title">{entry.venue || "No cinema"}{entry.imax ? " · sessão especial ✦" : ""}</div>
+                <div className="cine-memory-strip__meta">
+                  {[fmtSessionDate(entry.date), entry.time, entry.seats && `lugares ${entry.seats}`].filter(Boolean).join(" · ")}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* álbum da noite */}
+        {!fromWatchlist && entry.photos && Object.keys(entry.photos).length > 0 && (
+          <div className="field-block field-block--wide">
+            <Label>O álbum dessa noite</Label>
+            <div className="cine-album">
+              {PHOTO_KINDS.filter(k => entry.photos[k.key]).map(k => (
+                <a key={k.key} href={entry.photos[k.key]} target="_blank" rel="noreferrer" className="cine-album__item">
+                  <img src={entry.photos[k.key]} alt={k.label}/>
+                  <span className="cine-album__cap">{k.emoji} {k.label}</span>
+                </a>
+              ))}
             </div>
           </div>
         )}
@@ -1896,8 +2120,11 @@ const DEMO_WATCHED = [
 ];
 const DEMO_WATCHLIST = [
   { id: "w1", title: "Interestelar", type: "movie", year: "2014", poster: null, runtime: 169, tmdbRating: "8.4", genres: ["Ficção científica", "Drama"], overview: "Um grupo de exploradores atravessa um buraco de minhoca em busca de um novo lar para a humanidade.", priority: "alta", suggestedBy: "Ana", wantedBy: ["Ana", "Léo"], addedAt: "2026-02-02T12:00:00.000Z", note: "os dois querem faz tempo" },
-  { id: "w2", title: "Mad Max: Estrada da Fúria", type: "movie", year: "2015", poster: null, runtime: 120, tmdbRating: "7.6", genres: ["Ação", "Ficção científica"], overview: "Numa terra devastada, Max une forças com Furiosa para fugir de um tirano.", priority: "normal", suggestedBy: "Léo", wantedBy: ["Léo"], addedAt: "2026-06-20T12:00:00.000Z" },
+  { id: "w2", title: "Mad Max: Estrada da Fúria", type: "movie", year: "2015", poster: null, runtime: 120, tmdbRating: "7.6", genres: ["Ação", "Ficção científica"], overview: "Numa terra devastada, Max une forças com Furiosa para fugir de um tirano.", priority: "normal", suggestedBy: "Léo", wantedBy: ["Léo"], addedAt: "2026-06-20T12:00:00.000Z", plan: { date: "2027-01-15", time: "20:30", venue: "Kinoplex · Sala 4", seats: "H7 · H8", imax: true } },
   { id: "w3", title: "Fleabag", type: "tv", year: "2016", poster: null, tmdbRating: "8.7", genres: ["Comédia", "Drama"], overview: "Uma mulher irreverente navega a vida e o amor em Londres enquanto quebra a quarta parede.", priority: "baixa", suggestedBy: "Ana", wantedBy: ["Ana"], addedAt: "2026-07-01T12:00:00.000Z" },
+  // saga LOTR — 1 já assistido (no DEMO_WATCHED) + 2 na lista = card agrupado 1/3
+  { id: "s1", tmdbId: 121, title: "O Senhor dos Anéis: As Duas Torres", type: "movie", year: "2002", poster: null, collection: { id: 119, name: "O Senhor dos Anéis — Coleção", poster: null, total: 3 }, sagaOrder: 1, priority: "normal", suggestedBy: "Léo", wantedBy: ["Léo"], addedAt: "2026-07-10T12:00:00.000Z" },
+  { id: "s2", tmdbId: 122, title: "O Senhor dos Anéis: O Retorno do Rei", type: "movie", year: "2003", poster: null, collection: { id: 119, name: "O Senhor dos Anéis — Coleção", poster: null, total: 3 }, sagaOrder: 2, priority: "normal", suggestedBy: "Léo", wantedBy: ["Léo"], addedAt: "2026-07-10T12:00:01.000Z" },
 ];
 const noop = () => {};
 
@@ -1910,21 +2137,19 @@ const V3Demo = () => {
     const pages = {
       home: <HomePage watched={DEMO_WATCHED} watchlist={DEMO_WATCHLIST} couple={DEMO_COUPLE} currentUser="Ana" users={DEMO_USERS}
         onRoulette={noop} onAdd={noop} onSaveReview={noop} onUpdateStatus={noop} onContinueEpisode={noop} onToggleTogether={noop}
-        onOpenSettings={noop} onOpenCinema={noop} onEdit={noop} prefs={demoPrefs}/>,
+        onOpenSettings={noop} onOpenTicket={noop} onOpenCheckin={noop} onGoWatchlist={noop} onEdit={noop} prefs={demoPrefs}/>,
       acervo: <DiaryPage watched={DEMO_WATCHED} users={DEMO_USERS} currentUser="Ana" onDelete={noop} onEdit={noop}
         onSaveReview={noop} onUpdateStatus={noop} onContinueEpisode={noop} onToggleTogether={noop} onAddToWatchlist={noop} prefs={demoPrefs}/>,
-      watchlist: <WatchlistPage watchlist={DEMO_WATCHLIST} users={DEMO_USERS} currentUser="Ana" compat={87} onDelete={noop}
-        onMarkWatched={noop} onRoulette={noop} onAlsoWant={noop} prefs={demoPrefs}/>,
+      watchlist: <WatchlistPage watchlist={DEMO_WATCHLIST} watched={DEMO_WATCHED} users={DEMO_USERS} currentUser="Ana" compat={87} onDelete={noop}
+        onMarkWatched={noop} onRoulette={noop} onAlsoWant={noop} onPlan={noop} onOpenTicket={noop} onCheckin={noop} prefs={demoPrefs}/>,
       perfil: <ProfilePage watched={DEMO_WATCHED} watchlist={DEMO_WATCHLIST} couple={DEMO_COUPLE} users={DEMO_USERS}
         prefs={demoPrefs} onOpenSettings={noop}/>,
       episodio: <EpisodeSheet entry={DEMO_WATCHED[5]} coupleId={null} onClose={noop} addToast={noop}/>,
-      sagas: <SagasPage watched={DEMO_WATCHED} plannedSagas={[{ id: 1241, name: "Harry Potter — Coleção", poster: null }]}
-        onClose={noop} onRegisterMovie={noop} onAddSaga={noop} onRemoveSaga={noop}/>,
-      cinema: <CinemaPage watched={DEMO_WATCHED} couple={DEMO_COUPLE} coupleId={null}
-        initialPlan={{ title: "Superman", poster: null, date: new Date().toISOString().slice(0, 10), time: "21:40",
-          venue: "Cinemark Iguatemi · Sala 6", seats: "H7 · H8",
-          movie: { title: "Superman", type: "movie", genres: ["Ação"], cast: [] } }}
-        onClose={noop} onRegister={noop} addToast={noop}/>,
+      addwl: <AddWatchlistModal users={DEMO_USERS} currentUser="Ana" onSave={noop} onSaveSaga={async()=>{}} onClose={noop}/>,
+      cinema: <TicketModal couple={DEMO_COUPLE}
+        item={{ title: "Superman", poster: null, plan: { date: "2030-07-20", time: "21:40",
+          venue: "Cinemark Iguatemi · Sala 6", seats: "H7 · H8", imax: true } }}
+        onEdit={noop} onClear={noop} onCheckin={noop} onRegister={noop} onClose={noop}/>,
       roleta: <RouletteModal watchlist={Array.from({ length: 14 }, (_, i) => ({
         id: `r${i}`, title: ["Dark", "Homem-Aranha", "Arcane", "Gente Grande", "Coringa", "Socorro!", "Rogue One", "As Crônicas de Nárnia", "Batman", "O Cavaleiro das Trevas", "Supergirl", "Interestelar", "Duna", "La La Land"][i],
         type: i % 4 === 0 ? "tv" : "movie", runtime: 90 + i * 6, year: `20${10 + i}`,
@@ -2365,7 +2590,8 @@ const InviteScreen = ({ inviteCode, couple, onSignOut }) => (
 
 // home page — v3, fiel ao canvas "Home · Continue de onde pararam"
 const HomePage = ({ watched, watchlist, couple, currentUser, users, onRoulette, onAdd,
-  onSaveReview, onUpdateStatus, onContinueEpisode, onToggleTogether, onOpenSettings, onOpenCinema,
+  onSaveReview, onUpdateStatus, onContinueEpisode, onToggleTogether, onOpenSettings,
+  onOpenTicket, onOpenCheckin, onGoWatchlist,
   onEdit, prefs }) => {
   const [sel, setSel] = useState(null);
   const [editing, setEditing] = useState(null);
@@ -2374,6 +2600,13 @@ const HomePage = ({ watched, watchlist, couple, currentUser, users, onRoulette, 
   const total = watched.length;
   const watching = watched.filter(w => w.type === "tv" && w.status === "watching");
   const compat = coupleCompat(watched, users);
+
+  // próxima ida ao cinema — nasce automaticamente de um item planejado na watchlist.
+  // prioriza a sessão que ainda vem (hoje/marcada); se só houver uma que já passou,
+  // ela aparece como lembrete pendente.
+  const plannedSessions = watchlist.filter(w => w.plan?.date)
+    .sort((a, b) => new Date(a.plan.date) - new Date(b.plan.date));
+  const nextSession = plannedSessions.find(w => wlState(w) !== "passou") || plannedSessions[0] || null;
 
   // Continuar assistindo — série em andamento mais recente (só o que foi visto juntos)
   const continueEntry = watching
@@ -2457,6 +2690,32 @@ const HomePage = ({ watched, watchlist, couple, currentUser, users, onRoulette, 
           <img src={lumiSrc("avatar")} alt="Lumi"/>
         </button>
       </div>
+
+      {/* card automático: próxima ida ao cinema (só aparece quando há sessão marcada) */}
+      {nextSession && (() => {
+        const st = wlState(nextSession);
+        const p = nextSession.plan;
+        const eyebrow = st === "passou" ? "🍿 Sessão pendente" : st === "hoje" ? "🍿 Hoje é o dia!" : "🍿 Próxima sessão";
+        const cta = st === "hoje" ? "Check-in 🍿" : st === "passou" ? "Finalizar ✦" : "Ver ingresso 🎟️";
+        return (
+          <button className={`cine-home-card cine-home-card--${st}`} style={{ marginTop: 14 }}
+            onClick={() => st === "hoje" ? onOpenCheckin(nextSession) : onOpenTicket(nextSession)}>
+            {nextSession.poster
+              ? <img src={`${TMDB_IMG}${nextSession.poster}`} alt="" className="cine-home-card__poster"/>
+              : <div className="cine-home-card__poster cine-home-card__poster--fallback"><Ic n="film" s={22}/></div>}
+            <div className="cine-home-card__body">
+              <div className="cine-home-card__eyebrow">{eyebrow}</div>
+              <div className="cine-home-card__title">{nextSession.title}</div>
+              <div className="cine-home-card__meta">
+                {[p.venue, [fmtSessionDate(p.date), p.time].filter(Boolean).join(" · ")].filter(Boolean).join(" · ")}
+              </div>
+              <div className={`cine-home-card__count ${st === "passou" ? "cine-home-card__count--late" : ""}`}>{countdownCopy(p.date)}</div>
+            </div>
+            <span className="cine-home-card__cta">{cta}</span>
+            <img src={lumiSrc("holdingPopcorn")} alt="" className="cine-home-card__lumi" aria-hidden="true"/>
+          </button>
+        );
+      })()}
 
       {/* hero: continue de onde pararam */}
       {continueEntry && (
@@ -2544,14 +2803,17 @@ const HomePage = ({ watched, watchlist, couple, currentUser, users, onRoulette, 
           <span className="home-strip__arrow">→</span>
         </button>
       )}
-      <button className="home-strip home-strip--amber" onClick={onOpenCinema}>
-        <img src={lumiSrc("cinemaSign")} alt=""/>
-        <span>
-          <span className="home-strip__t">Modo cinema 🎟</span>
-          <div className="home-strip__s">quando a sessão é fora de casa</div>
-        </span>
-        <span className="home-strip__arrow">→</span>
-      </button>
+      {/* convite pra planejar — só quando não há sessão marcada ainda */}
+      {!nextSession && watchlist.length > 0 && (
+        <button className="home-strip home-strip--amber" onClick={onGoWatchlist}>
+          <img src={lumiSrc("cinemaSign")} alt=""/>
+          <span>
+            <span className="home-strip__t">Vão ao cinema? 🍿</span>
+            <div className="home-strip__s">planejem a próxima sessão pela lista a dois</div>
+          </span>
+          <span className="home-strip__arrow">→</span>
+        </button>
+      )}
 
       {/* empty state acolhedor */}
       {total === 0 && (
@@ -2784,8 +3046,157 @@ const waitingCopy = d => {
   return `esperando há ${Math.round(d / 30)} meses — já passou da hora 😂`;
 };
 
+// ---------- Planejar ida ao cinema (bottom sheet na jornada do filme) ----------
+const CinemaPlanSheet = ({ item, initial, onSave, onClose }) => {
+  const [form, setForm] = useState({
+    date: initial?.date || "",
+    time: initial?.time || "",
+    venue: initial?.venue || "",
+    seats: initial?.seats || "",
+    imax: initial?.imax || false,
+  });
+  const canSave = !!form.date;
+  return (
+    <Overlay onClose={onClose}>
+      <Modal title="" onClose={onClose} maxW={480}>
+        <div className="ns-head">
+          <img src={lumiSrc("cinemaSign")} alt=""/>
+          <div>
+            <div className="ns-head__t">{initial ? "Editar sessão 🎟" : "Planejar ida ao cinema 🍿"}</div>
+            <div className="ns-head__s">{item.title}</div>
+          </div>
+        </div>
+
+        <div className="preview-row" style={{ marginTop: 14 }}>
+          {item.poster
+            ? <img src={`${TMDB_IMG}${item.poster}`} alt="" className="preview-poster"/>
+            : <div className="preview-poster preview-poster--fallback"><Ic n="film" s={22} className="icon-muted"/></div>}
+          <div className="preview-meta">
+            <div className="preview-title">{item.title}</div>
+            <div className="preview-meta__line preview-meta__line--muted">o filme continua na lista — só ganha um compromisso ❤️</div>
+          </div>
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 16 }}>
+          <div className="ep-input-row">
+            <label className="ep-input"><span>📅 Data</span>
+              <input className="text-input" type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))}/>
+            </label>
+            <label className="ep-input"><span>🕒 Horário</span>
+              <input className="text-input" type="time" value={form.time} onChange={e => setForm(f => ({ ...f, time: e.target.value }))}/>
+            </label>
+          </div>
+          <label className="ep-input"><span>📍 Cinema · sala</span>
+            <input className="text-input" placeholder="ex.: Kinoplex · Sala 6" value={form.venue}
+              onChange={e => setForm(f => ({ ...f, venue: e.target.value }))} style={{ textAlign: "left" }}/>
+          </label>
+          <label className="ep-input"><span>🎟️ Lugares</span>
+            <input className="text-input" placeholder="ex.: H7 · H8" value={form.seats}
+              onChange={e => setForm(f => ({ ...f, seats: e.target.value }))} style={{ textAlign: "left" }}/>
+          </label>
+          <button type="button" onClick={() => setForm(f => ({ ...f, imax: !f.imax }))}
+            className={`together-toggle ${form.imax ? "together-toggle--on" : ""}`}>
+            <span className="together-toggle__check">{form.imax ? "✦" : "○"}</span>
+            <span className="together-toggle__body">
+              <span className="together-toggle__title">Sessão especial (IMAX · 3D · estreia)</span>
+              <span className="together-toggle__sub">marca noites que merecem uma conquista</span>
+            </span>
+          </button>
+          <button className="pill pill--primary pill--block" disabled={!canSave}
+            onClick={() => onSave({ date: form.date, time: form.time || "", venue: form.venue || "", seats: form.seats || "", imax: !!form.imax })}>
+            🍿 Confirmar sessão
+          </button>
+        </div>
+      </Modal>
+    </Overlay>
+  );
+};
+
+// ---------- Ingresso do casal (a partir do item planejado) ----------
+const TicketModal = ({ item, couple, onEdit, onClear, onCheckin, onRegister, onClose }) => {
+  const plan = item.plan || {};
+  const state = wlState(item);
+  return (
+    <Overlay onClose={onClose}>
+      <Modal title="" onClose={onClose} maxW={420}>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+          <div style={{ fontSize: 13, color: "var(--text-secondary)", textAlign: "center" }}>o ingresso de vocês</div>
+          <div className="ticket">
+            <div className="ticket__top">
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span className="ticket__brand">Sessão · admit two</span>
+                <span style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 18, color: "var(--accent)" }}>❤</span>
+              </div>
+              <div className="ticket__title">{item.title}{plan.imax ? " ✦" : ""}</div>
+              {plan.venue && <div className="ticket__venue">{plan.venue}</div>}
+              <div className="ticket__fields">
+                <div><div className="ticket__f-label">data</div><div className="ticket__f-value">{fmtSessionDate(plan.date)}</div></div>
+                {plan.time && <div><div className="ticket__f-label">horário</div><div className="ticket__f-value">{plan.time}</div></div>}
+                {plan.seats && <div><div className="ticket__f-label">lugares</div><div className="ticket__f-value">{plan.seats}</div></div>}
+              </div>
+            </div>
+            <div className="ticket__perf"><i/><i/></div>
+            <div className="ticket__bottom">
+              <div style={{ flex: 1 }}>
+                <div className="ticket__f-label">casal</div>
+                <div className="ticket__couple">{couple.name1} & {couple.name2}</div>
+              </div>
+              <div className="ticket__barcode"/>
+            </div>
+            <img src={lumiSrc("peeking")} alt="" className="ticket__lumi"/>
+          </div>
+          <p style={{ fontSize: 14, color: state === "passou" ? "var(--gold-soft)" : "var(--text-secondary)", textAlign: "center", margin: "18px 0 0", fontWeight: 600 }}>
+            {countdownCopy(plan.date)}
+          </p>
+          <div style={{ width: "100%", display: "flex", flexDirection: "column", gap: 10, marginTop: 22 }}>
+            {state === "hoje"
+              ? <button className="pill pill--primary pill--block" onClick={onCheckin}>Fazer check-in 🍿</button>
+              : <button className="pill pill--primary pill--block" onClick={onRegister}>Já assistimos ✦</button>}
+            <button className="pill pill--outline pill--block" onClick={() => downloadIcs({ ...plan, title: item.title })}>Adicionar ao calendário</button>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button className="pill pill--outline pill--sm" style={{ flex: 1 }} onClick={onEdit}>Editar</button>
+              <button className="pill pill--outline pill--sm" style={{ flex: 1 }} onClick={onClear}>Desmarcar</button>
+            </div>
+          </div>
+        </div>
+      </Modal>
+    </Overlay>
+  );
+};
+
+// ---------- Check-in (dia da sessão) ----------
+const CheckinModal = ({ item, onRegister, onTicket, onClose }) => {
+  const plan = item.plan || {};
+  return (
+    <Overlay onClose={onClose}>
+      <Modal title="" onClose={onClose} maxW={420}>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", position: "relative", paddingTop: 6 }}>
+          <div className="retro-story__glow" style={{ background: "radial-gradient(circle,rgba(201,153,58,.16),transparent 68%)", top: 0 }}/>
+          <div className="cine-head__eyebrow" style={{ position: "relative" }}>Check-in{plan.time ? ` · ${plan.time}` : ""}</div>
+          <Lumi name="holdingPopcorn" size={168} breathe style={{ marginTop: 10, position: "relative" }}/>
+          <div style={{ fontFamily: "var(--font-display)", fontSize: 28, fontWeight: 600, marginTop: 14, textAlign: "center", lineHeight: 1.15, position: "relative" }}>
+            Aproveitem a sessão
+          </div>
+          <p style={{ fontSize: 14, color: "var(--text-secondary)", textAlign: "center", margin: "10px 0 0", lineHeight: 1.5, position: "relative" }}>
+            {item.title}<br/>{[plan.venue, plan.seats && `lugares ${plan.seats}`].filter(Boolean).join(" · ")}
+          </p>
+          <div style={{ marginTop: 18, display: "flex", gap: 10, position: "relative" }}>
+            <span className="chip">🔕 silencioso</span>
+            {plan.imax && <span className="chip">✦ sessão especial</span>}
+            {plan.seats && <span className="chip">🎟 {plan.seats}</span>}
+          </div>
+          <div style={{ width: "100%", marginTop: 26, position: "relative" }}>
+            <button className="pill pill--primary pill--block" onClick={onRegister}>Avaliar quando acabar ⭐</button>
+            <button className="pill pill--outline pill--block" style={{ marginTop: 10 }} onClick={onTicket}>Ver ingresso</button>
+          </div>
+        </div>
+      </Modal>
+    </Overlay>
+  );
+};
+
 // cartão rico + expansão in-place (sinopse, onde assistir, quem quer, quick actions)
-const WatchlistCard = ({ e, users, currentUser, both, compat, onAlsoWant, onMarkWatched, onDelete, prefs }) => {
+const WatchlistCard = ({ e, users, currentUser, both, compat, onAlsoWant, onMarkWatched, onDelete, onPlan, onOpenTicket, onCheckin, prefs }) => {
   const [open, setOpen] = useState(false);
   const [providers, setProviders] = useState(null);
   const wanted = wantedByOf(e);
@@ -2793,6 +3204,10 @@ const WatchlistCard = ({ e, users, currentUser, both, compat, onAlsoWant, onMark
   const days = waitingDays(e);
   const rating = e.tmdbRating ? parseFloat(e.tmdbRating) : null;
   const genre = e.genres?.[0];
+  const state = wlState(e);         // quero | marcada | hoje | passou
+  const planned = state !== "quero";
+  const plan = e.plan || {};
+  const stateMeta = WL_STATE_META[state];
 
   useEffect(() => {
     if (!open || providers !== null || !e.tmdbId) return;
@@ -2803,37 +3218,49 @@ const WatchlistCard = ({ e, users, currentUser, both, compat, onAlsoWant, onMark
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <div className={`wl-card ${both ? "wl-card--perfect" : ""} ${open ? "wl-card--open" : ""}`}>
+    <div className={`wl-card ${both && !planned ? "wl-card--perfect" : ""} ${planned ? `wl-card--planned wl-card--${state}` : ""} ${open ? "wl-card--open" : ""}`}>
       <button className="wl-card__main" onClick={() => setOpen(o => !o)}>
         <div className="wl-card__poster-wrap">
           {e.poster
             ? <img src={`${TMDB_IMG}${e.poster}`} alt="" className="wl-card__poster"/>
             : <div className="wl-card__poster wl-card__poster--fallback"><Ic n={e.type === "tv" ? "tv" : "film"} s={22}/></div>}
-          {e.priority === "alta" && <span className="wl-card__flame" title="Prioridade alta">🔥</span>}
+          {planned
+            ? <span className="wl-card__flame wl-card__flame--ticket" title={stateMeta.label}>{stateMeta.emoji}</span>
+            : e.priority === "alta" && <span className="wl-card__flame" title="Prioridade alta">🔥</span>}
         </div>
 
         <div className="wl-card__body">
-          {both
-            ? <div className="wl-card__perfect-tag">❤️ Escolha perfeita — os dois querem</div>
-            : <div className="wl-card__who">{wanted[0]?.split(" ")[0] || "alguém"} quer ver</div>}
+          {/* selo do estado na jornada */}
+          <div className={`wl-state wl-state--${state}`}>{stateMeta.emoji} {stateMeta.label}</div>
 
           <div className="wl-card__title">{e.title}</div>
 
-          <div className="wl-card__badges">
-            {rating != null && <span className="wl-badge wl-badge--imdb">⭐ {rating.toFixed(1)}</span>}
-            {e.runtime ? <span className="wl-badge">⏱️ {fmtDur(e.runtime)}</span> : e.type === "tv" && <span className="wl-badge">📺 série</span>}
-            {genre && <span className="wl-badge">{genre}</span>}
-            {e.year && <span className="wl-badge wl-badge--muted">{e.year}</span>}
-          </div>
-
-          {both ? (
-            <div className="wl-compat">
-              <div className="wl-compat__label">❤️ Compatibilidade do casal</div>
-              <div className="wl-compat__bar"><span style={{ width: `${compat ?? 80}%` }}/></div>
-              <div className="wl-compat__pct">{compat != null ? `${compat}%` : "alta"}</div>
+          {planned ? (
+            <div className="wl-plan-meta">
+              {[plan.venue, [fmtShortDate(plan.date), plan.time].filter(Boolean).join(" · ")].filter(Boolean).map((t, i) => (
+                <div key={i} className="wl-plan-meta__line">{t}</div>
+              ))}
+              <div className={`wl-plan-meta__count ${state === "passou" ? "wl-plan-meta__count--late" : ""}`}>{countdownCopy(plan.date)}</div>
             </div>
           ) : (
-            <div className="wl-card__wait">🕒 {waitingCopy(days)}</div>
+            <>
+              <div className="wl-card__badges">
+                {rating != null && <span className="wl-badge wl-badge--imdb">⭐ {rating.toFixed(1)}</span>}
+                {e.runtime ? <span className="wl-badge">⏱️ {fmtDur(e.runtime)}</span> : e.type === "tv" && <span className="wl-badge">📺 série</span>}
+                {genre && <span className="wl-badge">{genre}</span>}
+                {e.year && <span className="wl-badge wl-badge--muted">{e.year}</span>}
+              </div>
+
+              {both ? (
+                <div className="wl-compat">
+                  <div className="wl-compat__label">❤️ Compatibilidade do casal</div>
+                  <div className="wl-compat__bar"><span style={{ width: `${compat ?? 80}%` }}/></div>
+                  <div className="wl-compat__pct">{compat != null ? `${compat}%` : "alta"}</div>
+                </div>
+              ) : (
+                <div className="wl-card__wait">🕒 {waitingCopy(days)}</div>
+              )}
+            </>
           )}
         </div>
 
@@ -2873,19 +3300,54 @@ const WatchlistCard = ({ e, users, currentUser, both, compat, onAlsoWant, onMark
             </div>
           )}
 
-          {/* quick actions */}
+          {/* lembrete do Lumi quando o dia já passou */}
+          {state === "passou" && (
+            <div className="lumi-note lumi-note--gold" role="note">
+              <img src={lumiSrc("tooltip")} alt="Lumi"/>
+              <div className="lumi-note__text">"Vocês já assistiram? Quero saber como foi essa noite 🍿"</div>
+            </div>
+          )}
+
+          {/* quick actions — mudam com o estado da jornada */}
           <div className="wl-card__actions">
-            {onMarkWatched && (
-              <button className="pill pill--primary" onClick={e2 => { e2.stopPropagation(); onMarkWatched(e); }}>
-                🍿 Registrar sessão
-              </button>
+            {state === "quero" && (
+              <>
+                {onPlan && (
+                  <button className="pill pill--gold" onClick={e2 => { e2.stopPropagation(); onPlan(e); }}>
+                    🍿 Planejar ida ao cinema
+                  </button>
+                )}
+                {onMarkWatched && (
+                  <button className="pill pill--primary" onClick={e2 => { e2.stopPropagation(); onMarkWatched(e); }}>
+                    Registrar sessão
+                  </button>
+                )}
+                {!both && !iWant && onAlsoWant && (
+                  <button className="pill pill--gold-outline" onClick={e2 => {
+                    e2.stopPropagation();
+                    e2.currentTarget.classList.add("heart-pop");
+                    onAlsoWant(e);
+                  }}>❤ Também quero</button>
+                )}
+              </>
             )}
-            {!both && !iWant && onAlsoWant && (
-              <button className="pill pill--gold-outline" onClick={e2 => {
-                e2.stopPropagation();
-                e2.currentTarget.classList.add("heart-pop");
-                onAlsoWant(e);
-              }}>❤ Também quero</button>
+            {state === "marcada" && (
+              <>
+                {onOpenTicket && <button className="pill pill--gold" onClick={e2 => { e2.stopPropagation(); onOpenTicket(e); }}>🎟️ Ver ingresso</button>}
+                {onMarkWatched && <button className="pill pill--primary" onClick={e2 => { e2.stopPropagation(); onMarkWatched(e); }}>Já assistimos ✦</button>}
+              </>
+            )}
+            {state === "hoje" && (
+              <>
+                {onCheckin && <button className="pill pill--primary" onClick={e2 => { e2.stopPropagation(); onCheckin(e); }}>🍿 Check-in</button>}
+                {onOpenTicket && <button className="pill pill--outline" onClick={e2 => { e2.stopPropagation(); onOpenTicket(e); }}>Ver ingresso</button>}
+              </>
+            )}
+            {state === "passou" && (
+              <>
+                {onMarkWatched && <button className="pill pill--primary" onClick={e2 => { e2.stopPropagation(); onMarkWatched(e); }}>✅ Finalizar sessão</button>}
+                {onOpenTicket && <button className="pill pill--outline" onClick={e2 => { e2.stopPropagation(); onOpenTicket(e); }}>Ingresso</button>}
+              </>
             )}
             {onDelete && (
               <button className="pill pill--outline pill--sm" onClick={e2 => { e2.stopPropagation(); onDelete(e); }} aria-label="Remover">
@@ -2899,7 +3361,91 @@ const WatchlistCard = ({ e, users, currentUser, both, compat, onAlsoWant, onMark
   );
 };
 
-const WatchlistPage = ({ watchlist, users, currentUser, compat, onDelete, onMarkWatched, onRoulette, onAlsoWant, prefs }) => {
+// card de saga na watchlist — a franquia inteira num card só, expansível
+const SagaWatchlistCard = ({ collection: col, group, watched, users, onMarkWatched, onDelete }) => {
+  const [open, setOpen] = useState(false);
+  const [parts, setParts] = useState(null);
+
+  const name = sagaCleanName(col.name);
+  const watchedInCol = watched.filter(w => w.type === "movie" && w.collection?.id === col.id && w.tmdbId);
+  const total = col.total || (watchedInCol.length + group.length);
+  const doneCount = watchedInCol.length;
+  const pct = total ? Math.round(doneCount / total * 100) : 0;
+  const complete = total > 0 && doneCount >= total;
+  const ordered = [...group].sort((a, b) => (a.sagaOrder ?? 0) - (b.sagaOrder ?? 0));
+  const next = ordered[0] || null;
+
+  useEffect(() => {
+    if (!open || parts !== null) return;
+    tmdbCollection(col.id).then(d => setParts(d.parts)).catch(() => setParts([]));
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const listByTmdb = {}; group.forEach(g => { if (g.tmdbId) listByTmdb[g.tmdbId] = g; });
+  const watchedByTmdb = {}; watchedInCol.forEach(w => { watchedByTmdb[w.tmdbId] = w; });
+  const fmtDate = d => d ? new Date(d + "T12:00:00").toLocaleDateString("pt-BR", { day: "2-digit", month: "short" }).replace(".", "") : "";
+
+  return (
+    <div className={`wl-card wl-card--saga ${complete ? "wl-card--perfect" : ""} ${open ? "wl-card--open" : ""}`}>
+      <button className="wl-card__main" onClick={() => setOpen(o => !o)}>
+        <div className="wl-card__poster-wrap">
+          {col.poster
+            ? <img src={`${TMDB_IMG}${col.poster}`} alt="" className="wl-card__poster"/>
+            : <div className="wl-card__poster wl-card__poster--fallback"><Ic n="film" s={22}/></div>}
+          <span className="wl-card__saga-badge">🍿</span>
+        </div>
+        <div className="wl-card__body">
+          <div className="wl-card__who">Saga · franquia</div>
+          <div className="wl-card__title">{name}</div>
+          <div className="wl-compat" style={{ gridTemplateColumns: "1fr auto" }}>
+            <div className="saga-bar" style={{ marginTop: 0 }}><span style={{ width: `${pct}%` }}/></div>
+            <span className="wl-compat__pct">{doneCount}/{total}</span>
+          </div>
+          <div className="wl-card__wait">
+            {complete ? "maratona completa ✦" : doneCount === 0 ? `${total} filmes · nenhum assistido` : `${total - doneCount} para terminar`}
+          </div>
+        </div>
+        <span className={`wl-card__chevron ${open ? "wl-card__chevron--open" : ""}`}><Ic n="chev" s={16}/></span>
+      </button>
+
+      {open && (
+        <div className="wl-card__expand">
+          {parts === null ? (
+            <div className="skel" style={{ height: 60, borderRadius: 12 }}/>
+          ) : (
+            <div className="saga-films">
+              {parts.map((p, i) => {
+                const w = watchedByTmdb[p.id];
+                const inList = listByTmdb[p.id];
+                const isNext = !w && inList && inList.id === next?.id;
+                return (
+                  <div key={p.id} className={`saga-film ${w ? "saga-film--done" : ""} ${isNext ? "saga-film--next" : ""}`}>
+                    <div className="saga-film__check">{w ? "✅" : isNext ? "▶" : "⬜"}</div>
+                    <div className="saga-film__body">
+                      <div className="saga-film__title">{i + 1}. {p.title}</div>
+                      {w
+                        ? <div className="saga-film__meta">assistido{w.date ? ` · ${fmtDate(w.date)}` : ""}{mediaEntry(w) > 0 ? ` · ★ ${nota10(mediaEntry(w))}` : ""}</div>
+                        : inList
+                          ? <button className="saga-film__watch" onClick={() => onMarkWatched(inList)}>{isNext ? "🍿 Registrar sessão" : "Registrar"}</button>
+                          : <div className="saga-film__meta" style={{ color: "var(--text-tertiary)" }}>fora da lista</div>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          <div className="wl-card__actions" style={{ marginTop: 12 }}>
+            {next && <button className="pill pill--primary" onClick={() => onMarkWatched(next)}>🍿 Registrar o próximo</button>}
+            <button className="pill pill--outline pill--sm" onClick={() => group.forEach(g => onDelete(g))} aria-label="Remover saga">
+              <Ic n="trash" s={15}/>
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const WatchlistPage = ({ watchlist, watched = [], users, currentUser, compat, onDelete, onMarkWatched, onRoulette, onAlsoWant, onPlan, onOpenTicket, onCheckin, prefs }) => {
   const [who, setWho] = useState("all"); // all | both | <nome>
   const [refine, setRefine] = useState("all"); // all | high | imdb | recent | <genre>
 
@@ -2991,11 +3537,30 @@ const WatchlistPage = ({ watchlist, users, currentUser, compat, onDelete, onMark
             <LumiState lumi="confuso" title="Nada por aqui" text="Nenhum título com esse filtro." />
           ) : (
             <div className="wl-cards">
-              {items.map(e => (
-                <WatchlistCard key={e.id} e={e} users={users} currentUser={currentUser}
-                  both={bothWant(e)} compat={compat}
-                  onAlsoWant={onAlsoWant} onMarkWatched={onMarkWatched} onDelete={onDelete} prefs={prefs}/>
-              ))}
+              {(() => {
+                // agrupa itens de uma mesma saga num card único
+                const rendered = [];
+                const seen = new Set();
+                items.forEach(e => {
+                  if (e.collection?.id) {
+                    if (seen.has(e.collection.id)) return;
+                    seen.add(e.collection.id);
+                    rendered.push(
+                      <SagaWatchlistCard key={`saga-${e.collection.id}`} collection={e.collection}
+                        group={items.filter(x => x.collection?.id === e.collection.id)}
+                        watched={watched} users={users} onMarkWatched={onMarkWatched} onDelete={onDelete}/>
+                    );
+                  } else {
+                    rendered.push(
+                      <WatchlistCard key={e.id} e={e} users={users} currentUser={currentUser}
+                        both={bothWant(e)} compat={compat}
+                        onAlsoWant={onAlsoWant} onMarkWatched={onMarkWatched} onDelete={onDelete}
+                        onPlan={onPlan} onOpenTicket={onOpenTicket} onCheckin={onCheckin} prefs={prefs}/>
+                    );
+                  }
+                });
+                return rendered;
+              })()}
             </div>
           )}
 
@@ -3057,12 +3622,17 @@ const coupleAchievements = (watched, users, couple) => {
     return a > 0 && b > 0 && a === b;
   });
   const saga = watched.some(w => w.type === "tv" && w.status === "completed");
+  const cinemaEspecial = watched.some(w => w.where === "cinema" && w.imax);
+  const cinemaDates = watched.filter(w => w.where === "cinema").map(w => w.date || (w.createdAt || "").slice(0, 10)).filter(Boolean).sort();
+  const cinemaAno = cinemaDates.length >= 2 && (new Date(cinemaDates[cinemaDates.length - 1]) - new Date(cinemaDates[0])) >= 365 * 86400000;
   return [
     { id: "primeira", label: "Primeira sessão", lumi: "medal", done: total >= 1, progress: total, target: 1 },
     { id: "primeiro-filme", label: "Primeiro filme juntos", lumi: "holdingStar", done: movies >= 1, progress: movies, target: 1 },
-    { id: "cinema1", label: "Primeiro no cinema", lumi: "camera", done: cinema >= 1, progress: cinema, target: 1 },
+    { id: "cinema1", label: "Primeira ida ao cinema", lumi: "camera", done: cinema >= 1, progress: cinema, target: 1 },
+    { id: "cinema-especial", label: "Primeira sessão especial", lumi: "fireworks", done: cinemaEspecial, progress: cinemaEspecial ? 1 : 0, target: 1 },
     { id: "dezena", label: "10 filmes juntos", lumi: "aplaudindo", done: movies >= 10, progress: movies, target: 10 },
-    { id: "cinema10", label: "10 no cinema", lumi: "camera", done: cinema >= 10, progress: cinema, target: 10 },
+    { id: "cinema10", label: "10 sessões no cinema", lumi: "camera", done: cinema >= 10, progress: cinema, target: 10 },
+    { id: "cinema-ano", label: "1 ano indo ao cinema", lumi: "milestone365", done: cinemaAno, progress: cinemaAno ? 1 : 0, target: 1 },
     { id: "meio", label: "50 filmes juntos", lumi: "achievement", done: movies >= 50, progress: movies, target: 50 },
     { id: "semana3", label: "3 dias seguidos", lumi: "correndo", done: semana3, progress: 3, target: 3 },
     { id: "maratona", label: "Primeira maratona", lumi: "popcornFlying", done: maratona, progress: 1, target: 1 },
@@ -3562,186 +4132,12 @@ const StoryTimelinePage = ({ watched, users, couple, retroYears = [], onOpenRetr
   );
 };
 
-// maratonas & sagas — progresso real das franquias (TMDB collections)
-// busca de franquia (TMDB collections) para começar uma maratona
-const CollectionSearchModal = ({ onSelect, onClose }) => {
-  const [q, setQ] = useState("");
-  const [res, setRes] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const inputRef = useRef();
-  useEffect(() => { setTimeout(() => inputRef.current?.focus(), 80); }, []);
-  useEffect(() => {
-    const t = setTimeout(async () => {
-      if (q.length < 2) { setRes([]); return; }
-      setLoading(true);
-      try { setRes(await tmdbSearchCollection(q)); } catch { setRes([]); }
-      setLoading(false);
-    }, 400);
-    return () => clearTimeout(t);
-  }, [q]);
-  return (
-    <Overlay onClose={onClose}>
-      <Modal title="" onClose={onClose} maxW={480}>
-        <div className="ns-head">
-          <img src={lumiSrc("clapper")} alt=""/>
-          <div>
-            <div className="ns-head__t">Começar uma maratona</div>
-            <div className="ns-head__s">qual franquia vocês querem ver juntos?</div>
-          </div>
-        </div>
-        <div className="search-pill" style={{ marginTop: 14 }}>
-          <span className="search-pill__icon"><Ic n="search" s={16}/></span>
-          <input ref={inputRef} value={q} onChange={e => setQ(e.target.value)} placeholder="ex.: Harry Potter, Star Wars, Vingadores…"/>
-          {loading && <span className="quick-add-card__spin"/>}
-        </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 12 }}>
-          {res.map(c => (
-            <button key={c.id} className="saga-search-row" onClick={() => onSelect(c)}>
-              {c.poster
-                ? <img src={`${TMDB_IMG}${c.poster}`} alt=""/>
-                : <div className="saga-search-row__fallback"><Ic n="film" s={16}/></div>}
-              <span>{c.name}</span>
-              <span className="saga-search-row__plus">＋</span>
-            </button>
-          ))}
-          {q.length >= 2 && !loading && res.length === 0 && (
-            <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 2px" }}>
-              <img src={lumiSrc("confuso")} alt="" style={{ width: 48, height: 48, objectFit: "contain" }}/>
-              <div className="lumi-note__text">"Não achei essa franquia. Tenta outro nome?"</div>
-            </div>
-          )}
-        </div>
-      </Modal>
-    </Overlay>
-  );
-};
-
-const SagasPage = ({ watched, plannedSagas = [], onClose, onRegisterMovie, onAddSaga, onRemoveSaga }) => {
-  const [adding, setAdding] = useState(false);
-
-  // ids de todas as sagas (começadas via filmes + planejadas manualmente)
-  const startedMap = useMemo(() => {
-    const map = {};
-    watched.filter(w => w.type === "movie" && w.collection?.id).forEach(w => {
-      const c = w.collection;
-      if (!map[c.id]) map[c.id] = { id: c.id, name: c.name, poster: c.poster, ids: new Set(), planned: false };
-      if (w.tmdbId) map[c.id].ids.add(w.tmdbId);
-    });
-    return map;
-  }, [watched]);
-
-  const merged = useMemo(() => {
-    const map = { ...startedMap };
-    plannedSagas.forEach(p => {
-      if (map[p.id]) map[p.id] = { ...map[p.id], planned: true };
-      else map[p.id] = { id: p.id, name: p.name, poster: p.poster, ids: new Set(), planned: true };
-    });
-    return Object.values(map);
-  }, [startedMap, plannedSagas]);
-
-  const [details, setDetails] = useState({});
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    if (!merged.length) { setLoading(false); return; }
-    let alive = true;
-    setLoading(true);
-    Promise.all(merged.map(s => tmdbCollection(s.id).then(d => [s.id, d]).catch(() => [s.id, null])))
-      .then(entries => { if (alive) { setDetails(Object.fromEntries(entries)); setLoading(false); } });
-    return () => { alive = false; };
-  }, [merged.map(m => m.id).join(",")]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const sagas = merged.map(s => {
-    const d = details[s.id];
-    const total = d?.parts?.length || s.ids.size;
-    const watchedCount = d ? d.parts.filter(p => s.ids.has(p.id)).length : s.ids.size;
-    const next = d ? d.parts.find(p => !s.ids.has(p.id)) : null;
-    const complete = total > 0 && watchedCount >= total;
-    const cleanName = (s.name || "").replace(/\s*(Collection|Coleção|— Coleção|Saga)$/i, "").trim();
-    return { ...s, name: cleanName, total, watchedCount, next, complete, poster: d?.poster || s.poster };
-  }).sort((a, b) => b.complete - a.complete || (b.watchedCount / (b.total || 1)) - (a.watchedCount / (a.total || 1)));
-
-  const doneCount = sagas.filter(s => s.complete).length;
-
-  return createPortal(
-    <div className="subpage">
-      {adding && (
-        <CollectionSearchModal
-          onSelect={c => { onAddSaga?.(c); setAdding(false); }}
-          onClose={() => setAdding(false)}/>
-      )}
-      <div className="subpage__inner">
-        <div className="cfg-head">
-          <button className="cfg-back" onClick={onClose} aria-label="Voltar">←</button>
-          <div style={{ flex: 1 }}>
-            <div className="cfg-title" style={{ lineHeight: 1 }}>Maratonas</div>
-            {sagas.length > 0 && <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 2 }}>{sagas.length} saga{sagas.length !== 1 ? "s" : ""}{doneCount ? ` · ${doneCount} completa${doneCount !== 1 ? "s" : ""}` : ""}</div>}
-          </div>
-        </div>
-
-        <button className="saga-add-btn" onClick={() => setAdding(true)}>
-          <span className="saga-add-btn__plus">＋</span> Começar uma maratona
-        </button>
-
-        {loading ? (
-          <div className="saga-list">
-            {[0, 1].map(i => <div key={i} className="skel" style={{ height: 96, borderRadius: 20 }}/>)}
-          </div>
-        ) : sagas.length === 0 ? (
-          <LumiState lumi="clapper" title="Ainda sem maratonas"
-            text="Escolham uma franquia acima (Harry Potter, Star Wars…) — ou registrem um filme de uma saga — e o progresso aparece aqui."/>
-        ) : (
-          <div className="saga-list">
-            {sagas.map(s => {
-              const pct = s.total ? Math.round(s.watchedCount / s.total * 100) : 0;
-              const notStarted = s.watchedCount === 0;
-              return (
-                <div key={s.id} className={`saga-card ${s.complete ? "saga-card--done" : ""} ${notStarted ? "saga-card--planned" : ""}`}>
-                  <div className="saga-card__poster">
-                    {s.poster
-                      ? <img src={`${TMDB_IMG}${s.poster}`} alt=""/>
-                      : <div className="saga-card__poster--fallback"><Ic n="film" s={22}/></div>}
-                    {s.complete && <span className="saga-card__crown">✦</span>}
-                  </div>
-                  <div className="saga-card__body">
-                    <div className="saga-card__name">{s.name}</div>
-                    <div className="saga-card__count">
-                      {s.complete ? "Saga completa ✦"
-                        : notStarted ? `${s.total || "?"} filmes · querem maratonar`
-                        : `${s.watchedCount} de ${s.total} filmes`}
-                    </div>
-                    <div className="saga-bar"><span style={{ width: `${pct}%` }}/></div>
-                    {!s.complete && s.next && (
-                      <button className="saga-card__next" onClick={() => onRegisterMovie(s.next.id)}>
-                        ▶ {notStarted ? "Começar por" : "Próximo"}: {s.next.title}{s.next.year ? ` (${s.next.year})` : ""}
-                      </button>
-                    )}
-                  </div>
-                  {s.planned && notStarted && onRemoveSaga && (
-                    <button className="saga-card__remove" onClick={() => onRemoveSaga(s.id)} aria-label="Remover maratona">
-                      <Ic n="x" s={15}/>
-                    </button>
-                  )}
-                </div>
-              );
-            })}
-            <div className="profile-lumi-footer" style={{ marginTop: 8 }}>
-              <img src={lumiSrc("holdingPopcorn")} alt=""/> uma franquia inteira é uma maratona a dois
-            </div>
-          </div>
-        )}
-      </div>
-    </div>,
-    document.body
-  );
-};
 
 // profile page — "Perfil do casal · conquistas" + estatísticas (v3)
-const ProfilePage = ({ watched, watchlist, couple, users, prefs, onOpenSettings, onRegisterMovie, plannedSagas, onAddSaga, onRemoveSaga }) => {
+const ProfilePage = ({ watched, watchlist, couple, users, prefs, onOpenSettings }) => {
   const [showRetro, setShowRetro] = useState(false);
   const [showAwards, setShowAwards] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
-  const [showSagas, setShowSagas] = useState(false);
   const [showAnnualSurprise, setShowAnnualSurprise] = useState(false);
   const [showWrappedIntro, setShowWrappedIntro] = useState(false);
   const statsRef = useRef(null);
@@ -3755,6 +4151,43 @@ const ProfilePage = ({ watched, watchlist, couple, users, prefs, onOpenSettings,
 
   const allR = watched.flatMap(w => Object.values(w.reviews || {}).map(r => r.rating).filter(Boolean));
   const mediaCasal = allR.length ? allR.reduce((a, b) => a + b, 0) / allR.length : 0;
+
+  // estatística de maratonas (franquias com filmes já vistos)
+  const sagaStats = (() => {
+    const map = {};
+    watched.filter(w => w.type === "movie" && w.collection?.id).forEach(w => {
+      const c = w.collection;
+      if (!map[c.id]) map[c.id] = { name: sagaCleanName(c.name), count: 0, mins: 0 };
+      map[c.id].count++;
+      map[c.id].mins += w.runtime || 0;
+    });
+    const list = Object.values(map);
+    const biggest = list.sort((a, b) => b.count - a.count)[0] || null;
+    return { count: list.length, hours: Math.round(list.reduce((s, x) => s + x.mins, 0) / 60), biggest };
+  })();
+
+  // estatísticas do cinema — o cinema agora faz parte da jornada
+  const cinemaStats = (() => {
+    const cine = watched.filter(w => w.where === "cinema");
+    if (!cine.length) return null;
+    const first = [...cine].sort((a, b) => new Date(a.date || a.createdAt) - new Date(b.date || b.createdAt))[0];
+    const venueCount = {};
+    cine.forEach(w => { const v = (w.venue || "").trim(); if (v) venueCount[v] = (venueCount[v] || 0) + 1; });
+    const topVenue = Object.entries(venueCount).sort((a, b) => b[1] - a[1])[0] || null;
+    const gc = {};
+    cine.forEach(w => (w.genres || []).forEach(g => { gc[g] = (gc[g] || 0) + 1; }));
+    const topGenre = Object.entries(gc).sort((a, b) => b[1] - a[1])[0] || null;
+    const favMovie = [...cine].filter(w => mediaEntry(w) > 0).sort((a, b) => mediaEntry(b) - mediaEntry(a))[0] || null;
+    const months = [...new Set(cine.map(w => (w.date || (w.createdAt || "").slice(0, 10)).slice(0, 7)).filter(Boolean))].sort();
+    let streak = months.length ? 1 : 0, best = streak;
+    for (let i = 1; i < months.length; i++) {
+      const [py, pm] = months[i - 1].split("-").map(Number);
+      const [cy, cm] = months[i].split("-").map(Number);
+      streak = (cy * 12 + cm) - (py * 12 + pm) === 1 ? streak + 1 : 1;
+      best = Math.max(best, streak);
+    }
+    return { n: cine.length, first, topVenue, topGenre, favMovie, monthStreak: best };
+  })();
 
   // Retrospectiva: só anos já concluídos ficam disponíveis (estilo Wrapped)
   const retroYears = [...new Set(watched.map(w => (w.date || (w.createdAt || "").slice(0, 10)).slice(0, 4)).filter(Boolean))]
@@ -3835,9 +4268,6 @@ const ProfilePage = ({ watched, watchlist, couple, users, prefs, onOpenSettings,
     <div>
       {showRetro && <RetroStory watched={watched} users={users} couple={couple} onClose={() => setShowRetro(false)}/>} 
       {showAwards && <AchievementsPage watched={watched} users={users} couple={couple} prefs={prefs} onClose={() => setShowAwards(false)}/>}
-      {showSagas && <SagasPage watched={watched} plannedSagas={plannedSagas} onClose={() => setShowSagas(false)}
-        onRegisterMovie={id => { setShowSagas(false); onRegisterMovie?.(id); }}
-        onAddSaga={onAddSaga} onRemoveSaga={onRemoveSaga}/>}
       {showHistory && <StoryTimelinePage watched={watched} users={users} couple={couple}
         retroYears={retroYears} onOpenRetro={() => setShowRetro(true)} onClose={() => setShowHistory(false)}/>}
       {showAnnualSurprise && <AnnualWrappedPrompt couple={couple} onOpen={() => { setShowRetro(true); setShowWrappedIntro(true); }} onClose={() => setShowAnnualSurprise(false)}/>} 
@@ -3887,14 +4317,57 @@ const ProfilePage = ({ watched, watchlist, couple, users, prefs, onOpenSettings,
             <div className="profile-nav__text">Marcos que vocês conquistam juntos</div>
           </div>
         </button>
-        <button className="profile-nav__card" onClick={() => setShowSagas(true)}>
-          <div className="profile-nav__icon">🍿</div>
-          <div>
-            <div className="profile-nav__title">Maratonas</div>
-            <div className="profile-nav__text">O progresso das sagas de vocês</div>
-          </div>
-        </button>
       </div>
+
+      {/* estatística de maratonas (perfil = só números) */}
+      {sagaStats.count > 0 && (
+        <>
+          <div className="home-last-label" style={{ marginTop: 22 }}>Maratonas</div>
+          <div className="stats-cardgrid" style={{ marginTop: 0 }}>
+            <div className="stats-card"><div className="stats-card__v">{sagaStats.count}</div><div className="stats-card__l">franquias em andamento</div></div>
+            <div className="stats-card"><div className="stats-card__v">{sagaStats.hours}h</div><div className="stats-card__l">em maratonas juntos</div></div>
+          </div>
+          {sagaStats.biggest && (
+            <div className="v3-card" style={{ display: "flex", alignItems: "center", gap: 14, padding: 14, marginTop: 12 }}>
+              <img src={lumiSrc("holdingPopcorn")} alt="" style={{ width: 44, height: 44, objectFit: "contain" }}/>
+              <div>
+                <div style={{ fontSize: 11, color: "var(--text-tertiary)", fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase" }}>Maior maratona</div>
+                <div style={{ fontWeight: 600, fontSize: 15, marginTop: 2 }}>{sagaStats.biggest.name} · {sagaStats.biggest.count} filmes</div>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* nosso cinema — o cinema virou parte da história do casal */}
+      {cinemaStats && (
+        <>
+          <div className="home-last-label" style={{ marginTop: 22 }}>Nosso cinema 🍿</div>
+          <div className="stats-cardgrid" style={{ marginTop: 0 }}>
+            <div className="stats-card"><div className="stats-card__v">{cinemaStats.n}</div><div className="stats-card__l">idas ao cinema</div></div>
+            {cinemaStats.topVenue && <div className="stats-card"><div className="stats-card__v" style={{ fontSize: 15 }}>{cinemaStats.topVenue[0]}</div><div className="stats-card__l">cinema favorito · {cinemaStats.topVenue[1]}×</div></div>}
+            {cinemaStats.monthStreak > 1 && <div className="stats-card"><div className="stats-card__v">{cinemaStats.monthStreak}</div><div className="stats-card__l">meses seguidos indo</div></div>}
+            {cinemaStats.topGenre && <div className="stats-card"><div className="stats-card__v" style={{ fontSize: 15 }}>{cinemaStats.topGenre[0]}</div><div className="stats-card__l">gênero no cinema</div></div>}
+          </div>
+          {cinemaStats.favMovie && (
+            <div className="v3-card" style={{ display: "flex", alignItems: "center", gap: 14, padding: 14, marginTop: 12 }}>
+              {cinemaStats.favMovie.poster
+                ? <img src={`${TMDB_IMG}${cinemaStats.favMovie.poster}`} alt="" style={{ width: 44, height: 64, borderRadius: 8, objectFit: "cover" }}/>
+                : <img src={lumiSrc("holdingStar")} alt="" style={{ width: 44, height: 44, objectFit: "contain" }}/>}
+              <div>
+                <div style={{ fontSize: 11, color: "var(--text-tertiary)", fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase" }}>Favorito no cinema</div>
+                <div style={{ fontWeight: 600, fontSize: 15, marginTop: 2 }}>{cinemaStats.favMovie.title} · ★ {nota10(mediaEntry(cinemaStats.favMovie))}</div>
+              </div>
+            </div>
+          )}
+          {cinemaStats.first && (
+            <div className="lumi-insight lumi-insight--teal" style={{ marginTop: 12 }}>
+              <img src={lumiSrc("holdingPopcorn")} alt="Lumi"/>
+              <div className="lumi-insight__text">Primeira ida ao cinema juntos: {cinemaStats.first.title} · {fmtShortDate(cinemaStats.first.date || (cinemaStats.first.createdAt || "").slice(0, 10))} ❤️</div>
+            </div>
+          )}
+        </>
+      )}
 
       <div className="home-last-label" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <span>Conquistas</span>
@@ -4106,254 +4579,6 @@ const downloadIcs = plan => {
   URL.revokeObjectURL(a.href);
 };
 
-const CinemaPage = ({ watched, couple, coupleId, onClose, onRegister, addToast, initialPlan = null }) => {
-  const [view, setView] = useState("hub"); // hub | pick | plan | ticket | checkin
-  const [plan, setPlan] = useState(coupleId ? null : initialPlan);
-  const [planLoaded, setPlanLoaded] = useState(!coupleId);
-  const [movie, setMovie] = useState(null); // filme escolhido na TMDB para o plano
-  const [form, setForm] = useState({ date: "", time: "", venue: "", seats: "" });
-
-  useEffect(() => {
-    if (!coupleId) return;
-    const un = onSnapshot(doc(db, "couples", coupleId, "cinema", "plan"), snap => {
-      setPlan(snap.exists() ? snap.data() : null);
-      setPlanLoaded(true);
-    });
-    return () => un();
-  }, [coupleId]);
-
-  const savePlan = async () => {
-    if (!movie?.title || !form.date) return;
-    // guarda o filme completo da TMDB — o ingresso vira memória com pôster, gêneros etc.
-    const payload = JSON.parse(JSON.stringify({ title: movie.title, poster: movie.poster || null, movie, ...form }));
-    if (coupleId) await setDoc(doc(db, "couples", coupleId, "cinema", "plan"), payload);
-    else setPlan(payload);
-    setView("hub");
-    addToast?.("Sessão marcada 🎟", "success");
-  };
-  const clearPlan = () => {
-    if (coupleId) deleteDoc(doc(db, "couples", coupleId, "cinema", "plan")).catch(() => {});
-    else setPlan(null);
-  };
-  const editPlan = () => {
-    if (plan) {
-      setMovie(plan.movie || { title: plan.title, type: "movie", genres: [], cast: [] });
-      setForm({ date: plan.date || "", time: plan.time || "", venue: plan.venue || "", seats: plan.seats || "" });
-    }
-    setView("plan");
-  };
-  const registerNow = () => {
-    const m = plan?.movie || { title: plan?.title, type: "movie", genres: [], cast: [] };
-    clearPlan();
-    onRegister(m);
-  };
-
-  const yearNow = String(new Date().getFullYear());
-  const allCinema = watched.filter(w => w.where === "cinema")
-    .sort((a, b) => new Date(b.date || b.createdAt) - new Date(a.date || a.createdAt));
-  const cinemaYear = allCinema.filter(w => (w.date || (w.createdAt || "").slice(0, 10)).startsWith(yearNow));
-  const cinemaEntries = cinemaYear.length ? cinemaYear : allCinema;
-
-  const fmtPlanDate = d => d ? new Date(d + "T12:00:00").toLocaleDateString("pt-BR", { weekday: "short", day: "2-digit", month: "short" }).replace(/\./g, "") : "";
-  const fmtRowDate = d => d ? new Date(d + "T12:00:00").toLocaleDateString("pt-BR", { day: "2-digit", month: "short" }).replace(".", "") : "";
-  const isToday = plan?.date === new Date().toISOString().slice(0, 10);
-  // nota de personalidade da linha: um trecho da crítica do casal
-  const rowNote = e => {
-    for (const rv of Object.values(e.reviews || {})) {
-      const t = rv?.text?.trim();
-      if (t) return t.length > 34 ? t.slice(0, 34) + "…" : t;
-    }
-    return null;
-  };
-
-  return createPortal(
-    <div className="subpage subpage--cine">
-      <div className="subpage__inner">
-        <button className="cfg-back" onClick={() => view === "hub" ? onClose() : setView("hub")} aria-label="Voltar" style={{ marginBottom: 6 }}>←</button>
-
-        {/* ===== HUB ===== */}
-        {view === "hub" && (
-          <>
-            <div className="cine-head">
-              <div>
-                <div className="cine-head__eyebrow">Modo cinema 🎟</div>
-                <div className="cine-head__title">Noite fora<br/>de casa</div>
-              </div>
-              <Lumi name="cinemaSign" size={84} breathe alt="Lumi com plaquinha de cinema"/>
-            </div>
-
-            {plan ? (
-              <div className="cine-next">
-                {plan.poster && <img src={`${TMDB_IMG}${plan.poster}`} alt="" className="cine-next__poster"/>}
-                <div className="cine-next__body">
-                  <div className="cine-next__label">próxima sessão marcada</div>
-                  <div className="cine-next__title">{plan.title}</div>
-                  <div className="cine-next__meta">
-                    {[fmtPlanDate(plan.date), plan.time, plan.venue].filter(Boolean).join(" · ")}
-                  </div>
-                  <button className="cine-next__btn" onClick={() => setView(isToday ? "checkin" : "ticket")}>
-                    {isToday ? "Fazer check-in 🍿" : "Ver ingressos"}
-                  </button>
-                </div>
-              </div>
-            ) : planLoaded && (
-              <div className="cine-next">
-                <div className="cine-next__body">
-                  <div className="cine-next__label">nenhuma sessão marcada</div>
-                  <div className="cine-next__title">Que tal uma tela grande?</div>
-                  <div className="cine-next__meta">marquem a próxima ida ao cinema e o ingresso de vocês nasce aqui.</div>
-                  <button className="cine-next__btn" onClick={() => setView("pick")}>＋ Marcar sessão</button>
-                </div>
-              </div>
-            )}
-
-            {cinemaEntries.length > 0 && (
-              <>
-                <div className="cine-section-label">Sessões no cinema · {cinemaYear.length ? "este ano" : "todas"}</div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                  {cinemaEntries.slice(0, 6).map(e => {
-                    const avg = mediaEntry(e);
-                    const note = rowNote(e);
-                    return (
-                      <div key={e.id} className="cine-row">
-                        {e.poster
-                          ? <img src={`${TMDB_IMG}${e.poster}`} alt="" className="cine-row__poster"/>
-                          : <div className="cine-row__poster cine-row__poster--fallback"/>}
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div className="cine-row__title">{e.title}</div>
-                          <div className="cine-row__meta">
-                            {[fmtRowDate(e.date || (e.createdAt || "").slice(0, 10)), note].filter(Boolean).join(" · ")}
-                          </div>
-                        </div>
-                        {avg > 0 && <span className="cine-row__nota">★ {nota10(avg)}</span>}
-                      </div>
-                    );
-                  })}
-                </div>
-              </>
-            )}
-
-            <div className="cine-foot">
-              <img src={lumiSrc("holdingPopcorn")} alt=""/>
-              {allCinema.length > 0
-                ? `${allCinema.length} ida${allCinema.length !== 1 ? "s" : ""} ao cinema · vocês amam uma tela grande`
-                : "a primeira ida ao cinema vira uma memória especial"}
-            </div>
-          </>
-        )}
-
-        {/* ===== ESCOLHER O FILME (TMDB) ===== */}
-        {view === "pick" && (
-          <SearchModal
-            headTitle="Marcar sessão" headSub="qual filme vocês vão ver no cinema?" headLumi="cinemaSign"
-            onSelect={m => { setMovie(m); setView("plan"); }}
-            onClose={() => setView("hub")}/>
-        )}
-
-        {/* ===== DETALHES DA SESSÃO ===== */}
-        {view === "plan" && movie && (
-          <>
-            <div className="cine-head" style={{ marginBottom: 4 }}>
-              <div>
-                <div className="cine-head__eyebrow">Marcar sessão 🎟</div>
-                <div className="cine-head__title" style={{ fontSize: 26 }}>{movie.title}</div>
-              </div>
-              {movie.poster && <img src={`${TMDB_IMG}${movie.poster}`} alt="" style={{ width: 56, height: 80, borderRadius: 10, objectFit: "cover", boxShadow: "0 10px 24px rgba(0,0,0,.5)" }}/>}
-            </div>
-            <button className="edit-switch" style={{ marginBottom: 12 }} onClick={() => setView("pick")}>trocar filme</button>
-            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <div className="ep-input-row">
-                <label className="ep-input"><span>Data</span>
-                  <input className="text-input" type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))}/>
-                </label>
-                <label className="ep-input"><span>Horário</span>
-                  <input className="text-input" type="time" value={form.time} onChange={e => setForm(f => ({ ...f, time: e.target.value }))}/>
-                </label>
-              </div>
-              <label className="ep-input"><span>Cinema · sala</span>
-                <input className="text-input" placeholder="ex.: Cinemark Iguatemi · Sala 6" value={form.venue}
-                  onChange={e => setForm(f => ({ ...f, venue: e.target.value }))} style={{ textAlign: "left" }}/>
-              </label>
-              <label className="ep-input"><span>Lugares</span>
-                <input className="text-input" placeholder="ex.: H7 · H8" value={form.seats}
-                  onChange={e => setForm(f => ({ ...f, seats: e.target.value }))} style={{ textAlign: "left" }}/>
-              </label>
-              <button className="pill pill--primary pill--block" onClick={savePlan} disabled={!form.date}>
-                Gerar o ingresso 🎟
-              </button>
-            </div>
-          </>
-        )}
-
-        {/* ===== INGRESSO ===== */}
-        {view === "ticket" && plan && (
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
-            <div style={{ fontSize: 13, color: "var(--text-secondary)", textAlign: "center" }}>o ingresso de vocês</div>
-            <div className="ticket">
-              <div className="ticket__top">
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span className="ticket__brand">Sessão · admit two</span>
-                  <span style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 18, color: "var(--accent)" }}>❤</span>
-                </div>
-                <div className="ticket__title">{plan.title}</div>
-                {plan.venue && <div className="ticket__venue">{plan.venue}</div>}
-                <div className="ticket__fields">
-                  <div><div className="ticket__f-label">data</div><div className="ticket__f-value">{fmtPlanDate(plan.date)}</div></div>
-                  {plan.time && <div><div className="ticket__f-label">horário</div><div className="ticket__f-value">{plan.time}</div></div>}
-                  {plan.seats && <div><div className="ticket__f-label">lugares</div><div className="ticket__f-value">{plan.seats}</div></div>}
-                </div>
-              </div>
-              <div className="ticket__perf"><i/><i/></div>
-              <div className="ticket__bottom">
-                <div style={{ flex: 1 }}>
-                  <div className="ticket__f-label">casal</div>
-                  <div className="ticket__couple">{couple.name1} & {couple.name2}</div>
-                </div>
-                <div className="ticket__barcode"/>
-              </div>
-              <img src={lumiSrc("peeking")} alt="" className="ticket__lumi"/>
-            </div>
-            <p style={{ fontSize: 13, color: "var(--text-secondary)", textAlign: "center", margin: "22px 0 0", lineHeight: 1.5 }}>
-              depois da sessão, eu transformo<br/>esse ingresso numa memória.
-            </p>
-            <div style={{ width: "100%", display: "flex", flexDirection: "column", gap: 10, marginTop: 24 }}>
-              <button className="pill pill--primary pill--block" onClick={registerNow}>Já assistimos ✦</button>
-              <button className="pill pill--outline pill--block" onClick={() => downloadIcs(plan)}>Adicionar ao calendário</button>
-              <div style={{ display: "flex", gap: 10 }}>
-                <button className="pill pill--outline pill--sm" style={{ flex: 1 }} onClick={editPlan}>Editar</button>
-                <button className="pill pill--outline pill--sm" style={{ flex: 1 }} onClick={() => { clearPlan(); setView("hub"); addToast?.("Sessão desmarcada", "info"); }}>Desmarcar</button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ===== CHECK-IN ===== */}
-        {view === "checkin" && plan && (
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", position: "relative", paddingTop: 10, minHeight: "72vh" }}>
-            <div className="retro-story__glow" style={{ background: "radial-gradient(circle,rgba(201,153,58,.16),transparent 68%)", top: 0 }}/>
-            <div className="cine-head__eyebrow" style={{ position: "relative" }}>Check-in{plan.time ? ` · ${plan.time}` : ""}</div>
-            <Lumi name="holdingPopcorn" size={200} breathe style={{ marginTop: 16, position: "relative" }}/>
-            <div style={{ fontFamily: "var(--font-display)", fontSize: 32, fontWeight: 600, marginTop: 18, textAlign: "center", lineHeight: 1.15, position: "relative" }}>
-              Aproveitem a sessão
-            </div>
-            <p style={{ fontSize: 14, color: "var(--text-secondary)", textAlign: "center", margin: "12px 0 0", lineHeight: 1.55, position: "relative" }}>
-              Modo silencioso ativado.<br/>Guardo o lugar de vocês até os créditos.
-            </p>
-            <div style={{ marginTop: 22, display: "flex", gap: 10, position: "relative" }}>
-              <span className="chip">🔕 silencioso</span>
-              {plan.seats && <span className="chip">🎟 {plan.seats}</span>}
-            </div>
-            <div style={{ width: "100%", marginTop: "auto", paddingTop: 30, position: "relative" }}>
-              <button className="pill pill--primary pill--block" onClick={registerNow}>Avaliar quando acabar</button>
-              <button className="pill pill--outline pill--block" style={{ marginTop: 10 }} onClick={() => setView("ticket")}>Ver ingresso</button>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>,
-    document.body
-  );
-};
 
 
 // error boundary — o Lumi assume quando algo quebra
@@ -4395,13 +4620,12 @@ export default function App() {
   // app state
   const [watched,   setWatched]   = useState([]);
   const [watchlist, setWatchlist] = useState([]);
-  const [plannedSagas, setPlannedSagas] = useState([]);
   const [dataReadyFor, setDataReadyFor] = useState(null);
   const [bootDelay, setBootDelay] = useState(true);
   const [celebration, setCelebration] = useState(null);
   const [online,    setOnline]    = useState(typeof navigator !== "undefined" ? navigator.onLine : true);
   const [showSettings, setShowSettings] = useState(false);
-  const [showCinema,   setShowCinema]   = useState(false);
+  const [cineModal,    setCineModal]    = useState(null); // { mode:"plan"|"ticket"|"checkin", item }
   const [epSheet,      setEpSheet]      = useState(null);
   // preferências do Lumi (Configurações) — persistidas localmente
   const [prefs, setPrefs] = useState(() => {
@@ -4475,9 +4699,7 @@ export default function App() {
       snap => { setWatched(snap.docs.map(d=>({...d.data(),id:d.id}))); setDataReadyFor(coupleId); });
     const unWL = onSnapshot(collection(db,"couples",coupleId,"watchlist"),
       snap => setWatchlist(snap.docs.map(d=>({...d.data(),id:d.id}))));
-    const unSG = onSnapshot(collection(db,"couples",coupleId,"sagas"),
-      snap => setPlannedSagas(snap.docs.map(d=>d.data())));
-    return () => { unW(); unWL(); unSG(); };
+    return () => { unW(); unWL(); };
   }, [coupleId]);
 
   useEffect(() => {
@@ -4596,7 +4818,23 @@ export default function App() {
       total === 10   ? { lumi:"celebrating", title:"10 sessões", quote:'"O cineclube de vocês está pegando no tranco ✦"' } :
       total === 1    ? { lumi:"hugHeart", title:"A primeira memória", quote:'"Toda grande história começa com um primeiro filme."' } :
       null;
-    if (milestone) {
+
+    // saga concluída? (esse filme completa a franquia)
+    let sagaDone = null;
+    if (data.collection?.id && data.collection.total) {
+      const seen = new Set(watched.filter(w => w.collection?.id === data.collection.id && w.tmdbId).map(w => w.tmdbId));
+      if (data.tmdbId) seen.add(data.tmdbId);
+      if (seen.size >= data.collection.total) {
+        const mins = watched.filter(w => w.collection?.id === data.collection.id).reduce((s, w) => s + (w.runtime || 0), 0) + (data.runtime || 0);
+        sagaDone = { name: sagaCleanName(data.collection.name), films: data.collection.total, hours: Math.floor(mins / 60), min: mins % 60 };
+      }
+    }
+
+    if (sagaDone) {
+      setCelebration({ type:"milestone", eyebrow:"Maratona concluída", lumi:"celebrating",
+        title:`${sagaDone.name} ✦`, quote:`"${sagaDone.films} filmes · ${sagaDone.hours}h${sagaDone.min?` ${sagaDone.min}min`:""} juntos ❤️"`,
+        primaryLabel:"Que jornada!", secondaryLabel:"Compartilhar ✦", confetti:true });
+    } else if (milestone) {
       setCelebration({ type:"milestone", eyebrow:"Conquista desbloqueada", primaryLabel:"Continuar",
         secondaryLabel:"Compartilhar ✦", confetti:true, ...milestone });
     } else if (veioDaWatchlist) {
@@ -4646,25 +4884,28 @@ export default function App() {
   // O próprio EpisodeSheet salva progresso/histórico no Firestore.
   const continueEpisode = entry => setEpSheet(entry);
 
-  // registra o próximo filme de uma saga: busca os dados completos e abre "Nova sessão"
-  const registerMovieByTmdb = async tmdbId => {
+  // Saga detectada → adiciona a franquia inteira à watchlist (só os ainda não vistos
+  // e que já não estão na lista), tagueando cada filme com a coleção.
+  const addSagaToWatchlist = async (col, meta = {}) => {
     try {
-      const full = await tmdbFetch(tmdbId, "movie");
-      setAddModal({ type: "watched", movie: { tmdbId, type: "movie", ...full } });
+      const full = await tmdbCollection(col.id);
+      const watchedIds = new Set(watched.filter(w => w.tmdbId).map(w => w.tmdbId));
+      const listIds = new Set(watchlist.filter(w => w.tmdbId).map(w => w.tmdbId));
+      const tag = { id: col.id, name: col.name, poster: full.poster || col.poster || null, total: full.parts.length };
+      const toAdd = full.parts.filter(p => !watchedIds.has(p.id) && !listIds.has(p.id));
+      if (!toAdd.length) { setAddModal(null); addToast("Vocês já têm essa saga toda ✦", "info"); return; }
+      await Promise.all(toAdd.map((p, i) => addDoc(collection(db, "couples", coupleId, "watchlist"), {
+        tmdbId: p.id, type: "movie", title: p.title, poster: p.poster, year: p.year,
+        collection: tag, sagaOrder: full.parts.findIndex(x => x.id === p.id),
+        priority: meta.priority || "normal", suggestedBy: meta.suggestedBy || currentUser,
+        wantedBy: [meta.suggestedBy || currentUser], addedAt: new Date(Date.now() + i).toISOString(),
+      })));
+      setAddModal(null);
+      addToast(`${sagaCleanName(col.name)} na lista 🍿 (${toAdd.length} filmes)`, "success");
     } catch (e) {
       console.error(e);
-      addToast("Não foi possível carregar o filme", "error");
+      addToast("Não foi possível montar a maratona", "error");
     }
-  };
-
-  // maratonas planejadas — franquia que o casal quer ver
-  const addSaga = col => {
-    setDoc(doc(db,"couples",coupleId,"sagas",String(col.id)), { id: col.id, name: col.name, poster: col.poster || null })
-      .catch(e => { console.error(e); addToast("Não foi possível salvar a maratona","error"); });
-    addToast("Maratona adicionada 🍿","success");
-  };
-  const removeSaga = id => {
-    deleteDoc(doc(db,"couples",coupleId,"sagas",String(id))).catch(e => console.error(e));
   };
 
   // "Assistimos juntos" — só conta o que o casal viu junto
@@ -4711,8 +4952,26 @@ export default function App() {
   const markWatched = e => {
     // NÃO remove da watchlist aqui — só depois que a sessão for realmente salva.
     // Se o casal cancelar o formulário, o item continua na watchlist.
-    const { id, ...data } = e;
-    setAddModal({ type:"watched", movie:data, fromWatchlist:true, watchlistId:id });
+    const { id, plan, ...data } = e;
+    // um filme que tinha uma sessão marcada vira memória de cinema já pré-preenchida
+    setAddModal({ type:"watched", movie:data, fromWatchlist:true, watchlistId:id, cinema: !!plan, plan: plan || null });
+  };
+
+  // ---------- Cinema: o plano vive no item da watchlist ----------
+  const openPlan    = item => setCineModal({ mode: "plan",    item });
+  const openTicket  = item => setCineModal({ mode: "ticket",  item });
+  const openCheckin = item => setCineModal({ mode: "checkin", item });
+  const savePlan = async (item, plan) => {
+    setCineModal(null);
+    updateDoc(doc(db,"couples",coupleId,"watchlist",item.id), { plan })
+      .catch(e => { console.error(e); addToast("Não foi possível marcar a sessão","error"); });
+    addToast("Sessão marcada 🎟 — está na lista com data", "success");
+  };
+  const clearPlan = item => {
+    setCineModal(null);
+    updateDoc(doc(db,"couples",coupleId,"watchlist",item.id), { plan: deleteField() })
+      .catch(e => { console.error(e); addToast("Não foi possível desmarcar","error"); });
+    addToast("Sessão desmarcada — o filme continua na lista", "info");
   };
 
   // render guards
@@ -4763,11 +5022,15 @@ export default function App() {
           />
         )}
         {addModal==="watchlist" && (
-          <AddWatchlistModal users={users} currentUser={currentUser} onSave={addWatchlist} onClose={()=>setAddModal(null)}/>
+          <AddWatchlistModal users={users} currentUser={currentUser} onSave={addWatchlist} onSaveSaga={addSagaToWatchlist} onClose={()=>setAddModal(null)}/>
         )}
         {(addModal==="watched"||(addModal?.type==="watched")) && (
-          <WatchedForm users={users} currentUser={currentUser}
-            initial={addModal?.movie?{movie:addModal.movie, ...(addModal.cinema?{where:"cinema"}:{})}:null}
+          <WatchedForm users={users} currentUser={currentUser} coupleId={coupleId} addToast={addToast}
+            initial={addModal?.movie ? {
+              movie: addModal.movie,
+              ...(addModal.cinema ? { where: "cinema" } : {}),
+              ...(addModal.plan ? { date: addModal.plan.date, venue: addModal.plan.venue, cinemaTime: addModal.plan.time, seats: addModal.plan.seats, imax: addModal.plan.imax } : {}),
+            } : null}
             onSave={addWatched} onClose={()=>setAddModal(null)}/>
         )}
         {showSettings && (
@@ -4775,12 +5038,27 @@ export default function App() {
             prefs={prefs} onPref={setPref}
             onClose={()=>setShowSettings(false)} onSignOut={handleSignOut}/>
         )}
-        {showCinema && (
-          <CinemaPage watched={watched} couple={couple} coupleId={coupleId}
-            onClose={()=>setShowCinema(false)}
-            onRegister={m=>{ setShowCinema(false); setAddModal({ type:"watched", movie:m, cinema:true }); }}
-            addToast={addToast}/>
-        )}
+        {cineModal && (() => {
+          const live = watchlist.find(w => w.id === cineModal.item.id) || cineModal.item;
+          if (cineModal.mode === "plan") return (
+            <CinemaPlanSheet item={live} initial={live.plan || null}
+              onSave={plan => savePlan(live, plan)} onClose={() => setCineModal(null)}/>
+          );
+          if (cineModal.mode === "ticket") return (
+            <TicketModal item={live} couple={couple}
+              onEdit={() => setCineModal({ mode: "plan", item: live })}
+              onClear={() => clearPlan(live)}
+              onCheckin={() => setCineModal({ mode: "checkin", item: live })}
+              onRegister={() => { setCineModal(null); markWatched(live); }}
+              onClose={() => setCineModal(null)}/>
+          );
+          return (
+            <CheckinModal item={live}
+              onRegister={() => { setCineModal(null); markWatched(live); }}
+              onTicket={() => setCineModal({ mode: "ticket", item: live })}
+              onClose={() => setCineModal(null)}/>
+          );
+        })()}
         {epSheet && (() => {
           const live = watched.find(w=>w.id===epSheet.id) || epSheet;
           return (
@@ -4796,18 +5074,19 @@ export default function App() {
               {page==="home"      && <HomePage      watched={watched} watchlist={watchlist} couple={couple} currentUser={currentUser} users={users}
                                        onRoulette={()=>setShowRoulette(true)} onAdd={()=>setAddModal("watched")}
                                        onSaveReview={saveReview} onUpdateStatus={saveStatus} onContinueEpisode={continueEpisode} onToggleTogether={toggleTogether}
-                                       onOpenSettings={()=>setShowSettings(true)} onOpenCinema={()=>setShowCinema(true)}
+                                       onOpenSettings={()=>setShowSettings(true)}
+                                       onOpenTicket={openTicket} onOpenCheckin={openCheckin} onGoWatchlist={()=>setPage("watchlist")}
                                        onEdit={editWatched} onDelete={e=>requestDelete(e,"watched")} prefs={prefs}/>}
               {page==="diary"     && <DiaryPage     watched={watched} users={users} currentUser={currentUser}
                                        onDelete={e=>requestDelete(e,"watched")} onEdit={editWatched} onSaveReview={saveReview} onUpdateStatus={saveStatus}
                                        onContinueEpisode={continueEpisode} onToggleTogether={toggleTogether}
                                        onAddToWatchlist={()=>setAddModal("watchlist")} prefs={prefs}/>}
-              {page==="watchlist" && <WatchlistPage watchlist={watchlist} users={users} currentUser={currentUser}
+              {page==="watchlist" && <WatchlistPage watchlist={watchlist} watched={watched} users={users} currentUser={currentUser}
                                        compat={coupleCompat(watched, users)}
-                                       onDelete={e=>requestDelete(e,"watchlist")} onMarkWatched={markWatched} onRoulette={()=>setShowRoulette(true)} onAlsoWant={alsoWant} prefs={prefs}/>}
+                                       onDelete={e=>requestDelete(e,"watchlist")} onMarkWatched={markWatched} onRoulette={()=>setShowRoulette(true)} onAlsoWant={alsoWant}
+                                       onPlan={openPlan} onOpenTicket={openTicket} onCheckin={openCheckin} prefs={prefs}/>}
               {page==="profile"   && <ProfilePage   watched={watched} watchlist={watchlist} couple={couple} users={users} prefs={prefs}
-                                       onOpenSettings={()=>setShowSettings(true)} onRegisterMovie={registerMovieByTmdb}
-                                       plannedSagas={plannedSagas} onAddSaga={addSaga} onRemoveSaga={removeSaga}/>}
+                                       onOpenSettings={()=>setShowSettings(true)}/>}
             </div>
           )}
         </div>

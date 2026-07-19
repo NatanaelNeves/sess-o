@@ -1883,7 +1883,7 @@
 /* nav-item defined above */
 
 /* Form controls */
-.form-input { width: 100%; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 10px 14px; color: var(--text-primary); font-size: 14px; outline: none; box-sizing: border-box; }
+.form-input { width: 100%; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 10px 14px; color: var(--text-primary); font-size: 16px; outline: none; box-sizing: border-box; }
 .form-select { width: 100%; background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 8px 10px; color: var(--text-primary); font-size: 13px; outline: none; }
 .search-input { padding: 10px 44px 10px 14px; }
 

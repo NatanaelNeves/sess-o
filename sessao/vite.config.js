@@ -43,7 +43,10 @@ export default defineConfig({
                 maxEntries: 300,
                 maxAgeSeconds: 30 * 24 * 60 * 60,
               },
-              cacheableResponse: { statuses: [0, 200] },
+              fetchOptions: {
+                mode: 'cors',
+              },
+              cacheableResponse: { statuses: [200] },
             },
           },
           {
@@ -56,7 +59,10 @@ export default defineConfig({
                 maxEntries: 100,
                 maxAgeSeconds: 24 * 60 * 60,
               },
-              cacheableResponse: { statuses: [0, 200] },
+              fetchOptions: {
+                mode: 'cors',
+              },
+              cacheableResponse: { statuses: [200] },
             },
           },
         ],

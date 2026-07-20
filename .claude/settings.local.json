@@ -40,7 +40,11 @@
       "Bash(grep -oE '.{0,40}apiKey:[^}]{0,200}' live.js)",
       "Bash(curl -s -o /dev/null -w \"%{http_code}\" https://api.github.com/repos/NatanaelNeves/sess-o)",
       "mcp__Claude_Preview__preview_start",
-      "Bash(python -c ' *)"
+      "Bash(python -c ' *)",
+      "Bash(rm -f \"C:\\\\Users\\\\OPN_NA~1\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-Opn-Antan-Desktop-projetos-sess-o\\\\scratch_unused.txt\" 2>&1; rmdir \"C:\\\\Users\\\\OPN_NA~1\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-Opn-Antan-Desktop-projetos-sess-o\" 2>&1; echo done)"
+    ],
+    "additionalDirectories": [
+      "C:\\Users\\OPN_NA~1\\AppData\\Local\\Temp\\claude\\c--Users-Opn-Antan-Desktop-projetos-sess-o"
     ]
   }
 }

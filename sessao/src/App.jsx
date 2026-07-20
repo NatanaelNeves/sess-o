@@ -34,13 +34,15 @@ async function generateSharePng(entry, users, format, shareNum = null) {
 
     const loadImage = src => new Promise(resolve => {
       const img = new Image();
+      img.crossOrigin = "anonymous";
       img.onload = () => resolve(img);
       img.onerror = () => resolve(null);
       img.src = src;
     });
 
     try {
-      const response = await fetch(url, { mode: "no-cors" });
+      const response = await fetch(url, { mode: "cors" });
+      if (!response.ok) return null;
       const blob = await response.blob();
       const objectUrl = URL.createObjectURL(blob);
       const image = await loadImage(objectUrl);
@@ -50,7 +52,7 @@ async function generateSharePng(entry, users, format, shareNum = null) {
       // fallback abaixo
     }
 
-    return null;
+    return await loadImage(url);
   };
 
   const posterUrl = entry.poster ? `${TMDB_IMG}${entry.poster}` : null;

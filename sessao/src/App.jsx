@@ -24,9 +24,87 @@ const TMDB_BG   = "https://image.tmdb.org/t/p/w1280";
 // Passamos pelo wsrv.nl, que re-serve a imagem com Access-Control-Allow-Origin: *.
 const withCorsProxy = url => `https://wsrv.nl/?url=${encodeURIComponent(url)}`;
 
-// Compartilhar como arte — card de designer do canvas v3
-// (gradiente roxo-escuro, borda dourada, tipografia Cormorant, marca do Lumi)
-async function generateSharePng(entry, users, format, shareNum = null) {
+// quebra texto em até `maxLines`, truncando a última linha com reticências se sobrar conteúdo
+const wrapLines = (ctx, text, maxWidth, maxLines = 2) => {
+  const words = (text || "").split(" ");
+  const lines = [];
+  let cur = "";
+  for (const w of words) {
+    const t = cur ? `${cur} ${w}` : w;
+    if (ctx.measureText(t).width > maxWidth && cur) { lines.push(cur); cur = w; } else cur = t;
+  }
+  if (cur) lines.push(cur);
+  if (lines.length > maxLines) {
+    lines.length = maxLines;
+    let last = lines[maxLines - 1];
+    while (ctx.measureText(`${last}…`).width > maxWidth && last.length > 1) last = last.slice(0, -1);
+    lines[maxLines - 1] = `${last}…`;
+  }
+  return lines;
+};
+
+// cor média do pôster, usada para tingir o glow de fundo com as cores do próprio filme
+const sampleAverageColor = img => {
+  try {
+    const sw = 24, sh = 24;
+    const c = document.createElement("canvas");
+    c.width = sw; c.height = sh;
+    const cctx = c.getContext("2d");
+    cctx.drawImage(img, 0, 0, sw, sh);
+    const { data } = cctx.getImageData(0, 0, sw, sh);
+    let r = 0, g = 0, b = 0, n = 0;
+    for (let i = 0; i < data.length; i += 4) {
+      if (data[i + 3] < 32) continue;
+      r += data[i]; g += data[i + 1]; b += data[i + 2]; n++;
+    }
+    if (!n) return null;
+    r = Math.round(r / n); g = Math.round(g / n); b = Math.round(b / n);
+    const max = Math.max(r, g, b) || 1;
+    const boost = v => Math.min(255, Math.round(v + (max - v) * 0.35));
+    return `${boost(r)},${boost(g)},${boost(b)}`;
+  } catch {
+    return null;
+  }
+};
+
+// textura de granulação muito sutil (evita o fundo "chapado")
+const buildGrainPattern = ctx => {
+  const size = 128;
+  const c = document.createElement("canvas");
+  c.width = size; c.height = size;
+  const cctx = c.getContext("2d");
+  const imgData = cctx.createImageData(size, size);
+  for (let i = 0; i < imgData.data.length; i += 4) {
+    const v = Math.random() * 255;
+    imgData.data[i] = v; imgData.data[i + 1] = v; imgData.data[i + 2] = v;
+    imgData.data[i + 3] = 12;
+  }
+  cctx.putImageData(imgData, 0, 0);
+  return ctx.createPattern(c, "repeat");
+};
+
+// pequena partícula em brilho (micro-detalhe discreto no fundo)
+const drawSparkle = (ctx, x, y, size, alpha, color = "232,184,75") => {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.globalAlpha = alpha;
+  const grad = ctx.createRadialGradient(0, 0, 0, 0, 0, size);
+  grad.addColorStop(0, `rgba(${color},0.9)`);
+  grad.addColorStop(1, `rgba(${color},0)`);
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.moveTo(0, -size); ctx.lineTo(size * 0.22, -size * 0.22);
+  ctx.lineTo(size, 0); ctx.lineTo(size * 0.22, size * 0.22);
+  ctx.lineTo(0, size); ctx.lineTo(-size * 0.22, size * 0.22);
+  ctx.lineTo(-size, 0); ctx.lineTo(-size * 0.22, -size * 0.22);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+};
+
+// Compartilhar como arte — card colecionável do canvas v4
+// hierarquia: pôster → nota → título → info especial → casal → data → marca Sessão
+async function generateSharePng(entry, users, format, specialInfo = null) {
   await document.fonts.ready;
   const isStory = format === "story";
   const W = 1080, H = isStory ? 1920 : 1080;
@@ -60,14 +138,22 @@ async function generateSharePng(entry, users, format, shareNum = null) {
     return await loadImage(url);
   };
 
+  const ratings = users.map(u => entry.reviews?.[u]?.rating || 0).filter(Boolean);
+  const hasRating = ratings.length > 0;
+  const avg = hasRating ? ratings.reduce((a, b) => a + b, 0) / ratings.length : 0;
+  const starsFilled = Math.round(avg);
+  // Lumi interage com a composição: aponta pra nota, comemora um 10 ou segura a plaquinha de cinema
+  const lumiPose = entry.where === "cinema" ? "plaquinha_cinema" : (starsFilled >= 5 ? "segurando_estrela" : "apontando");
+
   const posterUrl = entry.poster ? withCorsProxy(`${TMDB_IMG}${entry.poster}`) : null;
   const backdropUrl = entry.backdrop ? withCorsProxy(`${TMDB_BG}${entry.backdrop}`) : null;
-  const [poster, backdropImage, lumiMark] = await Promise.all([
+  const [poster, backdropImage, lumiImg] = await Promise.all([
     tryLoad(posterUrl),
     tryLoad(backdropUrl),
-    tryLoad("/assets/kit/ui_simplificado.png"),
+    tryLoad(`/assets/kit/${lumiPose}.png`),
   ]);
   const coverImage = poster || backdropImage;
+  const glow = (coverImage && sampleAverageColor(coverImage)) || "201,153,58";
 
   const rr = (x, y, w, h, r) => {
     ctx.beginPath();
@@ -78,108 +164,272 @@ async function generateSharePng(entry, users, format, shareNum = null) {
     ctx.closePath();
   };
 
-  // fundo do app (roxo profundo)
-  ctx.fillStyle = "#0d0a17";
-  ctx.fillRect(0, 0, W, H);
-
-  // card central
-  const cw = isStory ? 760 : 700;
-  const ch = isStory ? 1360 : 900;
-  const cx0 = (W - cw) / 2, cy0 = (H - ch) / 2;
-
-  ctx.save();
-  rr(cx0, cy0, cw, ch, 72);
-  const cg = ctx.createLinearGradient(cx0, cy0, cx0 + cw * 0.4, cy0 + ch);
-  cg.addColorStop(0, "#1c1428"); cg.addColorStop(1, "#0a0710");
-  ctx.fillStyle = cg;
-  ctx.shadowColor = "rgba(0,0,0,0.6)"; ctx.shadowBlur = 90; ctx.shadowOffsetY = 40;
-  ctx.fill();
-  ctx.restore();
-  rr(cx0, cy0, cw, ch, 72);
-  ctx.strokeStyle = "rgba(201,153,58,0.45)"; ctx.lineWidth = 3;
-  ctx.stroke();
-
-  ctx.textAlign = "center";
-  let y = cy0 + (isStory ? 110 : 96);
-
-  // eyebrow dourado
-  ctx.font = "800 30px 'Inter', Arial, sans-serif";
-  ctx.fillStyle = "#c9993a";
-  const eyebrow = (shareNum ? `SESSÃO Nº ${shareNum}` : "SESSÃO ✦").split("").join("  ");
-  ctx.fillText(eyebrow, W / 2, y);
-  y += isStory ? 70 : 58;
-
-  // pôster
-  const ph = isStory ? 520 : 380;
+  // ---------- dimensões por formato (pôster ~20% maior que o design anterior) ----------
+  const cw = isStory ? 780 : 760;
+  const padX = isStory ? 74 : 60;
+  const ph = Math.round((isStory ? 520 : 380) * 1.2);
   const pw = Math.round(ph * 2 / 3);
-  const px = W / 2 - pw / 2;
-  ctx.save();
-  rr(px, y, pw, ph, 42);
-  ctx.shadowColor = "rgba(0,0,0,0.7)"; ctx.shadowBlur = 60; ctx.shadowOffsetY = 26;
-  ctx.fillStyle = "#2a1810";
-  ctx.fill();
-  ctx.restore();
-  if (coverImage) {
-    ctx.save();
-    rr(px, y, pw, ph, 42);
-    ctx.clip();
-    const s = Math.max(pw / coverImage.naturalWidth, ph / coverImage.naturalHeight);
-    ctx.drawImage(coverImage, px + (pw - coverImage.naturalWidth * s) / 2, y + (ph - coverImage.naturalHeight * s) / 2, coverImage.naturalWidth * s, coverImage.naturalHeight * s);
-    ctx.restore();
-  } else {
-    ctx.save();
-    rr(px, y, pw, ph, 42);
-    ctx.fillStyle = "rgba(255,255,255,0.06)";
-    ctx.fill();
-    ctx.restore();
-    ctx.fillStyle = "rgba(255,255,255,0.55)";
-    ctx.font = "600 42px 'Inter', Arial, sans-serif";
-    ctx.fillText("SEM IMAGEM", W / 2, y + ph / 2 + 16);
-  }
-  y += ph + (isStory ? 84 : 70);
+  const posterRadius = isStory ? 46 : 36;
 
-  // título em Cormorant (com quebra)
-  const fs = isStory ? 76 : 64;
-  ctx.font = `600 ${fs}px 'Cormorant Garamond', Georgia, serif`;
-  ctx.fillStyle = "#f0ede8";
-  const maxW2 = cw - 140;
-  const lh = Math.round(fs * 1.08);
-  const words = entry.title.split(" ");
-  let linesArr = [], curLine = "";
-  for (const w of words) {
-    const t = curLine ? `${curLine} ${w}` : w;
-    if (ctx.measureText(t).width > maxW2 && curLine) { linesArr.push(curLine); curLine = w; } else curLine = t;
-  }
-  if (curLine) linesArr.push(curLine);
-  linesArr = linesArr.slice(0, 2);
-  linesArr.forEach((l, i) => ctx.fillText(l, W / 2, y + i * lh));
-  y += linesArr.length * lh + (isStory ? 8 : 4);
+  const titleFs = isStory ? 82 : 58;
+  const ratingFs = isStory ? 104 : 80;
+  const badgeFs = isStory ? 26 : 20;
+  const coupleFs = isStory ? 34 : 22;
+  const dateFs = isStory ? 25 : 17;
 
-  // casal · data
+  const padTop          = isStory ? 108 : 40;
+  const gapPosterRating = isStory ? 62 : 22;
+  const ratingBlockH    = hasRating ? (isStory ? 200 : 100) : 0;
+  const gapRatingTitle  = isStory ? (hasRating ? 52 : 24) : (hasRating ? 18 : 10);
+  const titleLineH      = Math.round(titleFs * (isStory ? 1.1 : 1.08));
+  const gapTitleBadge   = isStory ? 40 : 16;
+  const gapTitleCouple  = isStory ? 48 : 22;
+  const badgeH          = isStory ? 64 : 40;
+  const gapBadgeCouple  = isStory ? 46 : 18;
+  const coupleLineH     = isStory ? 42 : 26;
+  const gapCoupleDate   = isStory ? 16 : 8;
+  const dateLineH       = isStory ? 30 : 20;
+  const gapDateBrand    = isStory ? 54 : 20;
+  const brandH          = isStory ? 40 : 24;
+  const padBottom       = isStory ? 84 : 30;
+
+  // ---------- fase 1: mede o título e monta a lista de blocos (dimensiona o card ao conteúdo real) ----------
+  ctx.font = `600 ${titleFs}px 'Cormorant Garamond', Georgia, serif`;
+  const titleLines = wrapLines(ctx, entry.title, cw - padX * 2, 2);
+
   const dateLabel = entry.date
     ? new Date(entry.date + "T12:00:00").toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric" }).replace(".", "")
     : "";
-  ctx.font = "500 32px 'Inter', Arial, sans-serif";
-  ctx.fillStyle = "#9b98a3";
-  ctx.fillText([users.join(" & "), dateLabel].filter(Boolean).join(" · "), W / 2, y + 30);
-  y += isStory ? 92 : 78;
 
-  // nota do casal (escala 10)
-  const rs = users.map(u => entry.reviews?.[u]?.rating || 0).filter(Boolean);
-  if (rs.length) {
-    const avg = rs.reduce((a, b) => a + b, 0) / rs.length;
-    ctx.font = "600 52px 'Inter', Arial, sans-serif";
-    ctx.fillStyle = "#c9993a";
-    ctx.fillText(`★ ${(avg * 2).toFixed(1).replace(".", ",")}`, W / 2, y);
-    y += isStory ? 90 : 76;
-  }
+  const steps = [["padTop", padTop], ["poster", ph], ["gap", gapPosterRating]];
+  if (hasRating) steps.push(["rating", ratingBlockH]);
+  steps.push(["gap", gapRatingTitle]);
+  steps.push(["title", titleLines.length * titleLineH]);
+  if (specialInfo) steps.push(["gap", gapTitleBadge], ["badge", badgeH], ["gap", gapBadgeCouple]);
+  else steps.push(["gap", gapTitleCouple]);
+  steps.push(["couple", coupleLineH]);
+  if (dateLabel) steps.push(["gap", gapCoupleDate], ["date", dateLineH]);
+  steps.push(["gap", gapDateBrand], ["brand", brandH], ["padBottom", padBottom]);
 
-  // marca do Lumi
-  if (lumiMark) {
-    const ms = isStory ? 92 : 78;
-    ctx.globalAlpha = 0.9;
-    ctx.drawImage(lumiMark, W / 2 - ms / 2, cy0 + ch - ms - (isStory ? 70 : 56), ms, ms);
-    ctx.globalAlpha = 1;
+  const ch = steps.reduce((s, [, h]) => s + h, 0);
+  const cx0 = (W - cw) / 2, cy0 = (H - ch) / 2;
+  const radius = isStory ? 84 : 70;
+
+  // ---------- fundo: gradiente profundo + glow com as cores do pôster + vinheta + granulação ----------
+  ctx.fillStyle = "#0a0714";
+  ctx.fillRect(0, 0, W, H);
+
+  const bgGlow = ctx.createRadialGradient(W / 2, cy0 + ph * 0.55, 40, W / 2, cy0 + ph * 0.55, Math.max(W, H) * 0.62);
+  bgGlow.addColorStop(0, `rgba(${glow},0.22)`);
+  bgGlow.addColorStop(0.5, `rgba(${glow},0.06)`);
+  bgGlow.addColorStop(1, "rgba(10,7,20,0)");
+  ctx.fillStyle = bgGlow;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.save();
+  ctx.globalAlpha = 0.55;
+  ctx.fillStyle = buildGrainPattern(ctx);
+  ctx.fillRect(0, 0, W, H);
+  ctx.restore();
+
+  const vignette = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.3, W / 2, H / 2, Math.max(W, H) * 0.72);
+  vignette.addColorStop(0, "rgba(0,0,0,0)");
+  vignette.addColorStop(1, "rgba(0,0,0,0.55)");
+  ctx.fillStyle = vignette;
+  ctx.fillRect(0, 0, W, H);
+
+  // partículas discretas ao redor do card
+  [[cx0 - 54, cy0 + ch * 0.16, 9], [cx0 + cw + 46, cy0 + ch * 0.3, 7],
+    [cx0 - 36, cy0 + ch * 0.74, 6], [cx0 + cw + 58, cy0 + ch * 0.86, 8],
+    [W / 2 - cw * 0.32, cy0 - 34, 6], [W / 2 + cw * 0.28, cy0 + ch + 30, 7]]
+    .forEach(([sx, sy, size], i) => {
+      if (sx < 10 || sx > W - 10 || sy < 10 || sy > H - 10) return;
+      drawSparkle(ctx, sx, sy, isStory ? size : size * 0.75, 0.55 - (i % 3) * 0.12, glow);
+    });
+
+  // ---------- moldura: cantos generosos, glow suave e borda em gradiente dourado ----------
+  ctx.save();
+  rr(cx0, cy0, cw, ch, radius);
+  const cardFill = ctx.createLinearGradient(cx0, cy0, cx0 + cw * 0.5, cy0 + ch);
+  cardFill.addColorStop(0, "#1d1526");
+  cardFill.addColorStop(0.55, "#130d1b");
+  cardFill.addColorStop(1, "#09060f");
+  ctx.fillStyle = cardFill;
+  ctx.shadowColor = "rgba(0,0,0,0.65)"; ctx.shadowBlur = 100; ctx.shadowOffsetY = 46;
+  ctx.fill();
+  ctx.restore();
+
+  rr(cx0, cy0, cw, ch, radius);
+  const borderGrad = ctx.createLinearGradient(cx0, cy0, cx0 + cw, cy0 + ch);
+  borderGrad.addColorStop(0, "rgba(245,214,140,0.9)");
+  borderGrad.addColorStop(0.5, "rgba(201,153,58,0.5)");
+  borderGrad.addColorStop(1, "rgba(245,214,140,0.9)");
+  ctx.strokeStyle = borderGrad;
+  ctx.lineWidth = 2.5;
+  ctx.stroke();
+
+  // moldura interna fina — acabamento de "edição de colecionador"
+  rr(cx0 + 14, cy0 + 14, cw - 28, ch - 28, Math.max(radius - 14, 8));
+  ctx.strokeStyle = "rgba(245,214,140,0.16)";
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  // ---------- fase 2: desenha o conteúdo seguindo os mesmos blocos da medição ----------
+  ctx.textAlign = "center";
+  let cursor = 0;
+  const advance = h => { const top = cy0 + cursor; cursor += h; return top; };
+
+  for (const [label, h] of steps) {
+    if (label === "gap" || label === "padTop" || label === "padBottom") { cursor += h; continue; }
+
+    if (label === "poster") {
+      const top = advance(h);
+      const px = W / 2 - pw / 2;
+      ctx.save();
+      rr(px, top, pw, ph, posterRadius);
+      ctx.shadowColor = "rgba(0,0,0,0.75)"; ctx.shadowBlur = 70; ctx.shadowOffsetY = 30;
+      ctx.fillStyle = "#2a1810";
+      ctx.fill();
+      ctx.restore();
+
+      if (coverImage) {
+        ctx.save();
+        rr(px, top, pw, ph, posterRadius);
+        ctx.clip();
+        const s = Math.max(pw / coverImage.naturalWidth, ph / coverImage.naturalHeight);
+        ctx.drawImage(coverImage,
+          px + (pw - coverImage.naturalWidth * s) / 2, top + (ph - coverImage.naturalHeight * s) / 2,
+          coverImage.naturalWidth * s, coverImage.naturalHeight * s);
+        ctx.restore();
+        rr(px, top, pw, ph, posterRadius);
+        ctx.strokeStyle = "rgba(255,255,255,0.14)"; ctx.lineWidth = 1.5;
+        ctx.stroke();
+      } else {
+        ctx.save();
+        rr(px, top, pw, ph, posterRadius);
+        ctx.fillStyle = "rgba(255,255,255,0.06)";
+        ctx.fill();
+        ctx.restore();
+        ctx.fillStyle = "rgba(255,255,255,0.55)";
+        ctx.font = `600 ${isStory ? 36 : 28}px 'Inter', Arial, sans-serif`;
+        ctx.fillText("SEM IMAGEM", W / 2, top + ph / 2 + 12);
+      }
+
+      // Lumi "colado" no canto do pôster, como um selo de colecionador
+      if (lumiImg) {
+        const ms = Math.round(ph * 0.34);
+        ctx.save();
+        ctx.translate(px + pw - ms * 0.58, top + ph - ms * 0.46);
+        ctx.rotate((-7 * Math.PI) / 180);
+        ctx.shadowColor = "rgba(0,0,0,0.5)"; ctx.shadowBlur = 18; ctx.shadowOffsetY = 8;
+        ctx.drawImage(lumiImg, -ms / 2, -ms / 2, ms, ms);
+        ctx.restore();
+      }
+      continue;
+    }
+
+    if (label === "rating") {
+      const top = advance(h);
+      const starSize = isStory ? 28 : 19;
+      const starGap = isStory ? 6 : 4;
+      ctx.font = `${starSize}px Arial, sans-serif`;
+      const glyphW = ctx.measureText("★").width;
+      const rowW = glyphW * 5 + starGap * 4;
+      ctx.textAlign = "left";
+      let sx = W / 2 - rowW / 2;
+      const starY = top + starSize;
+      for (let i = 0; i < 5; i++) {
+        ctx.fillStyle = i < starsFilled ? "#e8b84b" : "rgba(255,255,255,0.16)";
+        ctx.fillText("★", sx, starY);
+        sx += glyphW + starGap;
+      }
+      ctx.textAlign = "center";
+
+      ctx.font = `700 ${ratingFs}px 'Inter', Arial, sans-serif`;
+      const numY = starY + (isStory ? 30 : 20) + ratingFs * 0.82;
+      const numGrad = ctx.createLinearGradient(0, numY - ratingFs, 0, numY + 8);
+      numGrad.addColorStop(0, "#f5d68c");
+      numGrad.addColorStop(1, "#c9993a");
+      ctx.fillStyle = numGrad;
+      ctx.fillText(nota10(avg), W / 2, numY);
+
+      ctx.font = `700 ${isStory ? 21 : 15}px 'Inter', Arial, sans-serif`;
+      ctx.letterSpacing = isStory ? "4px" : "3px";
+      ctx.fillStyle = "rgba(232,184,75,0.7)";
+      ctx.fillText("NOTA DO CASAL", W / 2, numY + (isStory ? 32 : 22));
+      ctx.letterSpacing = "0px";
+      continue;
+    }
+
+    if (label === "title") {
+      const top = advance(h);
+      ctx.font = `600 ${titleFs}px 'Cormorant Garamond', Georgia, serif`;
+      ctx.fillStyle = "#f5f1ea";
+      titleLines.forEach((l, i) => ctx.fillText(l, W / 2, top + titleFs * 0.86 + i * titleLineH));
+      continue;
+    }
+
+    if (label === "badge") {
+      const top = advance(h);
+      ctx.font = `700 ${badgeFs}px 'Inter', Arial, sans-serif`;
+      ctx.letterSpacing = "0.5px";
+      const text = `${specialInfo.emoji}  ${specialInfo.text}`;
+      const textW = ctx.measureText(text).width;
+      const padPill = isStory ? 30 : 20;
+      const pillW = textW + padPill * 2;
+      const pillX = W / 2 - pillW / 2;
+      rr(pillX, top, pillW, h, h / 2);
+      ctx.fillStyle = "rgba(201,153,58,0.14)";
+      ctx.fill();
+      rr(pillX, top, pillW, h, h / 2);
+      ctx.strokeStyle = "rgba(232,184,75,0.4)";
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+      ctx.fillStyle = "#f0dba8";
+      ctx.fillText(text, W / 2, top + h / 2 + badgeFs * 0.34);
+      ctx.letterSpacing = "0px";
+      continue;
+    }
+
+    if (label === "couple") {
+      const top = advance(h);
+      const firstNames = users.map(u => (u || "").trim().split(/\s+/)[0]).filter(Boolean).join(" & ");
+      const prefix = "assistido por ";
+      const baseline = top + coupleFs * 0.82;
+      ctx.font = `500 ${coupleFs}px 'Inter', Arial, sans-serif`;
+      const prefixW = ctx.measureText(prefix).width;
+      ctx.font = `700 ${coupleFs}px 'Inter', Arial, sans-serif`;
+      const namesW = ctx.measureText(firstNames).width;
+      let sx = W / 2 - (prefixW + namesW) / 2;
+      ctx.textAlign = "left";
+      ctx.font = `500 ${coupleFs}px 'Inter', Arial, sans-serif`;
+      ctx.fillStyle = "rgba(255,255,255,0.42)";
+      ctx.fillText(prefix, sx, baseline);
+      sx += prefixW;
+      ctx.font = `700 ${coupleFs}px 'Inter', Arial, sans-serif`;
+      ctx.fillStyle = "#e9e5ee";
+      ctx.fillText(firstNames, sx, baseline);
+      ctx.textAlign = "center";
+      continue;
+    }
+
+    if (label === "date") {
+      const top = advance(h);
+      ctx.font = `500 ${dateFs}px 'Inter', Arial, sans-serif`;
+      ctx.fillStyle = "rgba(255,255,255,0.4)";
+      ctx.fillText(dateLabel, W / 2, top + dateFs * 0.8);
+      continue;
+    }
+
+    if (label === "brand") {
+      const top = advance(h);
+      ctx.font = `600 ${isStory ? 23 : 18}px 'Cormorant Garamond', Georgia, serif`;
+      ctx.letterSpacing = isStory ? "5px" : "3px";
+      ctx.fillStyle = "rgba(232,184,75,0.7)";
+      ctx.fillText("✦  SESSÃO  ✦", W / 2, top + h * 0.72);
+      ctx.letterSpacing = "0px";
+      continue;
+    }
   }
 
   try { return canvas.toDataURL("image/png"); }
@@ -1220,6 +1470,38 @@ const mediaEntry = e => {
   const rs = Object.values(e.reviews || {}).map(r => r.rating).filter(Boolean);
   return rs.length ? rs.reduce((a, b) => a + b, 0) / rs.length : 0;
 };
+// Frase dinâmica do card de compartilhamento — varia conforme os dados reais da sessão
+// (10/10 do ano > favorito do casal > recomendação forte > cinema > número da sessão)
+const specialInfoFor = (entry, watched, users) => {
+  const ratings = users.map(u => entry.reviews?.[u]?.rating || 0);
+  const rated = ratings.filter(Boolean);
+  if (!rated.length) return null;
+  const bothRated = users.length === 2 && ratings.every(r => r > 0);
+  const avg = rated.reduce((a, b) => a + b, 0) / rated.length;
+  const perfect10 = bothRated && ratings.every(r => r === 5);
+  const entryYear = (entry.date || entry.createdAt || "").slice(0, 4);
+  const list = watched || [];
+
+  if (perfect10) {
+    const yearPerfects = list
+      .filter(w => (w.date || w.createdAt || "").slice(0, 4) === entryYear
+        && users.every(u => (w.reviews?.[u]?.rating) === 5))
+      .sort((a, b) => new Date(a.date || a.createdAt) - new Date(b.date || b.createdAt));
+    const isFirst = yearPerfects[0]?.id === entry.id;
+    return { emoji: "🏆", text: isFirst ? "Primeiro 10/10 do ano" : "Nota máxima do casal" };
+  }
+  if (bothRated && ratings.every(r => r >= 4)) return { emoji: "❤️", text: "Um dos favoritos do casal" };
+  if (avg >= 4.5) return { emoji: "✨", text: "Recomendamos muito" };
+  if (entry.where === "cinema") return { emoji: "🎬", text: "Assistido no cinema" };
+
+  const sorted = [...list].sort((a, b) => new Date(a.date || a.createdAt) - new Date(b.date || b.createdAt));
+  const idx = sorted.findIndex(w => w.id === entry.id);
+  if (idx >= 0) {
+    const label = entry.type === "tv" ? "Série" : "Filme";
+    return { emoji: "🍿", text: `${label} #${idx + 1} juntos` };
+  }
+  return null;
+};
 // avatar gradiente do design: 1º nome = vermelho, 2º = azul-petróleo
 const AvaGrad = ({ name, users, size = 26 }) => (
   <div className={`critica-card__ava ${users?.[0] === name ? "critica-card__ava--a" : "critica-card__ava--b"}`}
@@ -1238,7 +1520,7 @@ const COUPLE_VERDICTS = [
 ];
 const coupleVerdict = diff => COUPLE_VERDICTS[Math.min(diff,4)];
 // detail modal — "Detalhe do filme · crítica do casal" + série (v3)
-const DetailModal = ({ entry, users, onClose, onMarkWatched, onEdit, onSaveReview, currentUser, fromWatchlist, onUpdateStatus, onContinueEpisode, onToggleTogether, onDelete, onAlsoWant, prefs }) => {
+const DetailModal = ({ entry, users, onClose, onMarkWatched, onEdit, onSaveReview, currentUser, fromWatchlist, onUpdateStatus, onContinueEpisode, onToggleTogether, onDelete, onAlsoWant, prefs, watched = [] }) => {
   const [inlineRating, setInlineRating] = useState(0);
   const [inlineText, setInlineText] = useState("");
   const [savingReview, setSavingReview] = useState(false);
@@ -1305,7 +1587,8 @@ const DetailModal = ({ entry, users, onClose, onMarkWatched, onEdit, onSaveRevie
   const handleShare = async () => {
     setShareLoading(true);
     setCapturedDataUrl(null);
-    const url = await generateSharePng(entry, users, shareFormat);
+    const specialInfo = specialInfoFor(entry, watched, users);
+    const url = await generateSharePng(entry, users, shareFormat, specialInfo);
     setCapturedDataUrl(url);
     setShareLoading(false);
   };
@@ -2703,7 +2986,7 @@ const HomePage = ({ watched, watchlist, couple, currentUser, users, onRoulette, 
             onUpdateStatus={onUpdateStatus}
             onContinueEpisode={onContinueEpisode}
             onToggleTogether={onToggleTogether}
-            prefs={prefs}/>
+            prefs={prefs} watched={watched}/>
         );
       })()}
       {editing && (
@@ -2960,7 +3243,7 @@ const DiaryPage = ({ watched, users, currentUser, onDelete, onEdit, onSaveReview
             onContinueEpisode={onContinueEpisode}
             onToggleTogether={onToggleTogether}
             onDelete={() => { setSel(null); onDelete(liveEntry); }}
-            prefs={prefs}/>
+            prefs={prefs} watched={watched}/>
         );
       })()}
       {editing && (

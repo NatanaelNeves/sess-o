@@ -2545,7 +2545,7 @@ const V3Demo = () => {
     const pages = {
       home: <HomePage watched={DEMO_WATCHED} watchlist={DEMO_WATCHLIST} couple={DEMO_COUPLE} currentUser="Ana" users={DEMO_USERS}
         onRoulette={noop} onAdd={noop} onSaveReview={noop} onUpdateStatus={noop} onContinueEpisode={noop} onToggleTogether={noop}
-        onOpenSettings={noop} onOpenTicket={noop} onOpenCheckin={noop} onGoWatchlist={noop} onEdit={noop} prefs={demoPrefs}/>,
+        onOpenSettings={noop} onOpenTicket={noop} onOpenCheckin={noop} onGoWatchlist={noop} onGoDiary={noop} onGoProfile={noop} onEdit={noop} prefs={demoPrefs}/>,
       acervo: <DiaryPage watched={DEMO_WATCHED} users={DEMO_USERS} currentUser="Ana" onDelete={noop} onEdit={noop}
         onSaveReview={noop} onUpdateStatus={noop} onContinueEpisode={noop} onToggleTogether={noop} onAddToWatchlist={noop} prefs={demoPrefs}/>,
       watchlist: <WatchlistPage watchlist={DEMO_WATCHLIST} watched={DEMO_WATCHED} users={DEMO_USERS} currentUser="Ana" compat={87} onDelete={noop}
@@ -2996,10 +2996,12 @@ const InviteScreen = ({ inviteCode, couple, onSignOut }) => (
   </div>
 );
 
-// home page — v3, fiel ao canvas "Home · Continue de onde pararam"
+// home page — v3: a Home responde uma única pergunta, "o que faz sentido agora?" —
+// um único card principal muda por prioridade (avaliação pendente > sessão marcada >
+// continue assistindo > sugestão do Lumi), o resto é identidade do casal + memórias.
 const HomePage = ({ watched, watchlist, couple, currentUser, users, onRoulette, onAdd,
   onSaveReview, onUpdateStatus, onContinueEpisode, onToggleTogether, onOpenSettings,
-  onOpenTicket, onOpenCheckin, onGoWatchlist,
+  onOpenTicket, onOpenCheckin, onGoWatchlist, onGoDiary, onGoProfile,
   onEdit, prefs }) => {
   const [sel, setSel] = useState(null);
   const [editing, setEditing] = useState(null);
@@ -3008,6 +3010,23 @@ const HomePage = ({ watched, watchlist, couple, currentUser, users, onRoulette, 
   const total = watched.length;
   const watching = watched.filter(w => w.type === "tv" && w.status === "watching");
   const compat = coupleCompat(watched, users);
+  const cinemaCount = watched.filter(w => w.where === "cinema").length;
+  const unlockedCount = coupleAchievements(watched, users, couple).filter(a => a.done).length;
+
+  // "juntos há X" — a partir de couple.since, no formato "1 ano e 8 meses"
+  const togetherLabel = (() => {
+    if (!couple.since) return null;
+    const since = new Date(couple.since);
+    const now = new Date();
+    let months = (now.getFullYear() - since.getFullYear()) * 12 + (now.getMonth() - since.getMonth());
+    if (now.getDate() < since.getDate()) months--;
+    if (months < 1) return "há pouco tempo";
+    const years = Math.floor(months / 12);
+    const restMonths = months % 12;
+    const y = years ? `${years} ${years === 1 ? "ano" : "anos"}` : "";
+    const m = restMonths ? `${restMonths} ${restMonths === 1 ? "mês" : "meses"}` : "";
+    return [y, m].filter(Boolean).join(" e ");
+  })();
 
   // próxima ida ao cinema — nasce automaticamente de um item planejado na watchlist.
   // prioriza a sessão que ainda vem (hoje/marcada); se só houver uma que já passou,
@@ -3032,18 +3051,12 @@ const HomePage = ({ watched, watchlist, couple, currentUser, users, onRoulette, 
     return Math.max(6, Math.min(96, Math.round(done / seasons * 100)));
   })() : 0;
 
-  // próximo marco
-  const nextMilestone = (() => {
-    if (total < 1)  return { label: "Primeira sessão", value: "memória nº 1" };
-    if (total < 10) return { label: "Próximo marco", value: "10 sessões" };
-    if (total < 50) return { label: "Próximo marco", value: "50 sessões" };
-    if (totMovies < 100) return { label: "Próximo marco", value: "100 filmes" };
-    return { label: "Clube dos 100", value: "✦ lendários" };
-  })();
-
-  // última sessão
+  // última sessão / memória
   const last = [...watched].sort((a, b) => new Date(b.date || b.createdAt) - new Date(a.date || a.createdAt))[0] || null;
-  const lastAvg = last ? mediaEntry(last) : 0;
+  const lastQuote = last ? (() => {
+    for (const u of users) { const t = last.reviews?.[u]?.text?.trim(); if (t) return t; }
+    return null;
+  })() : null;
   const relDay = ds => {
     if (!ds) return "";
     const today = new Date(); today.setHours(0, 0, 0, 0);
@@ -3053,6 +3066,49 @@ const HomePage = ({ watched, watchlist, couple, currentUser, users, onRoulette, 
     if (diff === 1) return "Ontem";
     return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "short" });
   };
+  const daysSinceLast = last ? (() => {
+    const d = last.date || (last.createdAt || "").slice(0, 10);
+    return d ? Math.floor((new Date() - new Date(d + "T12:00:00")) / 86400000) : null;
+  })() : null;
+
+  // avaliação pendente — a memória recente que {currentUser} ainda não avaliou
+  const pendingReview = (() => {
+    const candidate = [...watched]
+      .filter(w => !w.reviews?.[currentUser]?.rating)
+      .sort((a, b) => new Date(b.date || b.createdAt) - new Date(a.date || a.createdAt))[0];
+    if (!candidate) return null;
+    const d = candidate.date || (candidate.createdAt || "").slice(0, 10);
+    const days = d ? Math.floor((new Date() - new Date(d + "T12:00:00")) / 86400000) : 999;
+    return days <= 14 ? candidate : null;
+  })();
+
+  // "última memória" evita repetir o mesmo título do card de avaliação pendente logo acima
+  const lastMemory = (pendingReview && last?.id === pendingReview.id)
+    ? [...watched].filter(w => w.id !== last.id).sort((a, b) => new Date(b.date || b.createdAt) - new Date(a.date || a.createdAt))[0] || null
+    : last;
+  const lastMemoryAvg = lastMemory ? mediaEntry(lastMemory) : 0;
+  const lastMemoryQuote = lastMemory === last ? lastQuote : (lastMemory ? (() => {
+    for (const u of users) { const t = lastMemory.reviews?.[u]?.text?.trim(); if (t) return t; }
+    return null;
+  })() : null);
+
+  // o card principal — a Home nunca mostra mais de um ao mesmo tempo
+  const mainCard = pendingReview ? "review" : nextSession ? "session" : continueEntry ? "continue" : "suggestion";
+
+  // frase contextual do Lumi, embaixo do nome do casal
+  const lumiLine = (() => {
+    if (pendingReview) return "Como foi? Estou doido pra saber a nota ⭐";
+    if (nextSession) {
+      const st = wlState(nextSession);
+      if (st === "hoje") return "Hoje é dia de cinema 🍿";
+      if (st === "passou") return "E aí, como foi a sessão? ✦";
+      return "Já estamos de olho na próxima sessão 🎟️";
+    }
+    if (continueEntry) return `Falta pouco pra terminarem ${continueEntry.title} ❤️`;
+    if (daysSinceLast !== null && daysSinceLast >= 14) return "Faz tempo que vocês não vivem uma nova história ❤️";
+    if (total === 0) return "Toda grande história começa com um primeiro filme 🎬";
+    return "Hoje é um ótimo dia para um filme.";
+  })();
 
   // nesse dia
   const today = new Date();
@@ -3088,19 +3144,37 @@ const HomePage = ({ watched, watchlist, couple, currentUser, users, onRoulette, 
           onClose={() => setEditing(null)}/>
       )}
 
-      {/* header contextual do design */}
+      {/* header — identidade fixa do casal */}
       <div className="home-head">
         <div>
           <div className="home-head__ctx">{contextGreeting()} ✦</div>
-          <div className="home-head__names">{couple.name1} & {couple.name2}</div>
+          <div className="home-head__names">{couple.name1} ❤️ {couple.name2}</div>
+          {togetherLabel && <div className="home-head__since">Juntos há {togetherLabel}</div>}
         </div>
         <button className="home-head__lumi" onClick={onOpenSettings} aria-label="Configurações">
           <img src={lumiSrc("avatar")} alt="Lumi"/>
         </button>
       </div>
+      {total > 0 && <div className="home-head__lumi-line">"Lumi: {lumiLine}"</div>}
 
-      {/* card automático: próxima ida ao cinema (só aparece quando há sessão marcada) */}
-      {nextSession && (() => {
+      {/* card inteligente — um único card principal, por prioridade:
+          avaliação pendente > sessão marcada > continue assistindo > sugestão do Lumi */}
+      {total > 0 && mainCard === "review" && (
+        <button className="main-card main-card--review" style={{ marginTop: 14 }} onClick={() => setSel(pendingReview)}>
+          {pendingReview.poster
+            ? <img src={`${TMDB_IMG}${pendingReview.poster}`} alt="" className="main-card__poster"/>
+            : <div className="main-card__poster main-card__poster--fallback"><Ic n="film" s={22}/></div>}
+          <div className="main-card__body">
+            <div className="main-card__eyebrow">⭐ Falta avaliar</div>
+            <div className="main-card__title">{pendingReview.title}</div>
+            <div className="main-card__meta">Contem o que acharam</div>
+          </div>
+          <span className="main-card__cta">Dar notas</span>
+          <img src={lumiSrc("thinking")} alt="" className="main-card__lumi" aria-hidden="true"/>
+        </button>
+      )}
+
+      {total > 0 && mainCard === "session" && (() => {
         const st = wlState(nextSession);
         const p = nextSession.plan;
         const eyebrow = st === "passou" ? "🍿 Sessão pendente" : st === "hoje" ? "🍿 Hoje é o dia!" : "🍿 Próxima sessão";
@@ -3125,8 +3199,7 @@ const HomePage = ({ watched, watchlist, couple, currentUser, users, onRoulette, 
         );
       })()}
 
-      {/* hero: continue de onde pararam */}
-      {continueEntry && (
+      {total > 0 && mainCard === "continue" && (
         <button className="continue-hero" onClick={() => setSel(continueEntry)} style={{ marginTop: 14 }}>
           <div className="continue-hero__eyebrow">Continue de onde pararam</div>
           <div className="continue-hero__title">{continueEntry.title}</div>
@@ -3144,34 +3217,31 @@ const HomePage = ({ watched, watchlist, couple, currentUser, users, onRoulette, 
         </button>
       )}
 
-      {/* compatibilidade + próximo marco */}
-      {total > 0 && (
-        <div className="home-pair" style={{ marginTop: continueEntry ? 0 : 14 }}>
-          <div className="home-pair__card">
-            <div className="home-pair__label">Compatibilidade</div>
-            <div className="home-pair__big">{compat !== null ? `${compat}%` : "—"}</div>
+      {total > 0 && mainCard === "suggestion" && (
+        <button className="main-card main-card--suggestion" style={{ marginTop: 14 }} onClick={onGoWatchlist}>
+          <img src={lumiSrc("cinemaSign")} alt="" className="main-card__lumi-big"/>
+          <div className="main-card__body">
+            <div className="main-card__title">Que tal uma sessão hoje?</div>
+            <div className="main-card__meta">Escolham um filme juntos</div>
           </div>
-          <div className="home-pair__card">
-            <div className="home-pair__label">{nextMilestone.label}</div>
-            <div className="home-pair__mid">{nextMilestone.value}</div>
-            <img src={lumiSrc("headSmiling")} alt="" className="home-pair__head"/>
-          </div>
-        </div>
+          <span className="main-card__cta">Escolher →</span>
+        </button>
       )}
 
-      {/* última sessão */}
-      {last && (
+      {/* última memória */}
+      {lastMemory && (
         <>
-          <div className="home-last-label">Última sessão</div>
-          <button className="home-last" onClick={() => setSel(last)}>
-            {last.poster
-              ? <img src={`${TMDB_IMG}${last.poster}`} alt="" className="home-last__poster"/>
+          <div className="home-last-label">Última memória</div>
+          <button className="home-last" onClick={() => setSel(lastMemory)}>
+            {lastMemory.poster
+              ? <img src={`${TMDB_IMG}${lastMemory.poster}`} alt="" className="home-last__poster"/>
               : <div className="home-last__poster"/>}
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div className="home-last__title">{last.title}</div>
-              <div className="home-last__meta">{relDay(last.date || (last.createdAt || "").slice(0, 10))} · {last.where === "cinema" ? "no cinema" : "em casa"}</div>
+              <div className="home-last__title">{lastMemory.title}</div>
+              {lastMemoryQuote && <div className="home-last__quote">"{lastMemoryQuote}"</div>}
+              <div className="home-last__meta">{relDay(lastMemory.date || (lastMemory.createdAt || "").slice(0, 10))} · {lastMemory.where === "cinema" ? "no cinema" : "em casa"}</div>
             </div>
-            {lastAvg > 0 && <span className="home-last__nota">★ {nota10(lastAvg)}</span>}
+            {lastMemoryAvg > 0 && <span className="home-last__nota">★ {nota10(lastMemoryAvg)}</span>}
           </button>
         </>
       )}
@@ -3200,27 +3270,56 @@ const HomePage = ({ watched, watchlist, couple, currentUser, users, onRoulette, 
         </>
       )}
 
-      {/* atalhos: roleta + modo cinema */}
-      {watchlist.length >= 2 && (
-        <button className="home-strip" onClick={onRoulette}>
-          <img src={lumiSrc("roulette")} alt=""/>
-          <span>
-            <span className="home-strip__t">Roleta da noite</span>
-            <div className="home-strip__s">não sabem o que ver? a sorte decide</div>
-          </span>
-          <span className="home-strip__arrow">→</span>
-        </button>
-      )}
-      {/* convite pra planejar — só quando não há sessão marcada ainda */}
-      {!nextSession && watchlist.length > 0 && (
-        <button className="home-strip home-strip--amber" onClick={onGoWatchlist}>
-          <img src={lumiSrc("cinemaSign")} alt=""/>
-          <span>
-            <span className="home-strip__t">Vão ao cinema? 🍿</span>
-            <div className="home-strip__s">planejem a próxima sessão pela lista a dois</div>
-          </span>
-          <span className="home-strip__arrow">→</span>
-        </button>
+      {/* atalhos rápidos */}
+      {total > 0 && (
+        <>
+          <div className="home-last-label">Atalhos</div>
+          <div className="home-quick-grid">
+            <button className="home-quick-tile" onClick={onAdd}>
+              <span className="home-quick-tile__ic"><Ic n="plus" s={20}/></span>
+              <span>Nova sessão</span>
+            </button>
+            <button className="home-quick-tile" onClick={onGoWatchlist}>
+              <span className="home-quick-tile__ic"><Ic n="bookmark" s={20}/></span>
+              <span>Watchlist</span>
+            </button>
+            {watchlist.length >= 2 && (
+              <button className="home-quick-tile" onClick={onRoulette}>
+                <span className="home-quick-tile__ic"><img src={lumiSrc("roulette")} alt="" className="home-quick-tile__lumi"/></span>
+                <span>Roleta</span>
+              </button>
+            )}
+            <button className="home-quick-tile" onClick={onGoDiary}>
+              <span className="home-quick-tile__ic"><Ic n="book" s={20}/></span>
+              <span>Nossa história</span>
+            </button>
+          </div>
+
+          {/* resumo do casal */}
+          <div className="home-last-label">Resumo do casal</div>
+          <div className="home-stats-grid">
+            <div className="home-stat-tile">
+              <span className="home-stat-tile__ic">🎬</span>
+              <div className="home-stat-tile__val">{totMovies}</div>
+              <div className="home-stat-tile__lbl">Filmes</div>
+            </div>
+            <div className="home-stat-tile">
+              <span className="home-stat-tile__ic">❤️</span>
+              <div className="home-stat-tile__val">{compat !== null ? `${compat}%` : "—"}</div>
+              <div className="home-stat-tile__lbl">Compatibilidade</div>
+            </div>
+            <div className="home-stat-tile">
+              <span className="home-stat-tile__ic">🍿</span>
+              <div className="home-stat-tile__val">{cinemaCount}</div>
+              <div className="home-stat-tile__lbl">Cinema</div>
+            </div>
+            <button className="home-stat-tile home-stat-tile--btn" onClick={onGoProfile}>
+              <span className="home-stat-tile__ic">🏆</span>
+              <div className="home-stat-tile__val">{unlockedCount}</div>
+              <div className="home-stat-tile__lbl">Conquistas</div>
+            </button>
+          </div>
+        </>
       )}
 
       {/* empty state acolhedor */}
@@ -5484,6 +5583,7 @@ export default function App() {
                                        onSaveReview={saveReview} onUpdateStatus={saveStatus} onContinueEpisode={continueEpisode} onToggleTogether={toggleTogether}
                                        onOpenSettings={()=>setShowSettings(true)}
                                        onOpenTicket={openTicket} onOpenCheckin={openCheckin} onGoWatchlist={()=>setPage("watchlist")}
+                                       onGoDiary={()=>setPage("diary")} onGoProfile={()=>setPage("profile")}
                                        onEdit={editWatched} onDelete={e=>requestDelete(e,"watched")} prefs={prefs}/>}
               {page==="diary"     && <DiaryPage     watched={watched} users={users} currentUser={currentUser}
                                        onDelete={e=>requestDelete(e,"watched")} onEdit={editWatched} onSaveReview={saveReview} onUpdateStatus={saveStatus}

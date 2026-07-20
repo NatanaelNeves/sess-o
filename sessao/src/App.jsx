@@ -29,20 +29,40 @@ async function generateSharePng(entry, users, format, shareNum = null) {
   canvas.width = W; canvas.height = H;
   const ctx = canvas.getContext("2d");
 
-  const tryLoad = url => new Promise(resolve => {
-    if (!url) return resolve(null);
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    const t = setTimeout(() => resolve(null), 5000);
-    img.onload  = () => { clearTimeout(t); resolve(img); };
-    img.onerror = () => { clearTimeout(t); resolve(null); };
-    img.src = url;
-  });
+  const tryLoad = async url => {
+    if (!url) return null;
 
-  const [poster, lumiMark] = await Promise.all([
-    tryLoad(entry.poster ? `${TMDB_IMG}${entry.poster}` : null),
+    const loadImage = src => new Promise(resolve => {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = () => resolve(img);
+      img.onerror = () => resolve(null);
+      img.src = src;
+    });
+
+    try {
+      const response = await fetch(url, { mode: "cors" });
+      if (!response.ok) return null;
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const image = await loadImage(objectUrl);
+      URL.revokeObjectURL(objectUrl);
+      if (image) return image;
+    } catch {
+      // fallback abaixo
+    }
+
+    return await loadImage(url);
+  };
+
+  const posterUrl = entry.poster ? `${TMDB_IMG}${entry.poster}` : null;
+  const backdropUrl = entry.backdrop ? `${TMDB_BG}${entry.backdrop}` : null;
+  const [poster, backdropImage, lumiMark] = await Promise.all([
+    tryLoad(posterUrl),
+    tryLoad(backdropUrl),
     tryLoad("/assets/kit/ui_simplificado.png"),
   ]);
+  const coverImage = poster || backdropImage;
 
   const rr = (x, y, w, h, r) => {
     ctx.beginPath();
@@ -94,13 +114,22 @@ async function generateSharePng(entry, users, format, shareNum = null) {
   ctx.fillStyle = "#2a1810";
   ctx.fill();
   ctx.restore();
-  if (poster) {
+  if (coverImage) {
     ctx.save();
     rr(px, y, pw, ph, 42);
     ctx.clip();
-    const s = Math.max(pw / poster.naturalWidth, ph / poster.naturalHeight);
-    ctx.drawImage(poster, px + (pw - poster.naturalWidth * s) / 2, y + (ph - poster.naturalHeight * s) / 2, poster.naturalWidth * s, poster.naturalHeight * s);
+    const s = Math.max(pw / coverImage.naturalWidth, ph / coverImage.naturalHeight);
+    ctx.drawImage(coverImage, px + (pw - coverImage.naturalWidth * s) / 2, y + (ph - coverImage.naturalHeight * s) / 2, coverImage.naturalWidth * s, coverImage.naturalHeight * s);
     ctx.restore();
+  } else {
+    ctx.save();
+    rr(px, y, pw, ph, 42);
+    ctx.fillStyle = "rgba(255,255,255,0.06)";
+    ctx.fill();
+    ctx.restore();
+    ctx.fillStyle = "rgba(255,255,255,0.55)";
+    ctx.font = "600 42px 'Inter', Arial, sans-serif";
+    ctx.fillText("SEM IMAGEM", W / 2, y + ph / 2 + 16);
   }
   y += ph + (isStory ? 84 : 70);
 

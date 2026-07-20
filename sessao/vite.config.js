@@ -44,9 +44,9 @@ export default defineConfig({
                 maxAgeSeconds: 30 * 24 * 60 * 60,
               },
               fetchOptions: {
-                mode: 'cors',
+                mode: 'no-cors',
               },
-              cacheableResponse: { statuses: [200] },
+              cacheableResponse: { statuses: [0, 200] },
             },
           },
           {
@@ -62,7 +62,7 @@ export default defineConfig({
               fetchOptions: {
                 mode: 'cors',
               },
-              cacheableResponse: { statuses: [200] },
+              cacheableResponse: { statuses: [0, 200] },
             },
           },
         ],

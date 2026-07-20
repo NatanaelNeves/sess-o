@@ -19,6 +19,11 @@ const TMDB_BASE = "https://api.themoviedb.org/3";
 const TMDB_IMG = "https://image.tmdb.org/t/p/w500";
 const TMDB_BG   = "https://image.tmdb.org/t/p/w1280";
 
+// image.tmdb.org não envia cabeçalhos CORS, então imagens carregadas
+// diretamente dele "sujam" o canvas e impedem exportar o PNG do card.
+// Passamos pelo wsrv.nl, que re-serve a imagem com Access-Control-Allow-Origin: *.
+const withCorsProxy = url => `https://wsrv.nl/?url=${encodeURIComponent(url)}`;
+
 // Compartilhar como arte — card de designer do canvas v3
 // (gradiente roxo-escuro, borda dourada, tipografia Cormorant, marca do Lumi)
 async function generateSharePng(entry, users, format, shareNum = null) {
@@ -55,8 +60,8 @@ async function generateSharePng(entry, users, format, shareNum = null) {
     return await loadImage(url);
   };
 
-  const posterUrl = entry.poster ? `${TMDB_IMG}${entry.poster}` : null;
-  const backdropUrl = entry.backdrop ? `${TMDB_BG}${entry.backdrop}` : null;
+  const posterUrl = entry.poster ? withCorsProxy(`${TMDB_IMG}${entry.poster}`) : null;
+  const backdropUrl = entry.backdrop ? withCorsProxy(`${TMDB_BG}${entry.backdrop}`) : null;
   const [poster, backdropImage, lumiMark] = await Promise.all([
     tryLoad(posterUrl),
     tryLoad(backdropUrl),

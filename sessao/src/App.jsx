@@ -67,7 +67,7 @@ const sampleAverageColor = img => {
   }
 };
 
-// textura de granulação muito sutil (evita o fundo "chapado")
+// textura de granulação cinematográfica (opacidade por pixel varia — grão de filme, não ruído digital uniforme)
 const buildGrainPattern = ctx => {
   const size = 128;
   const c = document.createElement("canvas");
@@ -77,7 +77,7 @@ const buildGrainPattern = ctx => {
   for (let i = 0; i < imgData.data.length; i += 4) {
     const v = Math.random() * 255;
     imgData.data[i] = v; imgData.data[i + 1] = v; imgData.data[i + 2] = v;
-    imgData.data[i + 3] = 12;
+    imgData.data[i + 3] = 4 + Math.random() * 16;
   }
   cctx.putImageData(imgData, 0, 0);
   return ctx.createPattern(c, "repeat");
@@ -142,8 +142,16 @@ async function generateSharePng(entry, users, format, specialInfo = null) {
   const hasRating = ratings.length > 0;
   const avg = hasRating ? ratings.reduce((a, b) => a + b, 0) / ratings.length : 0;
   const starsFilled = Math.round(avg);
-  // Lumi interage com a composição: aponta pra nota, comemora um 10 ou segura a plaquinha de cinema
-  const lumiPose = entry.where === "cinema" ? "plaquinha_cinema" : (starsFilled >= 5 ? "segurando_estrela" : "apontando");
+  // Lumi ganha personalidade conforme o contexto: comemora um 10, se assusta no terror,
+  // abraça um coração no romance, segura pipoca no cinema ou aponta pra nota por padrão
+  const genresLower = (entry.genres || []).map(g => g.toLowerCase());
+  const isHorror = genresLower.some(g => g.includes("terror") || g.includes("horror"));
+  const isRomance = genresLower.some(g => g.includes("romance"));
+  const lumiPose = starsFilled >= 5 ? "reacao_comemorando"
+    : entry.where === "cinema" ? "segurando_pipoca"
+    : isHorror ? "surpreso"
+    : isRomance ? "abracando_coracao"
+    : "apontando";
 
   const posterUrl = entry.poster ? withCorsProxy(`${TMDB_IMG}${entry.poster}`) : null;
   const backdropUrl = entry.backdrop ? withCorsProxy(`${TMDB_BG}${entry.backdrop}`) : null;
@@ -172,26 +180,27 @@ async function generateSharePng(entry, users, format, specialInfo = null) {
   const posterRadius = isStory ? 46 : 36;
 
   const titleFs = isStory ? 82 : 58;
-  const ratingFs = isStory ? 104 : 80;
-  const badgeFs = isStory ? 26 : 20;
+  const ratingFs = isStory ? 130 : 98;
+  const badgeFs = isStory ? 25 : 19;
+  const coupleLabelFs = isStory ? 22 : 16;
   const coupleFs = isStory ? 34 : 22;
   const dateFs = isStory ? 25 : 17;
 
-  const padTop          = isStory ? 108 : 40;
-  const gapPosterRating = isStory ? 62 : 22;
-  const ratingBlockH    = hasRating ? (isStory ? 200 : 100) : 0;
-  const gapRatingTitle  = isStory ? (hasRating ? 52 : 24) : (hasRating ? 18 : 10);
+  const padTop          = isStory ? 104 : 34;
+  const gapPosterRating = isStory ? 60 : 20;
+  const ratingBlockH    = hasRating ? (isStory ? 224 : 168) : 0;
+  const gapRatingTitle  = hasRating ? (isStory ? 28 : 10) : (isStory ? 24 : 10);
   const titleLineH      = Math.round(titleFs * (isStory ? 1.1 : 1.08));
-  const gapTitleBadge   = isStory ? 40 : 16;
-  const gapTitleCouple  = isStory ? 48 : 22;
-  const badgeH          = isStory ? 64 : 40;
-  const gapBadgeCouple  = isStory ? 46 : 18;
-  const coupleLineH     = isStory ? 42 : 26;
-  const gapCoupleDate   = isStory ? 16 : 8;
+  const gapTitleBadge   = isStory ? 34 : 14;
+  const gapTitleCouple  = isStory ? 38 : 16;
+  const badgeH          = isStory ? 40 : 28;
+  const gapBadgeCouple  = isStory ? 38 : 16;
+  const coupleLineH     = isStory ? 80 : 52;
+  const gapCoupleDate   = isStory ? 14 : 8;
   const dateLineH       = isStory ? 30 : 20;
-  const gapDateBrand    = isStory ? 54 : 20;
-  const brandH          = isStory ? 40 : 24;
-  const padBottom       = isStory ? 84 : 30;
+  const gapDateBrand    = isStory ? 44 : 18;
+  const brandH          = isStory ? 98 : 30;
+  const padBottom       = isStory ? 60 : 24;
 
   // ---------- fase 1: mede o título e monta a lista de blocos (dimensiona o card ao conteúdo real) ----------
   ctx.font = `600 ${titleFs}px 'Cormorant Garamond', Georgia, serif`;
@@ -214,16 +223,26 @@ async function generateSharePng(entry, users, format, specialInfo = null) {
   const ch = steps.reduce((s, [, h]) => s + h, 0);
   const cx0 = (W - cw) / 2, cy0 = (H - ch) / 2;
   const radius = isStory ? 84 : 70;
+  const posterTop = cy0 + padTop;
+  const posterCenterY = posterTop + ph / 2;
 
   // ---------- fundo: gradiente profundo + glow com as cores do pôster + vinheta + granulação ----------
   ctx.fillStyle = "#0a0714";
   ctx.fillRect(0, 0, W, H);
 
-  const bgGlow = ctx.createRadialGradient(W / 2, cy0 + ph * 0.55, 40, W / 2, cy0 + ph * 0.55, Math.max(W, H) * 0.62);
-  bgGlow.addColorStop(0, `rgba(${glow},0.22)`);
-  bgGlow.addColorStop(0.5, `rgba(${glow},0.06)`);
+  // halo ambiente, cobrindo o card inteiro
+  const bgGlow = ctx.createRadialGradient(W / 2, posterCenterY, 40, W / 2, posterCenterY, Math.max(W, H) * 0.62);
+  bgGlow.addColorStop(0, `rgba(${glow},0.34)`);
+  bgGlow.addColorStop(0.5, `rgba(${glow},0.13)`);
   bgGlow.addColorStop(1, "rgba(10,7,20,0)");
   ctx.fillStyle = bgGlow;
+  ctx.fillRect(0, 0, W, H);
+
+  // halo concentrado exatamente atrás do pôster — faz a arte "flutuar"
+  const posterHalo = ctx.createRadialGradient(W / 2, posterCenterY, ph * 0.2, W / 2, posterCenterY, Math.max(pw, ph) * 0.85);
+  posterHalo.addColorStop(0, `rgba(${glow},0.4)`);
+  posterHalo.addColorStop(1, `rgba(${glow},0)`);
+  ctx.fillStyle = posterHalo;
   ctx.fillRect(0, 0, W, H);
 
   ctx.save();
@@ -232,9 +251,9 @@ async function generateSharePng(entry, users, format, specialInfo = null) {
   ctx.fillRect(0, 0, W, H);
   ctx.restore();
 
-  const vignette = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.3, W / 2, H / 2, Math.max(W, H) * 0.72);
+  const vignette = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.34, W / 2, H / 2, Math.max(W, H) * 0.74);
   vignette.addColorStop(0, "rgba(0,0,0,0)");
-  vignette.addColorStop(1, "rgba(0,0,0,0.55)");
+  vignette.addColorStop(1, "rgba(0,0,0,0.42)");
   ctx.fillStyle = vignette;
   ctx.fillRect(0, 0, W, H);
 
@@ -248,15 +267,45 @@ async function generateSharePng(entry, users, format, specialInfo = null) {
     });
 
   // ---------- moldura: cantos generosos, glow suave e borda em gradiente dourado ----------
+  // sombra do card — silhueta sólida só para projetar a sombra (o preenchimento real vem a seguir)
   ctx.save();
   rr(cx0, cy0, cw, ch, radius);
-  const cardFill = ctx.createLinearGradient(cx0, cy0, cx0 + cw * 0.5, cy0 + ch);
-  cardFill.addColorStop(0, "#1d1526");
-  cardFill.addColorStop(0.55, "#130d1b");
-  cardFill.addColorStop(1, "#09060f");
-  ctx.fillStyle = cardFill;
+  ctx.fillStyle = "#0c0810";
   ctx.shadowColor = "rgba(0,0,0,0.65)"; ctx.shadowBlur = 100; ctx.shadowOffsetY = 46;
   ctx.fill();
+  ctx.restore();
+
+  // preenchimento real do card: a própria arte do pôster, borrada e escurecida — como uma peça de divulgação
+  ctx.save();
+  rr(cx0, cy0, cw, ch, radius);
+  ctx.clip();
+  if (coverImage) {
+    ctx.filter = "blur(46px) saturate(1.5) brightness(1.05)";
+    const cs = Math.max(cw / coverImage.naturalWidth, ch / coverImage.naturalHeight) * 1.3;
+    ctx.drawImage(coverImage,
+      cx0 + (cw - coverImage.naturalWidth * cs) / 2, cy0 + (ch - coverImage.naturalHeight * cs) / 2,
+      coverImage.naturalWidth * cs, coverImage.naturalHeight * cs);
+    ctx.filter = "none";
+  } else {
+    ctx.fillStyle = "#160f1e";
+    ctx.fillRect(cx0, cy0, cw, ch);
+  }
+  const cardFill = ctx.createLinearGradient(cx0, cy0, cx0 + cw * 0.5, cy0 + ch);
+  cardFill.addColorStop(0, "rgba(26,19,34,0.6)");
+  cardFill.addColorStop(0.55, "rgba(16,11,23,0.78)");
+  cardFill.addColorStop(1, "rgba(7,5,12,0.92)");
+  ctx.fillStyle = cardFill;
+  ctx.fillRect(cx0, cy0, cw, ch);
+  ctx.restore();
+
+  // brilho dourado extremamente sutil ao longo da moldura, antes da borda nítida
+  ctx.save();
+  rr(cx0, cy0, cw, ch, radius);
+  ctx.shadowColor = `rgba(245,214,140,0.5)`;
+  ctx.shadowBlur = isStory ? 26 : 20;
+  ctx.strokeStyle = "rgba(245,214,140,0.3)";
+  ctx.lineWidth = 2;
+  ctx.stroke();
   ctx.restore();
 
   rr(cx0, cy0, cw, ch, radius);
@@ -285,9 +334,17 @@ async function generateSharePng(entry, users, format, specialInfo = null) {
     if (label === "poster") {
       const top = advance(h);
       const px = W / 2 - pw / 2;
+
+      // leve tilt de 1.4° — profundidade quase imperceptível, sem parecer um recorte reto
+      const tiltCx = px + pw / 2, tiltCy = top + ph / 2;
+      ctx.save();
+      ctx.translate(tiltCx, tiltCy);
+      ctx.rotate((1.4 * Math.PI) / 180);
+      ctx.translate(-tiltCx, -tiltCy);
+
       ctx.save();
       rr(px, top, pw, ph, posterRadius);
-      ctx.shadowColor = "rgba(0,0,0,0.75)"; ctx.shadowBlur = 70; ctx.shadowOffsetY = 30;
+      ctx.shadowColor = "rgba(0,0,0,0.8)"; ctx.shadowBlur = 90; ctx.shadowOffsetY = 44;
       ctx.fillStyle = "#2a1810";
       ctx.fill();
       ctx.restore();
@@ -315,22 +372,24 @@ async function generateSharePng(entry, users, format, specialInfo = null) {
         ctx.fillText("SEM IMAGEM", W / 2, top + ph / 2 + 12);
       }
 
-      // Lumi "colado" no canto do pôster, como um selo de colecionador
-      if (lumiImg) {
-        const ms = Math.round(ph * 0.34);
-        ctx.save();
-        ctx.translate(px + pw - ms * 0.58, top + ph - ms * 0.46);
-        ctx.rotate((-7 * Math.PI) / 180);
-        ctx.shadowColor = "rgba(0,0,0,0.5)"; ctx.shadowBlur = 18; ctx.shadowOffsetY = 8;
-        ctx.drawImage(lumiImg, -ms / 2, -ms / 2, ms, ms);
-        ctx.restore();
-      }
+      // highlight sutil no canto superior — dá sensação de profundidade/vidro ao pôster
+      ctx.save();
+      rr(px, top, pw, ph, posterRadius);
+      ctx.clip();
+      const sheen = ctx.createLinearGradient(px, top, px + pw * 0.65, top + ph * 0.45);
+      sheen.addColorStop(0, "rgba(255,255,255,0.16)");
+      sheen.addColorStop(1, "rgba(255,255,255,0)");
+      ctx.fillStyle = sheen;
+      ctx.fillRect(px, top, pw, ph);
+      ctx.restore();
+
+      ctx.restore(); // desfaz o tilt
       continue;
     }
 
     if (label === "rating") {
       const top = advance(h);
-      const starSize = isStory ? 28 : 19;
+      const starSize = isStory ? 30 : 20;
       const starGap = isStory ? 6 : 4;
       ctx.font = `${starSize}px Arial, sans-serif`;
       const glyphW = ctx.measureText("★").width;
@@ -346,18 +405,33 @@ async function generateSharePng(entry, users, format, specialInfo = null) {
       ctx.textAlign = "center";
 
       ctx.font = `700 ${ratingFs}px 'Inter', Arial, sans-serif`;
-      const numY = starY + (isStory ? 30 : 20) + ratingFs * 0.82;
+      const numText = nota10(avg);
+      const numW = ctx.measureText(numText).width;
+      const numY = starY + (isStory ? 26 : 18) + ratingFs * 0.82;
       const numGrad = ctx.createLinearGradient(0, numY - ratingFs, 0, numY + 8);
       numGrad.addColorStop(0, "#f5d68c");
       numGrad.addColorStop(1, "#c9993a");
       ctx.fillStyle = numGrad;
-      ctx.fillText(nota10(avg), W / 2, numY);
+      ctx.fillText(numText, W / 2, numY);
 
-      ctx.font = `700 ${isStory ? 21 : 15}px 'Inter', Arial, sans-serif`;
+      ctx.font = `700 ${isStory ? 18 : 13}px 'Inter', Arial, sans-serif`;
       ctx.letterSpacing = isStory ? "4px" : "3px";
-      ctx.fillStyle = "rgba(232,184,75,0.7)";
-      ctx.fillText("NOTA DO CASAL", W / 2, numY + (isStory ? 32 : 22));
+      ctx.fillStyle = "rgba(232,184,75,0.65)";
+      ctx.fillText("NOTA DO CASAL", W / 2, numY + (isStory ? 34 : 24));
       ctx.letterSpacing = "0px";
+
+      // Lumi como detalhe ao lado da nota — comenta o resultado sem cobrir o pôster
+      if (lumiImg) {
+        const ms = isStory ? 88 : 66;
+        const lx = W / 2 + numW / 2 + ms * 0.56;
+        const ly = numY - ratingFs * 0.42;
+        ctx.save();
+        ctx.translate(lx, ly);
+        ctx.rotate((-8 * Math.PI) / 180);
+        ctx.shadowColor = "rgba(0,0,0,0.4)"; ctx.shadowBlur = 14; ctx.shadowOffsetY = 6;
+        ctx.drawImage(lumiImg, -ms / 2, -ms / 2, ms, ms);
+        ctx.restore();
+      }
       continue;
     }
 
@@ -372,21 +446,12 @@ async function generateSharePng(entry, users, format, specialInfo = null) {
     if (label === "badge") {
       const top = advance(h);
       ctx.font = `700 ${badgeFs}px 'Inter', Arial, sans-serif`;
-      ctx.letterSpacing = "0.5px";
-      const text = `${specialInfo.emoji}  ${specialInfo.text}`;
-      const textW = ctx.measureText(text).width;
-      const padPill = isStory ? 30 : 20;
-      const pillW = textW + padPill * 2;
-      const pillX = W / 2 - pillW / 2;
-      rr(pillX, top, pillW, h, h / 2);
-      ctx.fillStyle = "rgba(201,153,58,0.14)";
-      ctx.fill();
-      rr(pillX, top, pillW, h, h / 2);
-      ctx.strokeStyle = "rgba(232,184,75,0.4)";
-      ctx.lineWidth = 1.2;
-      ctx.stroke();
-      ctx.fillStyle = "#f0dba8";
-      ctx.fillText(text, W / 2, top + h / 2 + badgeFs * 0.34);
+      ctx.letterSpacing = isStory ? "2px" : "1.5px";
+      const text = `${specialInfo.emoji}  ${specialInfo.text.toUpperCase()}`;
+      ctx.shadowColor = "rgba(232,184,75,0.4)"; ctx.shadowBlur = 16;
+      ctx.fillStyle = "rgba(240,219,168,0.88)";
+      ctx.fillText(text, W / 2, top + h * 0.7);
+      ctx.shadowBlur = 0;
       ctx.letterSpacing = "0px";
       continue;
     }
@@ -394,22 +459,17 @@ async function generateSharePng(entry, users, format, specialInfo = null) {
     if (label === "couple") {
       const top = advance(h);
       const firstNames = users.map(u => (u || "").trim().split(/\s+/)[0]).filter(Boolean).join(" & ");
-      const prefix = "assistido por ";
-      const baseline = top + coupleFs * 0.82;
-      ctx.font = `500 ${coupleFs}px 'Inter', Arial, sans-serif`;
-      const prefixW = ctx.measureText(prefix).width;
-      ctx.font = `700 ${coupleFs}px 'Inter', Arial, sans-serif`;
-      const namesW = ctx.measureText(firstNames).width;
-      let sx = W / 2 - (prefixW + namesW) / 2;
-      ctx.textAlign = "left";
-      ctx.font = `500 ${coupleFs}px 'Inter', Arial, sans-serif`;
-      ctx.fillStyle = "rgba(255,255,255,0.42)";
-      ctx.fillText(prefix, sx, baseline);
-      sx += prefixW;
+
+      ctx.font = `600 ${coupleLabelFs}px 'Inter', Arial, sans-serif`;
+      ctx.letterSpacing = isStory ? "2.5px" : "2px";
+      ctx.fillStyle = "rgba(255,255,255,0.38)";
+      ctx.fillText("ASSISTIDO POR", W / 2, top + coupleLabelFs * 0.85);
+      ctx.letterSpacing = "0px";
+
       ctx.font = `700 ${coupleFs}px 'Inter', Arial, sans-serif`;
       ctx.fillStyle = "#e9e5ee";
-      ctx.fillText(firstNames, sx, baseline);
-      ctx.textAlign = "center";
+      const namesY = top + coupleLabelFs + (isStory ? 16 : 8) + coupleFs * 0.8;
+      ctx.fillText(firstNames, W / 2, namesY);
       continue;
     }
 
@@ -423,11 +483,29 @@ async function generateSharePng(entry, users, format, specialInfo = null) {
 
     if (label === "brand") {
       const top = advance(h);
-      ctx.font = `600 ${isStory ? 23 : 18}px 'Cormorant Garamond', Georgia, serif`;
-      ctx.letterSpacing = isStory ? "5px" : "3px";
-      ctx.fillStyle = "rgba(232,184,75,0.7)";
-      ctx.fillText("✦  SESSÃO  ✦", W / 2, top + h * 0.72);
-      ctx.letterSpacing = "0px";
+      if (isStory) {
+        // selo de marca: estrela · nome tracked · tagline — mais memorável, ainda discreto
+        ctx.font = `600 22px 'Cormorant Garamond', Georgia, serif`;
+        ctx.fillStyle = "rgba(232,184,75,0.6)";
+        ctx.fillText("✦", W / 2, top + 22);
+
+        ctx.font = `600 30px 'Cormorant Garamond', Georgia, serif`;
+        ctx.letterSpacing = "6px";
+        ctx.fillStyle = "rgba(240,219,168,0.9)";
+        const nameY = top + 22 + 6 + 30 * 0.85;
+        ctx.fillText("SESSÃO", W / 2, nameY);
+        ctx.letterSpacing = "0px";
+
+        ctx.font = `500 16px 'Inter', Arial, sans-serif`;
+        ctx.fillStyle = "rgba(255,255,255,0.34)";
+        ctx.fillText("o diário cinematográfico do casal", W / 2, nameY + 8 + 16 * 0.8);
+      } else {
+        ctx.font = `600 22px 'Cormorant Garamond', Georgia, serif`;
+        ctx.letterSpacing = "3px";
+        ctx.fillStyle = "rgba(232,184,75,0.7)";
+        ctx.fillText("✦  SESSÃO  ✦", W / 2, top + h * 0.72);
+        ctx.letterSpacing = "0px";
+      }
       continue;
     }
   }
@@ -1480,6 +1558,7 @@ const specialInfoFor = (entry, watched, users) => {
   const avg = rated.reduce((a, b) => a + b, 0) / rated.length;
   const perfect10 = bothRated && ratings.every(r => r === 5);
   const entryYear = (entry.date || entry.createdAt || "").slice(0, 4);
+  const entryMonth = (entry.date || entry.createdAt || "").slice(0, 7);
   const list = watched || [];
 
   if (perfect10) {
@@ -1488,17 +1567,29 @@ const specialInfoFor = (entry, watched, users) => {
         && users.every(u => (w.reviews?.[u]?.rating) === 5))
       .sort((a, b) => new Date(a.date || a.createdAt) - new Date(b.date || b.createdAt));
     const isFirst = yearPerfects[0]?.id === entry.id;
-    return { emoji: "🏆", text: isFirst ? "Primeiro 10/10 do ano" : "Nota máxima do casal" };
+    return { emoji: "🏆", text: isFirst ? "Nosso primeiro 10/10 do ano" : "Nota máxima do casal" };
   }
-  if (bothRated && ratings.every(r => r >= 4)) return { emoji: "❤️", text: "Um dos favoritos do casal" };
+  if (entry.emotions?.includes("choramos")) return { emoji: "🥹", text: "Ainda estamos pensando nesse final" };
+  if ((bothRated && ratings.every(r => r >= 4)) || entry.emotions?.includes("favorita")) {
+    return { emoji: "❤️", text: "Entrou para nossos favoritos" };
+  }
+  if (entry.where !== "cinema" && entry.emotions?.includes("aconchego")) {
+    return { emoji: "🍿", text: "Cinema em casa perfeito" };
+  }
+
+  const monthPeers = list.filter(w => (w.date || w.createdAt || "").slice(0, 7) === entryMonth);
+  if (monthPeers.length > 1 && avg >= 4) {
+    const monthBest = monthPeers.reduce((best, w) => mediaEntry(w) > mediaEntry(best) ? w : best, monthPeers[0]);
+    if (monthBest.id === entry.id) return { emoji: "⭐", text: "Melhor nota do mês" };
+  }
   if (avg >= 4.5) return { emoji: "✨", text: "Recomendamos muito" };
-  if (entry.where === "cinema") return { emoji: "🎬", text: "Assistido no cinema" };
+  if (entry.where === "cinema") return { emoji: "🎬", text: "Valeu cada minuto" };
 
   const sorted = [...list].sort((a, b) => new Date(a.date || a.createdAt) - new Date(b.date || b.createdAt));
   const idx = sorted.findIndex(w => w.id === entry.id);
   if (idx >= 0) {
     const label = entry.type === "tv" ? "Série" : "Filme";
-    return { emoji: "🍿", text: `${label} #${idx + 1} juntos` };
+    return { emoji: "🎞️", text: `${label} #${idx + 1} juntos` };
   }
   return null;
 };

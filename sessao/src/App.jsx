@@ -1284,7 +1284,11 @@ const WatchedForm = ({ users, currentUser, initial, onSave, onClose, title, coup
                     ? <span className="cine-photo__ph"><span className="cine-photo__spin"/>enviando…</span>
                     : <span className="cine-photo__ph"><span className="cine-photo__emoji">{k.emoji}</span>{k.label}</span>}
                 <input type="file" accept="image/*" hidden disabled={!!uploading}
-                  onChange={e => handlePhoto(k.key, e.target.files?.[0])}/>
+                  onChange={e => {
+                    const file = e.target.files?.[0];
+                    if (file) handlePhoto(k.key, file);
+                    e.target.value = "";
+                  }}/>
                 {photos[k.key] && (
                   <button type="button" className="cine-photo__x"
                     onClick={e => { e.preventDefault(); removePhoto(k.key); }} aria-label="Remover foto">✕</button>
@@ -3224,7 +3228,7 @@ const HomePage = ({ watched, watchlist, couple, currentUser, users, coupleId, on
         );
       })()}
       {editing && (
-        <WatchedForm users={users} currentUser={currentUser}
+        <WatchedForm users={users} currentUser={currentUser} coupleId={coupleId} addToast={addToast}
           initial={{ ...editing, movie: editing }}
           title="Editar registro"
           onSave={e => { onEdit(e); setEditing(null); }}
@@ -3490,7 +3494,7 @@ const TimelineView = ({ items, users, onSelect, onDelete }) => {
 };
 
 // diary page — "O acervo de vocês" (v3)
-const DiaryPage = ({ watched, users, currentUser, coupleId, onDelete, onEdit, onSaveReview, onUpdateStatus, onContinueEpisode, onToggleTogether, onAddToWatchlist, prefs }) => {
+const DiaryPage = ({ watched, users, currentUser, coupleId, addToast, onDelete, onEdit, onSaveReview, onUpdateStatus, onContinueEpisode, onToggleTogether, onAddToWatchlist, prefs }) => {
   const [sel, setSel] = useState(null);
   const [editing, setEditing] = useState(null);
   const [search, setSearch] = useState("");
@@ -3540,7 +3544,7 @@ const DiaryPage = ({ watched, users, currentUser, coupleId, onDelete, onEdit, on
         );
       })()}
       {editing && (
-        <WatchedForm users={users} currentUser={currentUser} coupleId={coupleId}
+        <WatchedForm users={users} currentUser={currentUser} coupleId={coupleId} addToast={addToast}
           initial={{ ...editing, movie: editing }}
           title="Editar registro"
           onSave={e => { onEdit(e); setEditing(null); }}
@@ -5717,14 +5721,14 @@ export default function App() {
         <div className="app-shell__content">
           {!dataReady ? <ContentSkeleton/> : (
             <div key={page} className="v3-page">
-              {page==="home"      && <HomePage      watched={watched} watchlist={watchlist} couple={couple} currentUser={currentUser} users={users} coupleId={coupleId}
+              {page==="home"      && <HomePage      watched={watched} watchlist={watchlist} couple={couple} currentUser={currentUser} users={users} coupleId={coupleId} addToast={addToast}
                                        onRoulette={()=>setShowRoulette(true)} onAdd={()=>setAddModal("watched")}
                                        onSaveReview={saveReview} onUpdateStatus={saveStatus} onContinueEpisode={continueEpisode} onToggleTogether={toggleTogether}
                                        onOpenSettings={()=>setShowSettings(true)}
                                        onOpenTicket={openTicket} onOpenCheckin={openCheckin} onGoWatchlist={()=>setPage("watchlist")}
                                        onGoDiary={()=>setPage("diary")} onGoProfile={()=>setPage("profile")}
                                        onEdit={editWatched} onDelete={e=>requestDelete(e,"watched")} prefs={prefs}/>}
-              {page==="diary"     && <DiaryPage     watched={watched} users={users} currentUser={currentUser} coupleId={coupleId}
+              {page==="diary"     && <DiaryPage     watched={watched} users={users} currentUser={currentUser} coupleId={coupleId} addToast={addToast}
                                        onDelete={e=>requestDelete(e,"watched")} onEdit={editWatched} onSaveReview={saveReview} onUpdateStatus={saveStatus}
                                        onContinueEpisode={continueEpisode} onToggleTogether={toggleTogether}
                                        onAddToWatchlist={()=>setAddModal("watchlist")} prefs={prefs}/>}

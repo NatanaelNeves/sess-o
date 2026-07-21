@@ -14,6 +14,7 @@ import { toPng } from "html-to-image";
 import "./App.css";
 import { Lumi, lumiSrc } from "./lumi.jsx";
 import { buildReviewPayload, canWriteReview, getReviewOwnerName } from "./reviewPermissions.js";
+import { getPhotoUploadErrorMessage, resolvePhotoUploadCoupleId } from "./photoUpload";
 
 const TMDB_BASE = "https://api.themoviedb.org/3";
 const TMDB_IMG = "https://image.tmdb.org/t/p/w500";
@@ -1068,14 +1069,21 @@ const WatchedForm = ({ users, currentUser, initial, onSave, onClose, title, coup
 
   const handlePhoto = async (kind, file) => {
     if (!file) return;
-    if (!coupleId) { addToast?.("Conecte a conta do casal para anexar fotos", "warning"); return; }
+    const validationError = getPhotoUploadErrorMessage(file);
+    if (validationError) {
+      addToast?.(validationError, "warning");
+      return;
+    }
+
+    const resolvedCoupleId = resolvePhotoUploadCoupleId(coupleId, initial?.coupleId);
+    if (!resolvedCoupleId) { addToast?.("Conecte a conta do casal para anexar fotos", "warning"); return; }
     setUploading(kind);
     try {
-      const url = await uploadSessionPhoto(coupleId, kind, file);
+      const url = await uploadSessionPhoto(resolvedCoupleId, kind, file);
       setPhotos(p => ({ ...p, [kind]: url }));
     } catch (err) {
       console.error(err);
-      addToast?.("Não foi possível enviar a foto", "error");
+      addToast?.(getPhotoUploadErrorMessage(file, err) || "Não foi possível enviar a foto", "error");
     } finally {
       setUploading(null);
     }
@@ -1235,7 +1243,7 @@ const WatchedForm = ({ users, currentUser, initial, onSave, onClose, title, coup
           ))}
         </div>
 
-        {/* detalhes da ida ao cinema + álbum de fotos da noite */}
+        {/* detalhes da ida ao cinema + álbum de fotos da memória */}
         {where === "cinema" && (
           <div className="ns-rate__reveal">
             <div className="field-block field-block--wide" style={{ marginTop: 14 }}>
@@ -1261,30 +1269,30 @@ const WatchedForm = ({ users, currentUser, initial, onSave, onClose, title, coup
                 </span>
               </button>
             </div>
-
-            <div className="field-block field-block--wide">
-              <Label>Fotos da noite</Label>
-              <div className="field-sub">o casal, os ingressos, a pipoca — viram o álbum dessa memória</div>
-              <div className="cine-photos">
-                {PHOTO_KINDS.map(k => (
-                  <label key={k.key} className={`cine-photo ${photos[k.key] ? "cine-photo--filled" : ""}`}>
-                    {photos[k.key]
-                      ? <img src={photos[k.key]} alt={k.label}/>
-                      : uploading === k.key
-                        ? <span className="cine-photo__ph"><span className="cine-photo__spin"/>enviando…</span>
-                        : <span className="cine-photo__ph"><span className="cine-photo__emoji">{k.emoji}</span>{k.label}</span>}
-                    <input type="file" accept="image/*" hidden disabled={!!uploading}
-                      onChange={e => handlePhoto(k.key, e.target.files?.[0])}/>
-                    {photos[k.key] && (
-                      <button type="button" className="cine-photo__x"
-                        onClick={e => { e.preventDefault(); removePhoto(k.key); }} aria-label="Remover foto">✕</button>
-                    )}
-                  </label>
-                ))}
-              </div>
-            </div>
           </div>
         )}
+
+        <div className="field-block field-block--wide">
+          <Label>Fotos da memória</Label>
+          <div className="field-sub">o casal, os ingressos, a pipoca — tudo vira parte do álbum dessa memória</div>
+          <div className="cine-photos">
+            {PHOTO_KINDS.map(k => (
+              <label key={k.key} className={`cine-photo ${photos[k.key] ? "cine-photo--filled" : ""}`}>
+                {photos[k.key]
+                  ? <img src={photos[k.key]} alt={k.label}/>
+                  : uploading === k.key
+                    ? <span className="cine-photo__ph"><span className="cine-photo__spin"/>enviando…</span>
+                    : <span className="cine-photo__ph"><span className="cine-photo__emoji">{k.emoji}</span>{k.label}</span>}
+                <input type="file" accept="image/*" hidden disabled={!!uploading}
+                  onChange={e => handlePhoto(k.key, e.target.files?.[0])}/>
+                {photos[k.key] && (
+                  <button type="button" className="cine-photo__x"
+                    onClick={e => { e.preventDefault(); removePhoto(k.key); }} aria-label="Remover foto">✕</button>
+                )}
+              </label>
+            ))}
+          </div>
+        </div>
 
         {/* 📅 quando aconteceu? */}
         <div className="ns-q"><span className="ns-q__emoji">📅</span>Quando aconteceu?</div>
@@ -3079,7 +3087,7 @@ const InviteScreen = ({ inviteCode, couple, onSignOut }) => (
 // home page — v3: a Home responde uma única pergunta, "o que faz sentido agora?" —
 // um único card principal muda por prioridade (avaliação pendente > sessão marcada >
 // continue assistindo > sugestão do Lumi), o resto é identidade do casal + memórias.
-const HomePage = ({ watched, watchlist, couple, currentUser, users, onRoulette, onAdd,
+const HomePage = ({ watched, watchlist, couple, currentUser, users, coupleId, onRoulette, onAdd,
   onSaveReview, onUpdateStatus, onContinueEpisode, onToggleTogether, onOpenSettings,
   onOpenTicket, onOpenCheckin, onGoWatchlist, onGoDiary, onGoProfile,
   onEdit, prefs }) => {
@@ -3482,7 +3490,7 @@ const TimelineView = ({ items, users, onSelect, onDelete }) => {
 };
 
 // diary page — "O acervo de vocês" (v3)
-const DiaryPage = ({ watched, users, currentUser, onDelete, onEdit, onSaveReview, onUpdateStatus, onContinueEpisode, onToggleTogether, onAddToWatchlist, prefs }) => {
+const DiaryPage = ({ watched, users, currentUser, coupleId, onDelete, onEdit, onSaveReview, onUpdateStatus, onContinueEpisode, onToggleTogether, onAddToWatchlist, prefs }) => {
   const [sel, setSel] = useState(null);
   const [editing, setEditing] = useState(null);
   const [search, setSearch] = useState("");
@@ -3532,7 +3540,7 @@ const DiaryPage = ({ watched, users, currentUser, onDelete, onEdit, onSaveReview
         );
       })()}
       {editing && (
-        <WatchedForm users={users} currentUser={currentUser}
+        <WatchedForm users={users} currentUser={currentUser} coupleId={coupleId}
           initial={{ ...editing, movie: editing }}
           title="Editar registro"
           onSave={e => { onEdit(e); setEditing(null); }}
@@ -5709,14 +5717,14 @@ export default function App() {
         <div className="app-shell__content">
           {!dataReady ? <ContentSkeleton/> : (
             <div key={page} className="v3-page">
-              {page==="home"      && <HomePage      watched={watched} watchlist={watchlist} couple={couple} currentUser={currentUser} users={users}
+              {page==="home"      && <HomePage      watched={watched} watchlist={watchlist} couple={couple} currentUser={currentUser} users={users} coupleId={coupleId}
                                        onRoulette={()=>setShowRoulette(true)} onAdd={()=>setAddModal("watched")}
                                        onSaveReview={saveReview} onUpdateStatus={saveStatus} onContinueEpisode={continueEpisode} onToggleTogether={toggleTogether}
                                        onOpenSettings={()=>setShowSettings(true)}
                                        onOpenTicket={openTicket} onOpenCheckin={openCheckin} onGoWatchlist={()=>setPage("watchlist")}
                                        onGoDiary={()=>setPage("diary")} onGoProfile={()=>setPage("profile")}
                                        onEdit={editWatched} onDelete={e=>requestDelete(e,"watched")} prefs={prefs}/>}
-              {page==="diary"     && <DiaryPage     watched={watched} users={users} currentUser={currentUser}
+              {page==="diary"     && <DiaryPage     watched={watched} users={users} currentUser={currentUser} coupleId={coupleId}
                                        onDelete={e=>requestDelete(e,"watched")} onEdit={editWatched} onSaveReview={saveReview} onUpdateStatus={saveStatus}
                                        onContinueEpisode={continueEpisode} onToggleTogether={toggleTogether}
                                        onAddToWatchlist={()=>setAddModal("watchlist")} prefs={prefs}/>}

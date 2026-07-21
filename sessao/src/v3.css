@@ -2374,6 +2374,7 @@
 .pf-hero__gear {
   position: absolute;
   right: 16px; top: 22px;
+  z-index: 2; /* o container dos avatares (largura total, transparente) vem depois no DOM e roubava o clique */
   width: 34px; height: 34px;
   border-radius: 50%;
   background: #12121f;

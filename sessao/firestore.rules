@@ -12,16 +12,17 @@ service cloud.firestore {
     function coupleData(coupleId) {
       return get(/databases/$(database)/documents/couples/$(coupleId)).data;
     }
+    // funções de regra aceitam só uma expressão de retorno — nada de `if`
     function reviewOwnerName(coupleData) {
-      if (request.auth.uid == coupleData.uid1) return coupleData.name1;
-      if (request.auth.uid == coupleData.uid2) return coupleData.name2;
-      return null;
+      return request.auth.uid == coupleData.uid1 ? coupleData.name1
+           : request.auth.uid == coupleData.uid2 ? coupleData.name2
+           : null;
     }
     function ownReviewUpdate(coupleData) {
       let owner = reviewOwnerName(coupleData);
       return owner != null
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["reviews"])
-        && request.resource.data.reviews.keys().hasOnly(resource.data.reviews.keys().union([owner]))
+        && request.resource.data.reviews.keys().toSet().hasOnly(resource.data.reviews.keys().toSet().union([owner].toSet()))
         && request.resource.data.reviews.keys().hasAll(resource.data.reviews.keys())
         && request.resource.data.reviews[owner] != null;
     }
@@ -61,6 +62,16 @@ service cloud.firestore {
       // Watchlist subcollection
       match /watchlist/{entryId} {
         allow read, write: if isAuth() && isMember(coupleData(coupleId));
+      }
+
+      // Álbum das sessões — uma foto por documento, guardada como data URL
+      // porque o plano gratuito do Firebase não inclui o Storage.
+      match /photos/{photoId} {
+        allow read: if isAuth() && isMember(coupleData(coupleId));
+        allow create, update: if isAuth() && isMember(coupleData(coupleId))
+          && request.resource.data.data is string
+          && request.resource.data.data.size() <= 700000;
+        allow delete: if isAuth() && isMember(coupleData(coupleId));
       }
     }
   }

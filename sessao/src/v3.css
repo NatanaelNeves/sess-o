@@ -886,7 +886,13 @@
 .search-pill__clear { background: none; border: none; color: var(--text-tertiary); display: flex; padding: 4px; }
 
 /* ---------- App shell v3: sem top bar, nav blur com FAB ---------- */
-.v3-shell { max-width: 520px; margin: 0 auto; padding: 0 20px calc(108px + env(safe-area-inset-bottom, 0px)); }
+/* padding-top da safe area: instalado na tela de início o app roda em
+   standalone com viewport-fit=cover, então sem isso o conteúdo passa POR BAIXO
+   da barra de status (relógio, wi-fi, bateria) */
+.v3-shell {
+  max-width: 520px; margin: 0 auto;
+  padding: env(safe-area-inset-top, 0px) 20px calc(108px + env(safe-area-inset-bottom, 0px));
+}
 .v3-nav {
   position: fixed;
   bottom: 0;
@@ -1208,9 +1214,9 @@
 .lumi-insight--teal { background: rgba(143, 208, 192, 0.06); border-color: rgba(143, 208, 192, 0.2); }
 .lumi-insight--teal .lumi-insight__text { color: var(--teal); }
 
-.detail-actions { display: flex; gap: 10px; margin-top: 18px; }
+.detail-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; }
 .detail-actions .pill { height: 48px; font-size: 13px; }
-.detail-actions .pill--primary { flex: 1; }
+.detail-actions .pill--primary { flex: 1 1 170px; min-width: 0; }
 
 /* ---------- Nova sessão (registrar) ---------- */
 .ns-head { display: flex; align-items: center; gap: 12px; margin-bottom: 4px; }
@@ -1398,8 +1404,11 @@
 .wl-card__providers-loading { font-size: 12px; color: var(--text-tertiary); }
 .wl-card__providers-row { display: flex; gap: 6px; }
 .wl-card__provider { width: 30px; height: 30px; border-radius: 8px; object-fit: cover; }
-.wl-card__actions { display: flex; gap: 10px; }
-.wl-card__actions .pill--primary { flex: 1; }
+/* ações da jornada — no mobile o card é estreito: os botões quebram em linha
+   inteira em vez de serem espremidos até a letra virar coluna */
+.wl-card__actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.wl-card__actions .pill { flex: 1 1 170px; min-width: 0; }
+.wl-card__actions .pill--sm { flex: 0 0 auto; }
 
 /* microinteração: coração pop */
 @keyframes heartPop {
@@ -2160,7 +2169,6 @@
 /* pill dourada preenchida (planejar / ver ingresso) */
 .pill--gold { background: linear-gradient(180deg, var(--gold), #a9772e); color: #17110a; border: none; font-weight: 700; box-shadow: 0 10px 26px rgba(201,153,58,.32); }
 .pill--gold:hover { box-shadow: 0 14px 32px rgba(201,153,58,.45); }
-.wl-card__actions .pill--gold { flex: 1; }
 
 /* lembrete dourado do Lumi (sessão passou) */
 .lumi-note--gold { background: rgba(201,153,58,.1); border-color: rgba(201,153,58,.28); margin: 0 0 12px; }
@@ -2214,7 +2222,19 @@
 .cine-album { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 8px; }
 .cine-album__item { position: relative; aspect-ratio: 3/4; border-radius: 14px; overflow: hidden; display: block; }
 .cine-album__item img { width: 100%; height: 100%; object-fit: cover; }
+.cine-album__item--loading { background: rgba(255,255,255,.06); animation: albumPulse 1.2s ease-in-out infinite; }
+@keyframes albumPulse { 0%, 100% { opacity: .45; } 50% { opacity: .85; } }
 .cine-album__cap { position: absolute; left: 0; right: 0; bottom: 0; padding: 5px 7px; font-size: 10px; font-weight: 700; color: #fff; background: linear-gradient(0deg, rgba(0,0,0,.7), transparent); }
+/* álbum vazio — convite pra guardar as fotos da noite */
+.cine-album__empty {
+  width: 100%; margin-top: 8px; padding: 14px; display: flex; align-items: center; gap: 12px;
+  text-align: left; cursor: pointer; color: var(--text-primary);
+  border: 1px dashed rgba(201,153,58,.34); border-radius: 18px;
+  background: rgba(201,153,58,.06);
+}
+.cine-album__empty-emoji { font-size: 19px; letter-spacing: -2px; flex-shrink: 0; }
+.cine-album__empty-text { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--text-tertiary); line-height: 1.4; }
+.cine-album__empty-text strong { font-size: 13px; color: var(--gold-soft); font-weight: 700; }
 
 /* ============================================================
    REDESIGN Sessao-v3 · ROW 0 — Home, Acervo, Perfil e Detalhe
@@ -2746,3 +2766,37 @@
 .icon-round:hover { background: rgba(255, 255, 255, 0.06); transform: translateY(-2px); }
 .icon-round:active { transform: scale(0.94); }
 .icon-round--muted { border-color: var(--border-default); color: var(--text-tertiary); }
+
+/* ---------- Mobile: área de toque e quebra de linha ---------- */
+
+/* Links de texto pequenos (14–29px de altura) eram difíceis de acertar com o
+   dedo. O ::after estende SÓ a área clicável até 44px — o visual não muda. */
+.home-sec-head__link,
+.justwatch-link,
+.mdetail-footrow__links,
+.status-update-link,
+.review-edit-btn,
+.saga-film__watch { position: relative; }
+.home-sec-head__link::after,
+.justwatch-link::after,
+.mdetail-footrow__links::after,
+.status-update-link::after,
+.review-edit-btn::after,
+.saga-film__watch::after {
+  content: "";
+  position: absolute;
+  left: 0; right: 0;
+  top: 50%; transform: translateY(-50%);
+  height: 44px;
+  pointer-events: auto;
+}
+
+/* Linhas de botão que cabiam por 2px a 375px e estouravam abaixo disso.
+   Como .pill usa overflow-wrap:anywhere, sem wrap o texto vira coluna de
+   letras em vez de simplesmente quebrar. */
+.share-actions,
+.rl-cine__actions { flex-wrap: wrap; }
+.share-actions > .pill,
+.rl-cine__actions > .pill { min-width: 0; }
+.share-actions > .pill:not(.pill--sm),
+.rl-cine__actions > .pill:not(.pill--sm) { flex: 1 1 150px; }

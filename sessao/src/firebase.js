@@ -1,7 +1,6 @@
 import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from "firebase/firestore";
-import { getStorage } from "firebase/storage";
 
 // A config web do Firebase NÃO é segredo — o Google documenta que ela pode ser
 // pública no código do cliente (a segurança vem das regras do Firestore + Auth).
@@ -24,5 +23,5 @@ export const db   = initializeFirestore(app, {
     tabManager: persistentMultipleTabManager(),
   }),
 });
-// Storage — fotos das memórias de cinema (casal, ingressos, pipoca)
-export const storage = getStorage(app);
+// Sem Storage: o plano gratuito do Firebase não o inclui, então as fotos das
+// memórias ficam no próprio Firestore (ver src/photoAlbum.js).

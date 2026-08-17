@@ -1,7 +1,7 @@
 ﻿import { useState, useEffect, useRef, useMemo, Component, Fragment } from "react";
 import { createPortal } from "react-dom";
 import { useCallback } from "react";
-import { auth, db, storage } from "./firebase";
+import { auth, db } from "./firebase";
 import {
   onAuthStateChanged, signInWithPopup, signInWithRedirect, getRedirectResult,
   signOut, deleteUser, reauthenticateWithPopup, GoogleAuthProvider,
@@ -10,7 +10,6 @@ import {
   collection, doc, addDoc, setDoc, updateDoc, deleteDoc, deleteField,
   onSnapshot, query, where, getDocs, getDoc, writeBatch,
 } from "firebase/firestore";
-import { ref as storageRef, uploadBytes, getDownloadURL, listAll, deleteObject } from "firebase/storage";
 import { toPng } from "html-to-image";
 import "./App.css";
 import { Lumi, lumiSrc } from "./lumi.jsx";
@@ -18,6 +17,7 @@ import { buildReviewPayload, canWriteReview, getReviewOwnerName } from "./review
 import { getPhotoUploadErrorMessage, resolvePhotoUploadCoupleId } from "./photoUpload";
 import { generateInviteCode, normalizeInviteCode, isInviteCodeValid, INVITE_CODE_LENGTH } from "./inviteCode.js";
 import { chunkItems, getAccountDeletionRole, withoutUserReview } from "./accountDeletion.js";
+import { albumKinds, compressPhotoToDataUrl, loadAlbum, newAlbumId, removePhoto, savePhoto } from "./photoAlbum";
 
 const TMDB_BASE = "https://api.themoviedb.org/3";
 const TMDB_IMG = "https://image.tmdb.org/t/p/w500";
@@ -1005,32 +1005,6 @@ const fmtShortDate = d => d
   ? new Date(d + "T12:00:00").toLocaleDateString("pt-BR", { day: "2-digit", month: "short" }).replace(".", "")
   : "";
 
-// comprime a foto no navegador antes de subir pro Storage (memórias leves)
-const compressImage = (file, maxDim = 1280, quality = 0.82) => new Promise((resolve, reject) => {
-  const img = new Image();
-  const url = URL.createObjectURL(file);
-  img.onload = () => {
-    URL.revokeObjectURL(url);
-    let { width, height } = img;
-    if (width > height && width > maxDim) { height = Math.round(height * maxDim / width); width = maxDim; }
-    else if (height > maxDim) { width = Math.round(width * maxDim / height); height = maxDim; }
-    const canvas = document.createElement("canvas");
-    canvas.width = width; canvas.height = height;
-    canvas.getContext("2d").drawImage(img, 0, 0, width, height);
-    canvas.toBlob(b => b ? resolve(b) : reject(new Error("compress failed")), "image/jpeg", quality);
-  };
-  img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("load failed")); };
-  img.src = url;
-});
-// sobe uma foto da sessão pro Storage e devolve a URL pública
-const uploadSessionPhoto = async (coupleId, kind, file) => {
-  const blob = await compressImage(file);
-  const path = `couples/${coupleId}/cinema/${Date.now()}-${kind}.jpg`;
-  const r = storageRef(storage, path);
-  await uploadBytes(r, blob, { contentType: "image/jpeg" });
-  return await getDownloadURL(r);
-};
-
 // watched form — bottom sheet premium "A nota do casal" (v3, shared Add + Edit)
 const PHOTO_KINDS = [
   { key: "couple",  emoji: "❤️", label: "O casal" },
@@ -1058,8 +1032,16 @@ const WatchedForm = ({ users, currentUser, initial, onSave, onClose, title, coup
   const [cinemaTime, setCinemaTime] = useState(initial?.cinemaTime || initial?.time || "");
   const [seats, setSeats] = useState(initial?.seats || "");
   const [imax, setImax] = useState(initial?.imax || false);
-  const [photos, setPhotos] = useState(initial?.photos || {});
+  // álbum: as fotos ficam em memória enquanto o casal preenche e só vão pro
+  // Firestore ao guardar — assim cancelar o formulário não deixa lixo
+  const [albumId] = useState(() => initial?.albumId || newAlbumId());
+  const [photos, setPhotos] = useState({});
   const [uploading, setUploading] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const savedPhotos = useRef({});
+  // só depois que o álbum guardado chega é que podemos concluir que uma foto
+  // ausente foi REMOVIDA pelo casal — antes disso ela só ainda não carregou
+  const [albumReady, setAlbumReady] = useState(false);
   const [reviews, setReviews] = useState(() => ({
     [currentUser]: {
       rating: initial?.reviews?.[currentUser]?.rating || 0,
@@ -1074,6 +1056,23 @@ const WatchedForm = ({ users, currentUser, initial, onSave, onClose, title, coup
   const setReview = (user, field, val) => setReviews(r => ({ ...r, [user]: { ...r[user], [field]: val } }));
   const toggleEmotion = id => setEmotions(e => e.includes(id) ? e.filter(x => x !== id) : [...e, id]);
 
+  // edição: traz o álbum que já está guardado pra ele aparecer no formulário
+  const initialAlbumId = initial?.albumId;
+  const initialKinds = useMemo(() => albumKinds(initial), [initial]);
+  useEffect(() => {
+    if (!coupleId || !initialAlbumId || !initialKinds.length) return;
+    let alive = true;
+    loadAlbum(coupleId, initialAlbumId, initialKinds)
+      .then(loaded => {
+        if (!alive) return;
+        savedPhotos.current = loaded;
+        setPhotos(p => ({ ...loaded, ...p }));
+        setAlbumReady(true);
+      })
+      .catch(err => console.error(err));
+    return () => { alive = false; };
+  }, [coupleId, initialAlbumId, initialKinds]);
+
   const handlePhoto = async (kind, file) => {
     if (!file) return;
     const validationError = getPhotoUploadErrorMessage(file);
@@ -1086,16 +1085,44 @@ const WatchedForm = ({ users, currentUser, initial, onSave, onClose, title, coup
     if (!resolvedCoupleId) { addToast?.("Conecte a conta do casal para anexar fotos", "warning"); return; }
     setUploading(kind);
     try {
-      const url = await uploadSessionPhoto(resolvedCoupleId, kind, file);
-      setPhotos(p => ({ ...p, [kind]: url }));
+      const dataUrl = await compressPhotoToDataUrl(file);
+      setPhotos(p => ({ ...p, [kind]: dataUrl }));
     } catch (err) {
       console.error(err);
-      addToast?.(getPhotoUploadErrorMessage(file, err) || "Não foi possível enviar a foto", "error");
+      addToast?.(getPhotoUploadErrorMessage(file, err) || "Não foi possível guardar a foto", "error");
     } finally {
       setUploading(null);
     }
   };
-  const removePhoto = kind => setPhotos(p => { const n = { ...p }; delete n[kind]; return n; });
+  const dropPhoto = kind => setPhotos(p => { const n = { ...p }; delete n[kind]; return n; });
+
+  // grava só o que mudou: fotos novas entram, fotos tiradas do álbum saem
+  const persistAlbum = async () => {
+    const resolvedCoupleId = resolvePhotoUploadCoupleId(coupleId, initial?.coupleId);
+    if (!resolvedCoupleId) return;
+    // se o álbum guardado ainda não chegou, nunca apagamos nada: uma foto
+    // ausente aqui significaria "ainda carregando", não "o casal tirou"
+    const podeApagar = albumReady || !initialKinds.length;
+    const writes = PHOTO_KINDS.map(({ key }) => {
+      const next = photos[key];
+      const prev = savedPhotos.current[key];
+      if (next && next !== prev) return savePhoto(resolvedCoupleId, albumId, key, next);
+      if (!next && podeApagar && initialKinds.includes(key)) return removePhoto(resolvedCoupleId, albumId, key);
+      return null;
+    }).filter(Boolean);
+    if (writes.length) await Promise.all(writes);
+  };
+
+  // quais fotos a entrada passa a ter. Enquanto o álbum não carregou, as que
+  // já existiam continuam valendo — senão salvar rápido perderia a referência
+  // delas e o acervo mostraria um álbum vazio com as imagens órfãs no banco
+  const albumFlags = () => {
+    const kinds = PHOTO_KINDS.filter(k => photos[k.key]).map(k => k.key);
+    const todas = albumReady || !initialKinds.length
+      ? kinds
+      : [...new Set([...kinds, ...initialKinds])];
+    return Object.fromEntries(todas.map(k => [k, true]));
+  };
 
   // nota do casal ao vivo — inclui a nota do parceiro quando ela já existe (edição)
   const partner = users.find(u => u !== currentUser) || null;
@@ -1122,8 +1149,8 @@ const WatchedForm = ({ users, currentUser, initial, onSave, onClose, title, coup
     { label: "Guardar", done: false },
   ];
 
-  const handleSave = () => {
-    if (!movie) return;
+  const handleSave = async () => {
+    if (!movie || saving) return;
     const ownerName = currentUser;
     const reviewPayload = {
       [ownerName]: {
@@ -1139,8 +1166,20 @@ const WatchedForm = ({ users, currentUser, initial, onSave, onClose, title, coup
       time: cinemaTime || "",
       seats: seats || "",
       imax: !!imax,
-      ...(Object.keys(photos).length ? { photos } : {}),
     } : {};
+
+    // o álbum vai antes: se as fotos não couberem, o casal decide se guarda
+    // a memória sem elas em vez de perder tudo que já preencheu
+    setSaving(true);
+    try {
+      await persistAlbum();
+    } catch (err) {
+      console.error(err);
+      setSaving(false);
+      addToast?.("Não foi possível guardar as fotos. A memória continua aqui — tente de novo.", "error");
+      return;
+    }
+
     onSave({
       id: initial?.id || Date.now().toString(),
       ...movie,
@@ -1150,6 +1189,10 @@ const WatchedForm = ({ users, currentUser, initial, onSave, onClose, title, coup
       watchedTogether: together,
       emotions,
       ...cinemaFields,
+      // o álbum vale pra qualquer lugar — cinema, sofá, viagem. A entrada só
+      // registra QUAIS fotos existem; as imagens moram na coleção `photos`.
+      albumId,
+      photos: albumFlags(),
       // séries em andamento: o marcador de episódio é definido no navegador real
       // (TMDB) pelo botão "Escolher onde pararam" — sem contador manual aqui.
       addedBy: initial?.addedBy || currentUser,
@@ -1288,8 +1331,10 @@ const WatchedForm = ({ users, currentUser, initial, onSave, onClose, title, coup
                 {photos[k.key]
                   ? <img src={photos[k.key]} alt={k.label}/>
                   : uploading === k.key
-                    ? <span className="cine-photo__ph"><span className="cine-photo__spin"/>enviando…</span>
-                    : <span className="cine-photo__ph"><span className="cine-photo__emoji">{k.emoji}</span>{k.label}</span>}
+                    ? <span className="cine-photo__ph"><span className="cine-photo__spin"/>preparando…</span>
+                    : !albumReady && initialKinds.includes(k.key)
+                      ? <span className="cine-photo__ph"><span className="cine-photo__spin"/>abrindo…</span>
+                      : <span className="cine-photo__ph"><span className="cine-photo__emoji">{k.emoji}</span>{k.label}</span>}
                 <input type="file" accept="image/*" hidden disabled={!!uploading}
                   onChange={e => {
                     const file = e.target.files?.[0];
@@ -1298,7 +1343,7 @@ const WatchedForm = ({ users, currentUser, initial, onSave, onClose, title, coup
                   }}/>
                 {photos[k.key] && (
                   <button type="button" className="cine-photo__x"
-                    onClick={e => { e.preventDefault(); removePhoto(k.key); }} aria-label="Remover foto">✕</button>
+                    onClick={e => { e.preventDefault(); dropPhoto(k.key); }} aria-label="Remover foto">✕</button>
                 )}
               </label>
             ))}
@@ -1336,11 +1381,14 @@ const WatchedForm = ({ users, currentUser, initial, onSave, onClose, title, coup
 
           {myRating > 0 && (
             <div className="ns-rate__reveal" key="reveal">
-              <div className="ns-q" style={{ margin: "14px 0 8px", fontSize: 17 }}>
-                <span className="ns-q__emoji">✍️</span>O que tornou essa sessão especial?
+              <div className="ns-q" style={{ margin: "14px 0 4px", fontSize: 17 }}>
+                <span className="ns-q__emoji">✍️</span>Sua crítica {movie.type === "tv" ? "da série" : "do filme"}
+              </div>
+              <div className="ns-q__hint" style={{ marginBottom: 8 }}>
+                o que vocês acharam {movie.type === "tv" ? "dela" : "dele"} — vira a crítica de vocês no acervo
               </div>
               <textarea value={myText} onChange={e => setReview(currentUser, "text", e.target.value)}
-                placeholder="conte em uma frase..." rows={2}
+                placeholder={movie.type === "tv" ? "o que você achou da série..." : "o que você achou do filme..."} rows={2}
                 className="review-card__textarea"/>
             </div>
           )}
@@ -1364,8 +1412,8 @@ const WatchedForm = ({ users, currentUser, initial, onSave, onClose, title, coup
             </div>
           </div>
 
-          <button onClick={handleSave} className="pill pill--primary pill--block pill--breathe" style={{ marginTop: 14 }}>
-            ❤️ Guardar essa memória
+          <button onClick={handleSave} disabled={saving} className="pill pill--primary pill--block pill--breathe" style={{ marginTop: 14 }}>
+            {saving ? "Guardando…" : "❤️ Guardar essa memória"}
           </button>
           <div className="ns-cta-sub">Ela fará parte da história de vocês.</div>
         </div>
@@ -1701,7 +1749,7 @@ const COUPLE_VERDICTS = [
 ];
 const coupleVerdict = diff => COUPLE_VERDICTS[Math.min(diff,4)];
 // detail modal — "Detalhe do filme · crítica do casal" + série (v3)
-const DetailModal = ({ entry, users, onClose, onMarkWatched, onEdit, onSaveReview, currentUser, fromWatchlist, onUpdateStatus, onContinueEpisode, onToggleTogether, onDelete, onAlsoWant, prefs, watched = [] }) => {
+const DetailModal = ({ entry, users, onClose, onMarkWatched, onEdit, onSaveReview, currentUser, fromWatchlist, onUpdateStatus, onContinueEpisode, onToggleTogether, onDelete, onAlsoWant, prefs, watched = [], coupleId }) => {
   const [inlineRating, setInlineRating] = useState(0);
   const [inlineText, setInlineText] = useState("");
   const [savingReview, setSavingReview] = useState(false);
@@ -1714,6 +1762,7 @@ const DetailModal = ({ entry, users, onClose, onMarkWatched, onEdit, onSaveRevie
   const [providers, setProviders] = useState(null);
   const [showShare, setShowShare] = useState(false);
   const [fullOverview, setFullOverview] = useState(false);
+  const [album, setAlbum] = useState(null); // null = ainda carregando
 
   useEffect(() => {
     if (!statusDropdown) return;
@@ -1737,6 +1786,19 @@ const DetailModal = ({ entry, users, onClose, onMarkWatched, onEdit, onSaveRevie
       })
       .catch(() => setProviders({ flatrate:[], link:null }));
   }, [entry.tmdbId, entry.type]);
+
+  // o álbum é carregado só ao abrir a memória — as fotos não viajam junto com
+  // a lista do acervo, que seria pesada demais
+  const entryAlbumId = entry.albumId;
+  const entryKinds = useMemo(() => albumKinds(entry), [entry]);
+  useEffect(() => {
+    if (fromWatchlist || !coupleId || !entryAlbumId || !entryKinds.length) return;
+    let alive = true;
+    loadAlbum(coupleId, entryAlbumId, entryKinds)
+      .then(a => { if (alive) setAlbum(a); })
+      .catch(err => { console.error(err); if (alive) setAlbum({}); });
+    return () => { alive = false; };
+  }, [fromWatchlist, coupleId, entryAlbumId, entryKinds]);
 
   const poster   = entry.poster   ? `${TMDB_IMG}${entry.poster}` : null;
   const backdrop = entry.backdrop ? `${TMDB_BG}${entry.backdrop}` : null;
@@ -1890,20 +1952,40 @@ const DetailModal = ({ entry, users, onClose, onMarkWatched, onEdit, onSaveRevie
           </div>
         )}
 
-        {/* álbum da noite */}
-        {!fromWatchlist && entry.photos && Object.keys(entry.photos).length > 0 && (
-          <div className="field-block field-block--wide">
-            <Label>O álbum dessa noite</Label>
-            <div className="cine-album">
-              {PHOTO_KINDS.filter(k => entry.photos[k.key]).map(k => (
-                <a key={k.key} href={entry.photos[k.key]} target="_blank" rel="noreferrer" className="cine-album__item">
-                  <img src={entry.photos[k.key]} alt={k.label}/>
-                  <span className="cine-album__cap">{k.emoji} {k.label}</span>
-                </a>
-              ))}
+        {/* álbum da noite — sempre presente no acervo, mesmo vazio, pra dar
+            um caminho até as fotos em vez de só nota + crítica */}
+        {!fromWatchlist && (() => {
+          const loading = album === null && entryKinds.length > 0;
+          const shots = PHOTO_KINDS.filter(k => album?.[k.key]);
+          if (!loading && !shots.length && !onEdit) return null;
+          return (
+            <div className="field-block field-block--wide">
+              <Label>O álbum dessa noite</Label>
+              {loading ? (
+                <div className="cine-album">
+                  {entryKinds.map(k => <div key={k} className="cine-album__item cine-album__item--loading"/>)}
+                </div>
+              ) : shots.length ? (
+                <div className="cine-album">
+                  {shots.map(k => (
+                    <a key={k.key} href={album[k.key]} target="_blank" rel="noreferrer" className="cine-album__item">
+                      <img src={album[k.key]} alt={k.label}/>
+                      <span className="cine-album__cap">{k.emoji} {k.label}</span>
+                    </a>
+                  ))}
+                </div>
+              ) : (
+                <button type="button" className="cine-album__empty" onClick={onEdit}>
+                  <span className="cine-album__empty-emoji">❤️🎟️🍿</span>
+                  <span className="cine-album__empty-text">
+                    <strong>Nenhuma foto guardada ainda</strong>
+                    o casal, os ingressos, a pipoca — adicione ao álbum
+                  </span>
+                </button>
+              )}
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* emoções da sessão */}
         {!fromWatchlist && entry.emotions?.length > 0 && (
@@ -3138,10 +3220,10 @@ const InviteScreen = ({ inviteCode, couple, onContinue, onSignOut }) => {
 // home page — v3: a Home responde uma única pergunta, "o que faz sentido agora?" —
 // um único card principal muda por prioridade (avaliação pendente > sessão marcada >
 // continue assistindo > sugestão do Lumi), o resto é identidade do casal + memórias.
-const HomePage = ({ watched, watchlist, couple, currentUser, users, coupleId, onRoulette, onAdd,
+const HomePage = ({ watched, watchlist, couple, currentUser, users, coupleId, addToast, onRoulette, onAdd,
   onSaveReview, onUpdateStatus, onContinueEpisode, onToggleTogether, onOpenSettings,
   onOpenTicket, onOpenCheckin, onGoWatchlist, onGoDiary, onGoProfile,
-  onEdit, prefs, addToast }) => {
+  onEdit, prefs }) => {
   const [sel, setSel] = useState(null);
   const [editing, setEditing] = useState(null);
 
@@ -3271,6 +3353,7 @@ const HomePage = ({ watched, watchlist, couple, currentUser, users, coupleId, on
             onUpdateStatus={onUpdateStatus}
             onContinueEpisode={onContinueEpisode}
             onToggleTogether={onToggleTogether}
+            coupleId={coupleId}
             prefs={prefs} watched={watched}/>
         );
       })()}
@@ -3587,6 +3670,7 @@ const DiaryPage = ({ watched, users, currentUser, coupleId, addToast, onDelete, 
             onContinueEpisode={onContinueEpisode}
             onToggleTogether={onToggleTogether}
             onDelete={() => { setSel(null); onDelete(liveEntry); }}
+            coupleId={coupleId}
             prefs={prefs} watched={watched}/>
         );
       })()}
@@ -5570,16 +5654,15 @@ export default function App() {
       await reauthenticateWithPopup(user, new GoogleAuthProvider());
 
       if (coupleId && accountDeletionRole === "owner") {
-        // Arquivos precisam sair antes do documento do casal, que autoriza o acesso.
-        const photoFolder = storageRef(storage, `couples/${coupleId}/cinema`);
-        const photoList = await listAll(photoFolder);
-        await Promise.all(photoList.items.map(item => deleteObject(item)));
-
-        const [watchedSnapshot, watchlistSnapshot] = await Promise.all([
+        // As subcoleções precisam sair antes do documento do casal, que autoriza o acesso.
+        // As fotos moram no próprio Firestore (ver src/photoAlbum.js), então entram no
+        // mesmo lote de exclusão do acervo.
+        const [watchedSnapshot, watchlistSnapshot, photosSnapshot] = await Promise.all([
           getDocs(collection(db, "couples", coupleId, "watched")),
           getDocs(collection(db, "couples", coupleId, "watchlist")),
+          getDocs(collection(db, "couples", coupleId, "photos")),
         ]);
-        const childRefs = [...watchedSnapshot.docs, ...watchlistSnapshot.docs].map(item => item.ref);
+        const childRefs = [...watchedSnapshot.docs, ...watchlistSnapshot.docs, ...photosSnapshot.docs].map(item => item.ref);
         for (const refs of chunkItems(childRefs)) {
           const batch = writeBatch(db);
           refs.forEach(itemRef => batch.delete(itemRef));

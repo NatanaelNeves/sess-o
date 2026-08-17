@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 // Lumi — the Sessão mascot kit (V3 identity).
 // Assets live in /public/assets/kit as flat <name>.png files.
 // Reference by semantic name via the <Lumi> component or LUMI map.

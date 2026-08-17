@@ -17,29 +17,67 @@ service cloud.firestore {
       if (request.auth.uid == coupleData.uid2) return coupleData.name2;
       return null;
     }
+    function reviewPartnerName(coupleData) {
+      if (request.auth.uid == coupleData.uid1) return coupleData.name2;
+      if (request.auth.uid == coupleData.uid2) return coupleData.name1;
+      return null;
+    }
     function ownReviewUpdate(coupleData) {
       let owner = reviewOwnerName(coupleData);
+      let partner = reviewPartnerName(coupleData);
+      let oldReviews = resource.data.get("reviews", {});
+      let newReviews = request.resource.data.get("reviews", {});
       return owner != null
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["reviews"])
-        && request.resource.data.reviews.keys().hasOnly(resource.data.reviews.keys().union([owner]))
-        && request.resource.data.reviews.keys().hasAll(resource.data.reviews.keys())
-        && request.resource.data.reviews[owner] != null;
+        && newReviews.keys().hasOnly(oldReviews.keys().union([owner]))
+        && newReviews.keys().hasAll(oldReviews.keys().removeAll([owner]))
+        && (!newReviews.keys().hasAny([owner]) || newReviews[owner] != null)
+        && (partner == null
+          || newReviews.get(partner, null) == oldReviews.get(partner, null));
+    }
+    function isJoiningCouple(coupleId) {
+      let code = resource.data.inviteCode;
+      return resource.data.uid2 == null
+        && request.resource.data.uid2 == request.auth.uid
+        && request.resource.data.name2 is string
+        && request.resource.data.name2.size() >= 1
+        && request.resource.data.name2.size() <= 40
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["uid2", "name2"])
+        && exists(/databases/$(database)/documents/inviteCodes/$(code))
+        && get(/databases/$(database)/documents/inviteCodes/$(code)).data.coupleId == coupleId;
+    }
+    function isOwnProfileUpdate() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(["name1", "name2", "since"])
+        && (
+          (resource.data.uid1 == request.auth.uid && request.resource.data.name2 == resource.data.name2)
+          || (resource.data.uid2 == request.auth.uid && request.resource.data.name1 == resource.data.name1)
+        );
+    }
+    function isLeavingCouple() {
+      return resource.data.uid2 == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["uid2", "name2"])
+        && !('uid2' in request.resource.data)
+        && !('name2' in request.resource.data);
     }
 
     // Couples collection
     match /couples/{coupleId} {
-      // Any authenticated user can read (needed for invite code lookup)
-      allow read: if isAuth();
+      // Only the two members can read the couple document. Queries filtered by
+      // uid1/uid2 continue to work without exposing other couples or invite codes.
+      allow read: if isAuth() && isMember(resource.data);
 
       // Create: only the first user (uid1) can create their own couple
-      allow create: if isAuth() && request.resource.data.uid1 == request.auth.uid;
+      allow create: if isAuth()
+        && request.resource.data.uid1 == request.auth.uid
+        && request.resource.data.uid2 == null
+        && request.resource.data.name1 is string
+        && request.resource.data.name1.size() >= 1
+        && request.resource.data.name1.size() <= 40
+        && request.resource.data.inviteCode is string
+        && request.resource.data.inviteCode.size() >= 6
+        && request.resource.data.inviteCode.size() <= 8;
 
-      // Update: uid1 can update anything; someone joining sets uid2 if it's currently null
-      allow update: if isAuth() && (
-        resource.data.uid1 == request.auth.uid ||
-        resource.data.uid2 == request.auth.uid ||
-        (resource.data.uid2 == null && request.resource.data.uid2 == request.auth.uid)
-      );
+      allow update: if isAuth() && (isOwnProfileUpdate() || isJoiningCouple(coupleId) || isLeavingCouple());
 
       // Delete: only uid1 can delete
       allow delete: if isAuth() && resource.data.uid1 == request.auth.uid;
@@ -62,6 +100,22 @@ service cloud.firestore {
       match /watchlist/{entryId} {
         allow read, write: if isAuth() && isMember(coupleData(coupleId));
       }
+    }
+
+    // Invite codes live in a separate, minimal lookup document. A signed-in
+    // user may fetch one exact code, but cannot list or enumerate invites.
+    match /inviteCodes/{inviteCode} {
+      allow get: if isAuth();
+      allow list: if false;
+      allow create: if isAuth()
+        && inviteCode.size() >= 6
+        && inviteCode.size() <= 8
+        && request.resource.data.coupleId is string
+        && request.resource.data.createdBy == request.auth.uid
+        && getAfter(/databases/$(database)/documents/couples/$(request.resource.data.coupleId)).data.uid1 == request.auth.uid
+        && getAfter(/databases/$(database)/documents/couples/$(request.resource.data.coupleId)).data.inviteCode == inviteCode;
+      allow update: if false;
+      allow delete: if isAuth() && resource.data.createdBy == request.auth.uid;
     }
   }
 }

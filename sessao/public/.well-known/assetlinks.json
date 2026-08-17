@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.natanaelneves.sessao",
+      "sha256_cert_fingerprints": [
+        "F1:86:72:39:F8:70:2B:E4:A9:D3:3D:70:79:52:C4:C8:AE:CC:74:B6:BF:C9:4F:D5:84:F3:97:DE:EB:BB:61:11"
+      ]
+    }
+  }
+]

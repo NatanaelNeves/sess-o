@@ -1,24 +1,31 @@
 ﻿import { useState, useEffect, useRef, useMemo, Component, Fragment } from "react";
 import { createPortal } from "react-dom";
+import { useCallback } from "react";
 import { auth, db, storage } from "./firebase";
 import {
   onAuthStateChanged, signInWithPopup, signInWithRedirect, getRedirectResult,
-  signOut, GoogleAuthProvider,
+  signOut, deleteUser, reauthenticateWithPopup, GoogleAuthProvider,
 } from "firebase/auth";
 import {
   collection, doc, addDoc, setDoc, updateDoc, deleteDoc, deleteField,
-  onSnapshot, query, where, getDocs,
+  onSnapshot, query, where, getDocs, getDoc, writeBatch,
 } from "firebase/firestore";
-import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
+import { ref as storageRef, uploadBytes, getDownloadURL, listAll, deleteObject } from "firebase/storage";
 import { toPng } from "html-to-image";
 import "./App.css";
 import { Lumi, lumiSrc } from "./lumi.jsx";
 import { buildReviewPayload, canWriteReview, getReviewOwnerName } from "./reviewPermissions.js";
 import { getPhotoUploadErrorMessage, resolvePhotoUploadCoupleId } from "./photoUpload";
+import { generateInviteCode, normalizeInviteCode, isInviteCodeValid, INVITE_CODE_LENGTH } from "./inviteCode.js";
+import { chunkItems, getAccountDeletionRole, withoutUserReview } from "./accountDeletion.js";
 
 const TMDB_BASE = "https://api.themoviedb.org/3";
 const TMDB_IMG = "https://image.tmdb.org/t/p/w500";
 const TMDB_BG   = "https://image.tmdb.org/t/p/w1280";
+const coupleLabel = couple => [couple?.name1, couple?.name2].filter(Boolean).join(" & ");
+const escapeHtml = value => String(value ?? "").replace(/[&<>"']/g, char => ({
+  "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;",
+})[char]);
 
 // image.tmdb.org não envia cabeçalhos CORS, então imagens carregadas
 // diretamente dele "sujam" o canvas e impedem exportar o PNG do card.
@@ -760,11 +767,11 @@ const Overlay = ({ children, onClose }) => createPortal(
   document.body
 );
 
-const Modal = ({ title, onClose, children, maxW=480, banner }) => (
-  <div className="modal-panel" style={{ maxWidth:maxW, position:"relative" }}>
+const Modal = ({ title, onClose, children, maxW=480, banner, closeDisabled=false }) => (
+  <div className="modal-panel" style={{ maxWidth:maxW, position:"relative" }} role="dialog" aria-modal="true" aria-label={title || "Janela do Sessão"}>
     {banner}
     {!title && (
-      <button onClick={onClose} className="modal-close-float">
+      <button type="button" onClick={onClose} className="modal-close-float" aria-label="Fechar" disabled={closeDisabled}>
         <Ic n="x" s={18}/>
       </button>
     )}
@@ -772,7 +779,7 @@ const Modal = ({ title, onClose, children, maxW=480, banner }) => (
       {title && (
         <div className="modal-panel__header">
           <h3 className="modal-panel__title">{title}</h3>
-          <button onClick={onClose} className="icon-button icon-button--subtle">
+          <button type="button" onClick={onClose} className="icon-button icon-button--subtle" aria-label="Fechar" disabled={closeDisabled}>
             <Ic n="x" s={20}/>
           </button>
         </div>
@@ -1481,7 +1488,9 @@ const RouletteModal = ({ watchlist, onClose, onWatchNow }) => {
       typeFilter === "tv"    ? w.type === "tv"    : true
     );
     if (f.length <= 12) return f;
-    return [...f].sort(() => Math.random() - 0.5).slice(0, 12);
+    return [...f]
+      .sort((a, b) => String(a.id || a.tmdbId || a.title).localeCompare(String(b.id || b.tmdbId || b.title)))
+      .slice(0, 12);
   }, [watchlist, typeFilter]);
 
   const numItems = wheelItems.length;
@@ -1714,7 +1723,12 @@ const DetailModal = ({ entry, users, onClose, onMarkWatched, onEdit, onSaveRevie
   }, [statusDropdown]);
 
   useEffect(() => {
-    if (!entry.tmdbId) { setProviders({ flatrate:[], link:null }); return; }
+    if (!entry.tmdbId) {
+      // Reset is intentional when the detail receives a local title.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setProviders({ flatrate:[], link:null });
+      return;
+    }
     const ep = entry.type === "tv" ? "tv" : "movie";
     tmdbRequest(`/${ep}/${entry.tmdbId}/watch/providers`)
       .then(data => {
@@ -1722,7 +1736,7 @@ const DetailModal = ({ entry, users, onClose, onMarkWatched, onEdit, onSaveRevie
         setProviders({ flatrate: br?.flatrate||[], link: br?.link||null });
       })
       .catch(() => setProviders({ flatrate:[], link:null }));
-  }, []);
+  }, [entry.tmdbId, entry.type]);
 
   const poster   = entry.poster   ? `${TMDB_IMG}${entry.poster}` : null;
   const backdrop = entry.backdrop ? `${TMDB_BG}${entry.backdrop}` : null;
@@ -2359,7 +2373,11 @@ const EpisodeSheet = ({ entry, coupleId, onClose, addToast }) => {
   // 1) garante a lista de temporadas
   useEffect(() => {
     if (seasons?.length) return;
-    if (!entry.tmdbId) { setSeasons([]); return; }
+    if (!entry.tmdbId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setSeasons([]);
+      return;
+    }
     let alive = true;
     tmdbSeasonsList(entry.tmdbId)
       .then(s => { if (alive) { setSeasons(s); if (s[0] && !s.find(x => x.season === activeSeason)) setActiveSeason(s[0].season); } })
@@ -2380,6 +2398,7 @@ const EpisodeSheet = ({ entry, coupleId, onClose, addToast }) => {
   // 2) modo browse: carrega a temporada ativa
   useEffect(() => {
     if (mode !== "browse" || seasons === null) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true);
     loadSeason(activeSeason).finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2389,7 +2408,12 @@ const EpisodeSheet = ({ entry, coupleId, onClose, addToast }) => {
   useEffect(() => {
     if (mode !== "continue" || seasons === null) return;
     const nxt = nextEpisodeOf(marker, seasons);
-    if (!nxt) { setNextInfo("finished"); return; }
+    if (!nxt) {
+      // Estado derivado de dados assíncronos já carregados; encerra a navegação.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setNextInfo("finished");
+      return;
+    }
     setLoading(true);
     loadSeason(nxt.season)
       .then(eps => {
@@ -2654,6 +2678,9 @@ const V3Demo = () => {
         id: `r${i}`, title: ["Dark", "Homem-Aranha", "Arcane", "Gente Grande", "Coringa", "Socorro!", "Rogue One", "As Crônicas de Nárnia", "Batman", "O Cavaleiro das Trevas", "Supergirl", "Interestelar", "Duna", "La La Land"][i],
         type: i % 4 === 0 ? "tv" : "movie", runtime: 90 + i * 6, year: `20${10 + i}`,
       }))} onClose={noop} onWatchNow={noop}/>,
+      settings: <SettingsPage couple={DEMO_COUPLE} users={DEMO_USERS} watched={DEMO_WATCHED}
+        prefs={demoPrefs} onPref={noop} onClose={noop} onSignOut={noop} onDeleteAccount={noop}/>,
+      delete: <DeleteAccountModal role="owner" deleting={false} error="" onCancel={noop} onConfirm={noop}/>,
     };
     return (
       <div className="v3-shell">
@@ -2861,7 +2888,7 @@ const LoginScreen = ({ onLogin, loading }) => {
   if (slide === 0) return (
     <div className="onb">
       <Lumi name="waving" size={210} breathe alt="Lumi acenando"/>
-      <div className="onb__title">Oi! Eu sou o Lumi</div>
+      <h1 className="onb__title">Oi! Eu sou o Lumi</h1>
       <p className="onb__text">Eu guardo as memórias de cinema<br/>de vocês dois. Cada filme, cada série,<br/>cada noite no sofá.</p>
       <div className="onb__dots"><span className="onb__dot onb__dot--on"/><span className="onb__dot"/><span className="onb__dot"/></div>
       <div className="onb__cta">
@@ -2872,7 +2899,7 @@ const LoginScreen = ({ onLogin, loading }) => {
 
   if (slide === 1) return (
     <div className="onb" style={{ background: "var(--bg-base)" }}>
-      <div className="onb__title" style={{ fontSize: 34, marginTop: 0 }}>Como funciona</div>
+      <h1 className="onb__title" style={{ fontSize: 34, marginTop: 0 }}>Como funciona</h1>
       <div className="onb__steps">
         <div className="onb__step">
           <img src={lumiSrc("clapper")} alt=""/>
@@ -2906,7 +2933,7 @@ const LoginScreen = ({ onLogin, loading }) => {
   return (
     <div className="onb" style={{ background: "var(--bg-base)" }}>
       <Lumi name="hugHeart" size={170} breathe alt="Lumi"/>
-      <div className="onb__title" style={{ fontSize: 32, marginTop: 18 }}>Chame sua pessoa</div>
+      <h1 className="onb__title" style={{ fontSize: 32, marginTop: 18 }}>Chame sua pessoa</h1>
       <p className="onb__text" style={{ fontSize: 14, marginTop: 10 }}>O Sessão é a dois. Convide quem<br/>divide o sofá com você.</p>
       <div className="onb__dots"><span className="onb__dot"/><span className="onb__dot"/><span className="onb__dot onb__dot--on"/></div>
       <div className="onb__cta" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -2923,10 +2950,10 @@ const LoginScreen = ({ onLogin, loading }) => {
             )}
           {loading ? "Entrando..." : "Continuar com Google"}
         </button>
-        <div style={{ fontSize: 12, color: "var(--text-tertiary)", textAlign: "center", marginTop: 4 }}>
-          🔒 privado — só entre vocês dois · já tem um convite? entre e <span style={{ color: "var(--gold)", fontWeight: 600 }}>insira o código</span>
+        <div className="onb__privacy-note">
+          <span aria-hidden="true">🔒</span> privado — só entre vocês dois · já tem um convite? entre e <span>insira o código</span>
         </div>
-        <button onClick={() => setSlide(0)} style={{ background: "none", border: "none", color: "var(--text-tertiary)", fontSize: 12, marginTop: 2, cursor: "pointer" }}>
+        <button onClick={() => setSlide(0)} className="onb__replay">
           rever a apresentação do Lumi
         </button>
       </div>
@@ -2962,7 +2989,7 @@ const CoupleSetup = ({ authUser, onCreate, onJoin, onSignOut }) => {
     setLoading(true);
     setErr("");
     try {
-      await onJoin(code.trim().toUpperCase(), joinName.trim());
+      await onJoin(normalizeInviteCode(code), joinName.trim());
     } catch (e) {
       setErr(e.message);
     } finally {
@@ -2976,7 +3003,7 @@ const CoupleSetup = ({ authUser, onCreate, onJoin, onSignOut }) => {
     borderRadius: 12,
     padding: "13px 18px",
     color: "var(--text-primary)",
-    fontSize: 15,
+    fontSize: 16,
     outline: "none",
     textAlign: "center",
     width: "100%",
@@ -3016,11 +3043,11 @@ const CoupleSetup = ({ authUser, onCreate, onJoin, onSignOut }) => {
 
         {tab === "create" && (
           <div className="auth-stack">
-            <input className="auth-input" value={myName} onChange={e => setMyName(e.target.value)} placeholder="Seu nome" style={inp} />
+            <input aria-label="Seu nome" className="auth-input" value={myName} onChange={e => setMyName(e.target.value)} placeholder="Seu nome" style={inp} maxLength={40} autoComplete="name" />
             <p className="auth-note">Você receberá um código para convidar sua pessoa</p>
             <p className="auth-note auth-note--compact">Desde quando juntos? (opcional)</p>
-            <input type="date" className="auth-input" value={since} onChange={e => setSince(e.target.value)} style={inp} />
-            {err && <p className="error-text">{err}</p>}
+            <input aria-label="Desde quando estão juntos" type="date" className="auth-input" value={since} onChange={e => setSince(e.target.value)} style={inp} />
+            {err && <p className="error-text" role="alert">{err}</p>}
             <button
               onClick={handleCreate}
               disabled={loading || !myName.trim()}
@@ -3034,19 +3061,23 @@ const CoupleSetup = ({ authUser, onCreate, onJoin, onSignOut }) => {
 
         {tab === "join" && (
           <div className="auth-stack">
-            <input className="auth-input" value={joinName} onChange={e => setJoinName(e.target.value)} placeholder="Seu nome" style={inp} />
+            <input aria-label="Seu nome" className="auth-input" value={joinName} onChange={e => setJoinName(e.target.value)} placeholder="Seu nome" style={inp} maxLength={40} autoComplete="name" />
             <input
+              aria-label="Código de convite"
               className="auth-input"
               value={code}
-              onChange={e => setCode(e.target.value.toUpperCase())}
-              placeholder="Código de convite (ex: ABC123)"
+              onChange={e => setCode(normalizeInviteCode(e.target.value))}
+              placeholder="Código de convite"
               style={{ ...inp, letterSpacing: 3, fontWeight: 700, fontSize: 20 }}
-              maxLength={6}
+              maxLength={INVITE_CODE_LENGTH}
+              inputMode="text"
+              autoCapitalize="characters"
+              autoCorrect="off"
             />
-            {err && <p className="error-text">{err}</p>}
+            {err && <p className="error-text" role="alert">{err}</p>}
             <button
               onClick={handleJoin}
-              disabled={loading || code.length < 6 || !joinName.trim()}
+              disabled={loading || !isInviteCodeValid(code) || !joinName.trim()}
               className="auth-btn auth-btn--violet"
               type="button"
             >
@@ -3060,8 +3091,17 @@ const CoupleSetup = ({ authUser, onCreate, onJoin, onSignOut }) => {
 };
 
 // invite code display (after creating couple)
-const InviteScreen = ({ inviteCode, couple, onSignOut }) => (
-  <div className="auth-screen">
+const InviteScreen = ({ inviteCode, couple, onContinue, onSignOut }) => {
+  const [copied, setCopied] = useState(false);
+  const inviteText = `Entra no nosso diário Sessão com o código ${inviteCode}: ${window.location.origin}`;
+  const copyInvite = async () => {
+    await navigator.clipboard?.writeText(inviteCode);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1600);
+  };
+  const shareInvite = () => navigator.share?.({ title: "Nosso diário Sessão", text: inviteText });
+
+  return <div className="auth-screen">
     <div className="auth-card">
       <Lumi name="celebrating" size={120} breathe style={{ margin: "0 auto 6px" }} alt="Lumi comemorando" />
       <h2 className="auth-title" style={{ fontSize: "clamp(28px, 4.4vw, 32px)", marginBottom: 8 }}>Diário criado!</h2>
@@ -3073,20 +3113,27 @@ const InviteScreen = ({ inviteCode, couple, onSignOut }) => (
           <div className="invite-dash__label">seu código de casal</div>
           <div className="invite-dash__code">{inviteCode}</div>
         </div>
-        <button type="button" className="invite-dash__copy"
-          onClick={() => { navigator.clipboard?.writeText(inviteCode).catch(() => {}); }}>
-          Copiar
+        <button type="button" className="invite-dash__copy" onClick={() => copyInvite().catch(() => {})}>
+          {copied ? "Copiado ✔" : "Copiar"}
         </button>
       </div>
-      <p className="auth-note">Aguardando sua pessoa entrar — assim que ela usar o código, o diário abrirá automaticamente.</p>
+      <p className="auth-note">Quando sua pessoa usar o código, o diário será atualizado automaticamente.</p>
+      {typeof navigator.share === "function" && (
+        <button type="button" onClick={() => shareInvite().catch(() => {})} className="auth-btn auth-btn--share">
+          Enviar convite
+        </button>
+      )}
+      <button type="button" onClick={onContinue} className="auth-btn auth-btn--violet invite-continue">
+        Começar enquanto espero
+      </button>
       {onSignOut && (
         <button type="button" onClick={onSignOut} className="auth-signout">
           Sair / trocar de conta
         </button>
       )}
     </div>
-  </div>
-);
+  </div>;
+};
 
 // home page — v3: a Home responde uma única pergunta, "o que faz sentido agora?" —
 // um único card principal muda por prioridade (avaliação pendente > sessão marcada >
@@ -3094,7 +3141,7 @@ const InviteScreen = ({ inviteCode, couple, onSignOut }) => (
 const HomePage = ({ watched, watchlist, couple, currentUser, users, coupleId, onRoulette, onAdd,
   onSaveReview, onUpdateStatus, onContinueEpisode, onToggleTogether, onOpenSettings,
   onOpenTicket, onOpenCheckin, onGoWatchlist, onGoDiary, onGoProfile,
-  onEdit, prefs }) => {
+  onEdit, prefs, addToast }) => {
   const [sel, setSel] = useState(null);
   const [editing, setEditing] = useState(null);
 
@@ -3241,7 +3288,7 @@ const HomePage = ({ watched, watchlist, couple, currentUser, users, coupleId, on
           <div className="home-head__ctx">
             {contextGreeting().toLowerCase()}{togetherLabel ? <> ✦ juntos há {togetherLabel}</> : " ✦"}
           </div>
-          <div className="home-head__names">{couple.name1} <span style={{ color: "var(--accent)" }}>❤</span> {couple.name2}</div>
+          <div className="home-head__names">{couple.name2 ? <>{couple.name1} <span style={{ color: "var(--accent)" }}>❤</span> {couple.name2}</> : couple.name1}</div>
         </div>
         <button className="home-head__lumi" onClick={onOpenSettings} aria-label="Configurações">
           <img src={lumiSrc("avatar")} alt="Lumi"/>
@@ -3430,7 +3477,7 @@ const HomePage = ({ watched, watchlist, couple, currentUser, users, coupleId, on
 };
 
 // timeline view
-const TimelineView = ({ items, users, onSelect, onDelete }) => {
+const TimelineView = ({ items, onSelect, onDelete }) => {
   const avgRating = w => {
     const rs = Object.values(w.reviews||{}).map(r=>r.rating).filter(Boolean);
     return rs.length ? (rs.reduce((a,b)=>a+b,0)/rs.length).toFixed(1) : null;
@@ -3615,7 +3662,7 @@ const DiaryPage = ({ watched, users, currentUser, coupleId, addToast, onDelete, 
           />
         )
       ) : view === "timeline" ? (
-        <TimelineView items={items} users={users} onSelect={setSel} onDelete={onDelete}/>
+        <TimelineView items={items} onSelect={setSel} onDelete={onDelete}/>
       ) : (
         <>
           {/* destaque: memória mais recente em formato paisagem (canvas v3) */}
@@ -3777,7 +3824,7 @@ const TicketModal = ({ item, couple, onEdit, onClear, onCheckin, onRegister, onC
             <div className="ticket__bottom">
               <div style={{ flex: 1 }}>
                 <div className="ticket__f-label">casal</div>
-                <div className="ticket__couple">{couple.name1} & {couple.name2}</div>
+                <div className="ticket__couple">{coupleLabel(couple)}</div>
               </div>
               <div className="ticket__barcode"/>
             </div>
@@ -3834,7 +3881,7 @@ const CheckinModal = ({ item, onRegister, onTicket, onClose }) => {
 };
 
 // cartão rico + expansão in-place (sinopse, onde assistir, quem quer, quick actions)
-const WatchlistCard = ({ e, users, currentUser, both, compat, onAlsoWant, onMarkWatched, onDelete, onPlan, onOpenTicket, onCheckin, prefs }) => {
+const WatchlistCard = ({ e, users, currentUser, both, compat, onAlsoWant, onMarkWatched, onDelete, onPlan, onOpenTicket, onCheckin }) => {
   const [open, setOpen] = useState(false);
   const [providers, setProviders] = useState(null);
   const wanted = wantedByOf(e);
@@ -4000,7 +4047,7 @@ const WatchlistCard = ({ e, users, currentUser, both, compat, onAlsoWant, onMark
 };
 
 // card de saga na watchlist — a franquia inteira num card só, expansível
-const SagaWatchlistCard = ({ collection: col, group, watched, users, onMarkWatched, onDelete }) => {
+const SagaWatchlistCard = ({ collection: col, group, watched, onMarkWatched, onDelete }) => {
   const [open, setOpen] = useState(false);
   const [parts, setParts] = useState(null);
 
@@ -4186,14 +4233,14 @@ const WatchlistPage = ({ watchlist, watched = [], users, currentUser, compat, on
                     rendered.push(
                       <SagaWatchlistCard key={`saga-${e.collection.id}`} collection={e.collection}
                         group={items.filter(x => x.collection?.id === e.collection.id)}
-                        watched={watched} users={users} onMarkWatched={onMarkWatched} onDelete={onDelete}/>
+                        watched={watched} onMarkWatched={onMarkWatched} onDelete={onDelete}/>
                     );
                   } else {
                     rendered.push(
                       <WatchlistCard key={e.id} e={e} users={users} currentUser={currentUser}
                         both={bothWant(e)} compat={compat}
                         onAlsoWant={onAlsoWant} onMarkWatched={onMarkWatched} onDelete={onDelete}
-                        onPlan={onPlan} onOpenTicket={onOpenTicket} onCheckin={onCheckin} prefs={prefs}/>
+                        onPlan={onPlan} onOpenTicket={onOpenTicket} onCheckin={onCheckin}/>
                     );
                   }
                 });
@@ -4241,7 +4288,6 @@ const coupleAchievements = (watched, users, couple) => {
       return rs.length === 2 && rs.every(r => r === 5) && (w.genres || []).some(g => /romance|drama/i.test(g));
     })()
   );
-  const coruja = watched.some(w => { const h = new Date(w.createdAt || 0).getHours(); return h >= 0 && h < 5; });
   const semana3 = (() => {
     const ds = dates.map(d => new Date(d + "T12:00:00").getTime()).sort((a, b) => a - b);
     for (let i = 0; i + 2 < ds.length; i++) if (ds[i + 2] - ds[i] <= 7 * 86400000) return true;
@@ -4540,7 +4586,7 @@ const RetroStory = ({ watched, users, couple, onClose }) => {
           <div ref={cardRef} className="retro-share-card">
             <div className="retro-story__eyebrow" style={{ color: "var(--lilac-retro)", letterSpacing: "2.5px", fontSize: 10 }}>Retrospectiva {year}</div>
             <div style={{ fontFamily: "var(--font-display)", fontSize: 28, fontWeight: 600, marginTop: 10, lineHeight: 1.1 }}>
-              {couple.name1} & {couple.name2}
+              {coupleLabel(couple)}
             </div>
             <div className="retro-share-card__stats">
               <div><div>{count}</div><div>noite{count !== 1 ? "s" : ""}</div></div>
@@ -4583,11 +4629,11 @@ function exportToPdf(watched, users, couple) {
   const rows = sorted.map(e => {
     const avg = avgR(e);
     const stars = avg ? "★".repeat(Math.round(parseFloat(avg)))+"☆".repeat(5-Math.round(parseFloat(avg))) : "";
-    const uRatings = users.map(u=>{ const r=e.reviews?.[u]?.rating; return r?`${u}: ${"★".repeat(r)}`:null; }).filter(Boolean).join(" · ");
+    const uRatings = users.map(u=>{ const r=e.reviews?.[u]?.rating; return r?`${escapeHtml(u)}: ${"★".repeat(r)}`:null; }).filter(Boolean).join(" · ");
     return `<tr>
-      <td class="t">${e.title}</td>
+      <td class="t">${escapeHtml(e.title)}</td>
       <td>${e.type==="tv"?"Série":"Filme"}</td>
-      <td>${e.year||""}</td>
+      <td>${escapeHtml(e.year||"")}</td>
       <td>${e.where==="cinema"?"Cinema":"Streaming"}</td>
       <td class="nowrap">${fmtDate(e.date)}</td>
       <td class="nowrap">${avg?`${avg} <span class="stars">${stars}</span>`:"—"}</td>
@@ -4597,7 +4643,7 @@ function exportToPdf(watched, users, couple) {
 
   const html = `<!DOCTYPE html><html lang="pt-BR"><head>
 <meta charset="UTF-8">
-<title>Sessão — ${couple.name1} &amp; ${couple.name2}</title>
+<title>Sessão — ${escapeHtml(coupleLabel(couple))}</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:Georgia,'Times New Roman',serif;color:#1a1a1a;background:#fff;padding:32px 28px;font-size:13px}
@@ -4618,7 +4664,7 @@ td.small{font-size:11px;color:#666}
 @media print{body{padding:0}@page{margin:14mm}}
 </style></head><body>
 <h1>Sessão ❤️</h1>
-<div class="sub">${couple.name1} &amp; ${couple.name2} — Diário cinematográfico</div>
+<div class="sub">${escapeHtml(coupleLabel(couple))} — Diário cinematográfico</div>
 <div class="stats">
   <div class="stat"><b>${watched.length}</b><span>Títulos</span></div>
   <div class="stat"><b>${watched.filter(w=>w.type==="movie").length}</b><span>Filmes</span></div>
@@ -4649,7 +4695,7 @@ const AnnualWrappedPrompt = ({ couple, onOpen, onClose }) => {
       <div className="retro-story__slide" style={{ justifyContent: "center" }}>
         <Lumi name="celebrating" size={180} breathe style={{ position: "relative" }}/>
         <div className="retro-story__eyebrow" style={{ color: "var(--gold)", marginTop: 18 }}>Surpresa anual</div>
-        <div className="retro-story__title" style={{ fontSize: 34, marginTop: 10 }}>{couple.name1} e {couple.name2}, preparei algo especial para vocês... ✨</div>
+        <div className="retro-story__title" style={{ fontSize: 34, marginTop: 10 }}>{coupleLabel(couple)}, preparei algo especial para vocês... ✨</div>
         <p className="retro-story__sub" style={{ maxWidth: 340 }}>
           Hoje é o dia de abrir o Sessão Wrapped {year}. Uma homenagem ao ano de vocês, em filmes, memórias e noites especiais.
         </p>
@@ -4674,14 +4720,14 @@ const WrappedIntroOverlay = ({ year, couple, onClose }) => {
       <div className="wrapped-intro__halo"/>
       <div className="wrapped-intro__badge">SESSÃO WRAPPED</div>
       <div className="wrapped-intro__title">{year}</div>
-      <div className="wrapped-intro__name">{couple.name1} & {couple.name2}</div>
+      <div className="wrapped-intro__name">{coupleLabel(couple)}</div>
       <div className="wrapped-intro__text">Seu ano em filmes, memórias e noites especiais.</div>
     </div>,
     document.body
   );
 };
 
-const StoryTimelinePage = ({ watched, users, couple, retroYears = [], onOpenRetro, onClose }) => {
+const StoryTimelinePage = ({ watched, users, retroYears = [], onOpenRetro, onClose }) => {
   const dateOf = e => e.date || (e.createdAt || "").slice(0, 10);
   const sorted = [...watched].filter(e => dateOf(e)).sort((a, b) => new Date(b.date || b.createdAt) - new Date(a.date || a.createdAt));
 
@@ -4776,7 +4822,12 @@ const ProfilePage = ({ watched, watchlist, couple, users, prefs, onOpenSettings 
   const [showRetro, setShowRetro] = useState(false);
   const [showAwards, setShowAwards] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
-  const [showAnnualSurprise, setShowAnnualSurprise] = useState(false);
+  const [showAnnualSurprise, setShowAnnualSurprise] = useState(() => {
+    if (typeof window === "undefined") return false;
+    const now = new Date();
+    const isDec31 = now.getMonth() === 11 && now.getDate() === 31;
+    return isDec31 && !window.sessionStorage.getItem(`sessao-wrapped-${now.getFullYear()}-seen`);
+  });
   const [showWrappedIntro, setShowWrappedIntro] = useState(false);
   const statsRef = useRef(null);
 
@@ -4890,23 +4941,16 @@ const ProfilePage = ({ watched, watchlist, couple, users, prefs, onOpenSettings 
   })();
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    if (!showAnnualSurprise) return;
     const now = new Date();
-    const isDec31 = now.getMonth() === 11 && now.getDate() === 31;
-    const key = `sessao-wrapped-${now.getFullYear()}-seen`;
-    if (!isDec31) return;
-    const seen = window.sessionStorage.getItem(key);
-    if (!seen) {
-      window.sessionStorage.setItem(key, "1");
-      setShowAnnualSurprise(true);
-    }
-  }, []);
+    window.sessionStorage.setItem(`sessao-wrapped-${now.getFullYear()}-seen`, "1");
+  }, [showAnnualSurprise]);
 
   return (
     <div>
       {showRetro && <RetroStory watched={watched} users={users} couple={couple} onClose={() => setShowRetro(false)}/>} 
       {showAwards && <AchievementsPage watched={watched} users={users} couple={couple} prefs={prefs} onClose={() => setShowAwards(false)}/>}
-      {showHistory && <StoryTimelinePage watched={watched} users={users} couple={couple}
+      {showHistory && <StoryTimelinePage watched={watched} users={users}
         retroYears={retroYears} onOpenRetro={() => setShowRetro(true)} onClose={() => setShowHistory(false)}/>}
       {showAnnualSurprise && <AnnualWrappedPrompt couple={couple} onOpen={() => { setShowRetro(true); setShowWrappedIntro(true); }} onClose={() => setShowAnnualSurprise(false)}/>} 
       {showWrappedIntro && <WrappedIntroOverlay year={yearNow} couple={couple} onClose={() => setShowWrappedIntro(false)} />}
@@ -4921,7 +4965,7 @@ const ProfilePage = ({ watched, watchlist, couple, users, prefs, onOpenSettings 
           <div className="pf-ava pf-ava--b">{couple.name2?.[0]?.toUpperCase()}</div>
           <img src={lumiSrc("peeking")} alt="" className="pf-avatars__lumi" aria-hidden="true"/>
         </div>
-        <div className="pf-hero__names">{couple.name1} & {couple.name2}</div>
+        <div className="pf-hero__names">{coupleLabel(couple)}</div>
         <div className="pf-hero__chiprow">
           <span className="pf-days-chip">
             {days !== null ? `${days} dias de Sessão ✦` : sinceLabel ? `no Sessão desde ${sinceLabel} ✦` : "juntos no Sessão ✦"}
@@ -5117,8 +5161,58 @@ const ProfilePage = ({ watched, watchlist, couple, users, prefs, onOpenSettings 
   );
 };
 
+const DeleteAccountModal = ({ role, deleting, error, onCancel, onConfirm }) => {
+  const [confirmation, setConfirmation] = useState("");
+  const inputRef = useRef(null);
+  const exact = confirmation.trim().toUpperCase() === "EXCLUIR";
+  const copy = role === "owner"
+    ? "Você criou este diário. A conta, todas as memórias, avaliações, fotos e a lista do casal serão apagadas para as duas pessoas."
+    : role === "partner"
+      ? "Sua conta e suas avaliações serão apagadas. O diário continuará disponível para a pessoa que o criou."
+      : "Sua conta do Sessão será apagada permanentemente.";
+
+  useEffect(() => {
+    inputRef.current?.focus();
+    const closeOnEscape = event => { if (event.key === "Escape" && !deleting) onCancel(); };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [deleting, onCancel]);
+
+  return (
+    <Overlay onClose={() => { if (!deleting) onCancel(); }}>
+      <Modal title="Excluir conta" onClose={onCancel} closeDisabled={deleting} maxW={440}>
+        <div className="delete-account">
+          <Lumi name="sad" size={82} style={{ margin: "0 auto" }} alt="Lumi preocupado" />
+          <p className="delete-account__copy">{copy}</p>
+          <p className="delete-account__warning">Essa ação não pode ser desfeita.</p>
+          <label className="delete-account__label" htmlFor="delete-account-confirmation">
+            Digite <strong>EXCLUIR</strong> para confirmar
+          </label>
+          <input
+            ref={inputRef}
+            id="delete-account-confirmation"
+            className="text-input"
+            value={confirmation}
+            onChange={event => setConfirmation(event.target.value)}
+            autoComplete="off"
+            maxLength={16}
+            disabled={deleting}
+          />
+          {error && <p className="delete-account__error" role="alert">{error}</p>}
+          <div className="delete-account__actions">
+            <button type="button" className="button button--ghost" onClick={onCancel} disabled={deleting}>Cancelar</button>
+            <button type="button" className="button button--danger" onClick={onConfirm} disabled={!exact || deleting}>
+              {deleting ? "Excluindo com segurança…" : "Excluir minha conta"}
+            </button>
+          </div>
+        </div>
+      </Modal>
+    </Overlay>
+  );
+};
+
 // configurações — "Lumi ajustável" (v3)
-const SettingsPage = ({ couple, users, watched, prefs, onPref, onClose, onSignOut }) => {
+const SettingsPage = ({ couple, users, watched, prefs, onPref, onClose, onSignOut, onDeleteAccount }) => {
   const [copied, setCopied] = useState(false);
   const copy = () => {
     navigator.clipboard?.writeText(couple.inviteCode || "").then(() => {
@@ -5137,10 +5231,10 @@ const SettingsPage = ({ couple, users, watched, prefs, onPref, onClose, onSignOu
         <div className="cfg-couple">
           <div className="pf-avatars" style={{ justifyContent: "flex-start" }}>
             <div className="pf-ava pf-ava--a" style={{ width: 44, height: 44, fontSize: 18, borderWidth: 2 }}>{couple.name1?.[0]?.toUpperCase()}</div>
-            <div className="pf-ava pf-ava--b" style={{ width: 44, height: 44, fontSize: 18, borderWidth: 2, marginLeft: -12 }}>{couple.name2?.[0]?.toUpperCase()}</div>
+            {couple.name2 && <div className="pf-ava pf-ava--b" style={{ width: 44, height: 44, fontSize: 18, borderWidth: 2, marginLeft: -12 }}>{couple.name2[0]?.toUpperCase()}</div>}
           </div>
           <div style={{ flex: 1 }}>
-            <div style={{ fontWeight: 700, fontSize: 15 }}>{couple.name1} & {couple.name2}</div>
+            <div style={{ fontWeight: 700, fontSize: 15 }}>{coupleLabel(couple)}</div>
             {couple.inviteCode && <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>código {couple.inviteCode}</div>}
           </div>
           {couple.inviteCode && (
@@ -5154,19 +5248,18 @@ const SettingsPage = ({ couple, users, watched, prefs, onPref, onClose, onSignOu
             <img src={lumiSrc("headSmiling")} alt=""/>
             <span className="cfg-row__label">Comentários do Lumi</span>
             <button className={`toggle ${prefs.lumiComments ? "toggle--on" : ""}`}
-              onClick={() => onPref("lumiComments", !prefs.lumiComments)} aria-label="Comentários do Lumi"><i/></button>
+              onClick={() => onPref("lumiComments", !prefs.lumiComments)} aria-label="Comentários do Lumi" aria-pressed={prefs.lumiComments}><i/></button>
           </div>
           <div className="cfg-row" style={{ cursor: "default" }}>
             <img src={lumiSrc("notification")} alt=""/>
-            <span className="cfg-row__label">Lembretes de sexta</span>
-            <button className={`toggle ${prefs.fridayReminders ? "toggle--on" : ""}`}
-              onClick={() => onPref("fridayReminders", !prefs.fridayReminders)} aria-label="Lembretes de sexta"><i/></button>
+            <span className="cfg-row__label">Lembretes de sexta <small className="cfg-badge">em breve</small></span>
+            <button className="toggle" disabled aria-label="Lembretes de sexta, em breve" aria-disabled="true"><i/></button>
           </div>
           <div className="cfg-row" style={{ cursor: "default" }}>
             <img src={lumiSrc("milestone365")} alt=""/>
             <span className="cfg-row__label">"Nesse dia" · memórias</span>
             <button className={`toggle ${prefs.onThisDay ? "toggle--on" : ""}`}
-              onClick={() => onPref("onThisDay", !prefs.onThisDay)} aria-label="Nesse dia"><i/></button>
+              onClick={() => onPref("onThisDay", !prefs.onThisDay)} aria-label="Nesse dia" aria-pressed={prefs.onThisDay}><i/></button>
           </div>
         </div>
 
@@ -5176,17 +5269,29 @@ const SettingsPage = ({ couple, users, watched, prefs, onPref, onClose, onSignOu
             <span className="cfg-row__label">Exportar memórias</span>
             <span className="cfg-row__chev">›</span>
           </button>
-          <button className="cfg-row" onClick={() => window.open("https://www.themoviedb.org/privacy-policy", "_blank", "noopener")}>
+          <button className="cfg-row" onClick={() => window.open("/privacy.html", "_blank", "noopener")}>
             <span className="cfg-row__label">Privacidade</span>
             <span className="cfg-row__chev">›</span>
+          </button>
+          <button className="cfg-row" onClick={() => window.open("/credits.html", "_blank", "noopener")}>
+            <span className="cfg-row__label">Sobre e créditos</span>
+            <span className="cfg-row__chev">↗</span>
           </button>
           <button className="cfg-row" onClick={onSignOut}>
             <span className="cfg-row__label cfg-row__label--danger">Sair</span>
           </button>
         </div>
 
+        <div className="cfg-section">Zona de cuidado</div>
+        <div className="cfg-group">
+          <button className="cfg-row" onClick={onDeleteAccount}>
+            <span className="cfg-row__label cfg-row__label--danger">Excluir minha conta e meus dados</span>
+            <span className="cfg-row__chev">›</span>
+          </button>
+        </div>
+
         <div className="cfg-footer">
-          <img src={lumiSrc("ui_silhueta")} alt=""/> Sessão · versão 3.0
+          <img src={lumiSrc("ui_silhueta")} alt=""/> Sessão · beta 0.3
         </div>
       </div>
     </div>,
@@ -5259,6 +5364,7 @@ export default function App() {
   const [coupleId,   setCoupleId]   = useState(null);   // Firestore doc id
   const [authLoading,setAuthLoading]= useState(true);
   const [loginLoading,setLoginLoading]=useState(false);
+  const [enterSolo, setEnterSolo] = useState(false);
 
   // app state
   const [watched,   setWatched]   = useState([]);
@@ -5268,6 +5374,11 @@ export default function App() {
   const [celebration, setCelebration] = useState(null);
   const [online,    setOnline]    = useState(typeof navigator !== "undefined" ? navigator.onLine : true);
   const [showSettings, setShowSettings] = useState(false);
+  const [showDeleteAccount, setShowDeleteAccount] = useState(() => (
+    typeof window !== "undefined" && new URLSearchParams(window.location.search).get("action") === "delete-account"
+  ));
+  const [deletingAccount, setDeletingAccount] = useState(false);
+  const [deleteAccountError, setDeleteAccountError] = useState("");
   const [cineModal,    setCineModal]    = useState(null); // { mode:"plan"|"ticket"|"checkin", item }
   const [epSheet,      setEpSheet]      = useState(null);
   // preferências do Lumi (Configurações) — persistidas localmente
@@ -5290,18 +5401,33 @@ export default function App() {
   const [installPrompt, setInstallPrompt] = useState(null);
   const [showInstallBanner, setShowInstallBanner] = useState(false);
 
+  const addToast = useCallback((message, type="success", undoFn=null) => {
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    setToasts(t => [...t, { id, message, type, undoFn }]);
+    setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), type === "error" ? 5000 : 3000);
+  }, []);
+  const dismissToast = id => setToasts(t => t.filter(x => x.id !== id));
+
   // derived
   // currentUser remains a name string for UI compatibility
-  const currentUser = couple
-    ? (couple.uid1 === authUser?.uid ? couple.name1 : couple.name2)
-    : null;
+  const currentUser = getReviewOwnerName(couple, authUser?.uid);
   const users = couple ? [couple.name1, couple.name2].filter(Boolean) : [];
   const dataReady = !!coupleId && dataReadyFor === coupleId;
+  const accountDeletionRole = getAccountDeletionRole(couple, authUser?.uid);
 
   // captura o retorno do login via redirect (mobile/PWA)
   useEffect(() => {
     getRedirectResult(auth).catch(e => console.error(e));
   }, []);
+
+  // A página pública de exclusão direciona para este fluxo após o login.
+  useEffect(() => {
+    if (!authUser || typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    if (url.searchParams.get("action") !== "delete-account") return;
+    url.searchParams.delete("action");
+    window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+  }, [authUser]);
 
   // auth listener
   useEffect(() => {
@@ -5315,8 +5441,22 @@ export default function App() {
       ]);
       const snap = !s1.empty ? s1 : s2;
       if (!snap.empty) {
-        setCoupleId(snap.docs[0].id);
-        setCouple(snap.docs[0].data());
+        const pairDoc = snap.docs[0];
+        const pairData = pairDoc.data();
+        setCoupleId(pairDoc.id);
+        setCouple(pairData);
+        // Migra convites antigos para o índice privado sem bloquear o acesso.
+        if (pairData.uid1 === user.uid && !pairData.uid2 && isInviteCodeValid(pairData.inviteCode)) {
+          const inviteRef = doc(db, "inviteCodes", pairData.inviteCode);
+          getDoc(inviteRef).then(inviteSnapshot => {
+            if (inviteSnapshot.exists()) return;
+            return setDoc(inviteRef, {
+              coupleId: pairDoc.id,
+              createdBy: user.uid,
+              createdAt: pairData.createdAt || new Date().toISOString(),
+            });
+          }).catch(error => console.warn("Não foi possível indexar o convite antigo", error));
+        }
       } else {
         setWatched([]);
         setWatchlist([]);
@@ -5324,7 +5464,15 @@ export default function App() {
       setAuthLoading(false);
     });
     return () => unsub();
-  }, []);
+  }, [addToast]);
+
+  // Mantém os dois aparelhos sincronizados quando o parceiro aceita o convite.
+  useEffect(() => {
+    if (!coupleId) return;
+    return onSnapshot(doc(db, "couples", coupleId), snapshot => {
+      if (snapshot.exists()) setCouple(snapshot.data());
+    });
+  }, [coupleId]);
 
   // splash: garante um tempo mínimo de respiro do Lumi antes do conteúdo
   useEffect(() => {
@@ -5361,7 +5509,7 @@ export default function App() {
       window.removeEventListener("offline", handleOffline);
       window.removeEventListener("online",  handleOnline);
     };
-  }, []);
+  }, [addToast]);
 
   useEffect(() => {
     if (localStorage.getItem("pwa-install-dismissed")) return;
@@ -5407,42 +5555,121 @@ export default function App() {
     setWatched([]);
     setWatchlist([]);
     setCouple(null); setCoupleId(null);
+    setEnterSolo(false);
+  };
+
+  const handleDeleteAccount = async () => {
+    setDeletingAccount(true);
+    setDeleteAccountError("");
+    try {
+      if (!navigator.onLine) throw new Error("OFFLINE");
+      const user = auth.currentUser;
+      if (!user) throw new Error("NO_USER");
+
+      // Confirma novamente a identidade antes de qualquer remoção irreversível.
+      await reauthenticateWithPopup(user, new GoogleAuthProvider());
+
+      if (coupleId && accountDeletionRole === "owner") {
+        // Arquivos precisam sair antes do documento do casal, que autoriza o acesso.
+        const photoFolder = storageRef(storage, `couples/${coupleId}/cinema`);
+        const photoList = await listAll(photoFolder);
+        await Promise.all(photoList.items.map(item => deleteObject(item)));
+
+        const [watchedSnapshot, watchlistSnapshot] = await Promise.all([
+          getDocs(collection(db, "couples", coupleId, "watched")),
+          getDocs(collection(db, "couples", coupleId, "watchlist")),
+        ]);
+        const childRefs = [...watchedSnapshot.docs, ...watchlistSnapshot.docs].map(item => item.ref);
+        for (const refs of chunkItems(childRefs)) {
+          const batch = writeBatch(db);
+          refs.forEach(itemRef => batch.delete(itemRef));
+          await batch.commit();
+        }
+        if (couple.inviteCode) await deleteDoc(doc(db, "inviteCodes", couple.inviteCode));
+        await deleteDoc(doc(db, "couples", coupleId));
+      } else if (coupleId && accountDeletionRole === "partner") {
+        const watchedSnapshot = await getDocs(collection(db, "couples", coupleId, "watched"));
+        const entriesWithReview = watchedSnapshot.docs.filter(item => currentUser in (item.data().reviews || {}));
+        for (const entries of chunkItems(entriesWithReview)) {
+          const batch = writeBatch(db);
+          entries.forEach(item => batch.update(item.ref, {
+            reviews: withoutUserReview(item.data().reviews, currentUser),
+          }));
+          await batch.commit();
+        }
+        await updateDoc(doc(db, "couples", coupleId), {
+          uid2: deleteField(),
+          name2: deleteField(),
+        });
+      }
+
+      await deleteUser(user);
+      ["sessao-onboarded", "sessao-prefs", "pwa-install-dismissed"].forEach(key => localStorage.removeItem(key));
+      setShowDeleteAccount(false);
+      setShowSettings(false);
+      addToast("Conta e dados excluídos", "success");
+    } catch (error) {
+      console.error(error);
+      const messages = {
+        OFFLINE: "Conecte-se à internet e tente novamente.",
+        NO_USER: "Sua sessão terminou. Entre novamente para excluir a conta.",
+        "auth/popup-closed-by-user": "A confirmação com o Google foi cancelada. Tente novamente.",
+        "auth/network-request-failed": "Não foi possível confirmar sua conta. Verifique a conexão.",
+        "auth/requires-recent-login": "Entre novamente com o Google e repita a exclusão.",
+        "permission-denied": "A exclusão foi bloqueada pelas regras de segurança. Atualize o app e tente novamente.",
+      };
+      setDeleteAccountError(messages[error.code || error.message] || "Não foi possível concluir a exclusão. Verifique a conexão e tente novamente; se o erro continuar, fale com o suporte antes de criar outra conta.");
+    } finally {
+      setDeletingAccount(false);
+    }
   };
 
   // couple actions
   const handleCreateCouple = async (name1, since) => {
-    const inviteCode = Math.random().toString(36).slice(2,8).toUpperCase();
-    const ref = await addDoc(collection(db,"couples"), {
+    const inviteCode = generateInviteCode();
+    const pairRef = doc(collection(db, "couples"));
+    const batch = writeBatch(db);
+    const pairData = {
       name1, name2: null, uid1: authUser.uid, uid2: null,
       since: since||null, inviteCode, createdAt: new Date().toISOString(),
+    };
+    batch.set(pairRef, pairData);
+    batch.set(doc(db, "inviteCodes", inviteCode), {
+      coupleId: pairRef.id,
+      createdBy: authUser.uid,
+      createdAt: new Date().toISOString(),
     });
-    setCoupleId(ref.id);
-    setCouple({ name1, name2:null, uid1:authUser.uid, uid2:null, since:since||null, inviteCode });
+    await batch.commit();
+    setCoupleId(pairRef.id);
+    setCouple(pairData);
   };
 
   const handleJoinCouple = async (code, name2) => {
-    const snap = await getDocs(query(collection(db,"couples"), where("inviteCode","==",code)));
-    if (snap.empty) throw new Error("Código inválido — verifique e tente de novo.");
-    const coupleDoc = snap.docs[0];
-    const data = coupleDoc.data();
-    if (data.uid2 && data.uid2 !== authUser.uid) throw new Error("Esse código já foi usado por outra pessoa.");
-    await updateDoc(doc(db,"couples",coupleDoc.id), { name2, uid2: authUser.uid });
-    setCoupleId(coupleDoc.id);
-    setCouple({ ...data, name2, uid2: authUser.uid });
-  };
+    const normalizedCode = normalizeInviteCode(code);
+    if (!isInviteCodeValid(normalizedCode)) {
+      throw new Error("Confira o código do convite e tente de novo.");
+    }
+    const invite = await getDoc(doc(db, "inviteCodes", normalizedCode));
+    if (!invite.exists()) throw new Error("Convite inválido — confira o código e tente de novo.");
 
-  // toast helper
-  const addToast = (message, type="success", undoFn=null) => {
-    const id = Date.now().toString();
-    setToasts(t=>[...t,{id,message,type,undoFn}]);
-    setTimeout(()=>setToasts(t=>t.filter(x=>x.id!==id)), type==="error"?5000:3000);
+    const pairRef = doc(db, "couples", invite.data().coupleId);
+    try {
+      await updateDoc(pairRef, { name2, uid2: authUser.uid });
+    } catch (error) {
+      console.error(error);
+      throw new Error("Este convite expirou ou já foi usado.", { cause: error });
+    }
+    const pair = await getDoc(pairRef);
+    if (!pair.exists()) throw new Error("Não foi possível abrir o diário deste casal.");
+    setCoupleId(pair.id);
+    setCouple(pair.data());
   };
-  const dismissToast = id => setToasts(t=>t.filter(x=>x.id!==id));
 
   // data operations (Firestore)
   const addWatched = async entry => {
     // descarta o "id" gerado no cliente — o Firestore gera o ID real do documento
-    const { id, ...data } = entry;
+    const data = { ...entry };
+    delete data.id;
     const veioDaWatchlist = addModal?.fromWatchlist;
     const watchlistId = addModal?.watchlistId;
     await addDoc(collection(db,"couples",coupleId,"watched"), data);
@@ -5567,7 +5794,8 @@ export default function App() {
   };
 
   const addWatchlist = async entry => {
-    const { id, ...data } = entry;
+    const data = { ...entry };
+    delete data.id;
     if (!data.wantedBy) data.wantedBy = [data.suggestedBy].filter(Boolean);
     await addDoc(collection(db,"couples",coupleId,"watchlist"), data);
     setAddModal(null);
@@ -5624,20 +5852,36 @@ export default function App() {
     addToast("Sessão desmarcada — o filme continua na lista", "info");
   };
 
+  const accountDeletionModal = showDeleteAccount ? (
+    <DeleteAccountModal
+      role={accountDeletionRole}
+      deleting={deletingAccount}
+      error={deleteAccountError}
+      onCancel={() => {
+        if (deletingAccount) return;
+        setShowDeleteAccount(false);
+        setDeleteAccountError("");
+      }}
+      onConfirm={handleDeleteAccount}
+    />
+  ) : null;
+
   // render guards
   if (import.meta.env.DEV && typeof window !== "undefined" && window.location.search.includes("v3demo")) return <V3Demo />;
   if (authLoading || bootDelay) return <SplashScreen />;
 
   if (!authUser) return <LoginScreen onLogin={handleLogin} loading={loginLoading}/>;
 
-  if (!couple) return (
+  if (!couple) return <>
     <CoupleSetup authUser={authUser} onCreate={handleCreateCouple} onJoin={handleJoinCouple} onSignOut={handleSignOut}/>
-  );
+    {accountDeletionModal}
+  </>;
 
   // First user created couple but partner hasn't joined yet (name2 is null)
-  if (!couple.name2) return (
-    <InviteScreen inviteCode={couple.inviteCode} couple={couple} onSignOut={handleSignOut}/>
-  );
+  if (!couple.name2 && !enterSolo) return <>
+    <InviteScreen inviteCode={couple.inviteCode} couple={couple} onContinue={() => setEnterSolo(true)} onSignOut={handleSignOut}/>
+    {accountDeletionModal}
+  </>;
 
   return (
     <>
@@ -5660,6 +5904,7 @@ export default function App() {
         />
       )}
       <ToastContainer toasts={toasts} onDismiss={dismissToast}/>
+      {accountDeletionModal}
 
       <div className="v3-shell">
 
@@ -5686,7 +5931,8 @@ export default function App() {
         {showSettings && (
           <SettingsPage couple={couple} users={users} watched={watched}
             prefs={prefs} onPref={setPref}
-            onClose={()=>setShowSettings(false)} onSignOut={handleSignOut}/>
+            onClose={()=>setShowSettings(false)} onSignOut={handleSignOut}
+            onDeleteAccount={() => { setDeleteAccountError(""); setShowDeleteAccount(true); }}/>
         )}
         {cineModal && (() => {
           const live = watchlist.find(w => w.id === cineModal.item.id) || cineModal.item;

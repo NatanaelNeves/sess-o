@@ -14,8 +14,10 @@ export function canWriteReview({ couple, authUserId, currentUserName, reviewData
   const keys = Object.keys(reviewData || {});
   if (keys.length === 0) return false;
 
-  const existingKeys = new Set(Object.keys(previousReviews || {}));
-  return keys.every(key => key === ownerName || existingKeys.has(key));
+  return keys.every(key => (
+    key === ownerName
+    || JSON.stringify(reviewData[key]) === JSON.stringify(previousReviews[key])
+  ));
 }
 
 export function buildReviewPayload({ currentUserName, previousReviews = {}, nextReview }) {

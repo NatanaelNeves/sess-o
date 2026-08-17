@@ -26,6 +26,9 @@ jobs:
       - name: Instalar dependências
         run: npm ci
 
+      - name: Verificar qualidade e testes
+        run: npm run lint && npm test
+
       - name: Build (Vite injeta as variáveis VITE_* aqui)
         run: npm run build
         env:
@@ -37,6 +40,14 @@ jobs:
           VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID }}
           VITE_TMDB_READ_TOKEN: ${{ secrets.VITE_TMDB_READ_TOKEN }}
           VITE_TMDB_API_KEY: ${{ secrets.VITE_TMDB_API_KEY }}
+
+      - name: Autenticar para publicar regras
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+
+      - name: Publicar regras do banco e dos arquivos
+        run: npx --yes firebase-tools@latest deploy --only firestore:rules,storage --project sess-80b2c --non-interactive
 
       - name: Deploy no Firebase Hosting (canal live)
         uses: FirebaseExtended/action-hosting-deploy@v0

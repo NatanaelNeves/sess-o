@@ -16,6 +16,18 @@ test('allows only the current user to submit their own review', () => {
   assert.equal(canWriteReview({ couple, authUserId: 'u1', reviewData: { Vitória: { rating: 5, text: 'Perfeito' } } }), false);
 });
 
+test('rejects a payload that changes the partner review', () => {
+  const previousReviews = {
+    Natanael: { rating: 4, text: 'Gostei' },
+    Vitória: { rating: 3, text: 'Boa' },
+  };
+  const reviewData = {
+    Natanael: { rating: 5, text: 'Adorei' },
+    Vitória: { rating: 1, text: 'Alterada por outra pessoa' },
+  };
+  assert.equal(canWriteReview({ currentUserName: 'Natanael', previousReviews, reviewData }), false);
+});
+
 test('builds a payload that preserves the current user review only', () => {
   const previous = { Natanael: { rating: 4, text: 'Gostei' }, Vitória: { rating: 3, text: 'Boa' } };
   const payload = buildReviewPayload({ currentUserName: 'Natanael', previousReviews: previous, nextReview: { rating: 5, text: 'Adorei' } });

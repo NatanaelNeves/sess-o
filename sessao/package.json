@@ -10,9 +10,14 @@
     "test": "node --test \"src/*.test.js\" \"src/ui/*.test.js\"",
     "check": "npm run lint && npm test && npm run build",
     "preview": "vite preview",
-    "lumi:webp": "node scripts/lumi-webp.mjs"
+    "lumi:webp": "node scripts/lumi-webp.mjs",
+    "android:sync": "vite build && cap sync android",
+    "android:apk": "npm run android:sync && cd capacitor-android && gradlew assembleDebug"
   },
   "dependencies": {
+    "@capacitor-firebase/authentication": "^8.5.2",
+    "@capacitor/android": "^8.5.3",
+    "@capacitor/core": "^8.5.3",
     "@fontsource-variable/figtree": "^5.3.0",
     "@fontsource-variable/fraunces": "^5.3.0",
     "firebase": "^12.13.0",
@@ -21,6 +26,7 @@
     "react-dom": "^19.2.6"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.5.3",
     "@eslint/js": "^10.0.1",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",

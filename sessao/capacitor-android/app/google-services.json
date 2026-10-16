@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "540199190223",
+    "project_id": "sess-80b2c",
+    "storage_bucket": "sess-80b2c.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:540199190223:android:cc402d51ca85a44508c1ba",
+        "android_client_info": {
+          "package_name": "com.natanaelneves.sessao"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "540199190223-n7dqae6qvrtei4kacurvjefe87ms8fq4.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.natanaelneves.sessao",
+            "certificate_hash": "8919f3d98aa2bcfce8dd028f8a35494741957047"
+          }
+        },
+        {
+          "client_id": "540199190223-1hujik4jjcucmuj3cbovrbllth1qi0pj.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAGe0NcLbd8AYtNICpAEhXpXx4Odx2KJYQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "540199190223-1hujik4jjcucmuj3cbovrbllth1qi0pj.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

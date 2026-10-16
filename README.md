@@ -98,6 +98,30 @@ npm run build
 npx firebase deploy --only hosting
 ```
 
+As regras do Firestore são publicadas à mão enquanto a conta de serviço do CI não tiver os papéis "Service Usage Consumer" e "Firebase Rules Admin":
+
+```bash
+cd sessao
+npx firebase deploy --only firestore:rules
+```
+
+## 🤖 App Android (Capacitor)
+
+O APK empacota o próprio build web dentro do app (`sessao/capacitor-android/`). O login do Google usa o seletor de contas nativo do Android, via `@capacitor-firebase/authentication`, porque o Google bloqueia o login por popup dentro de WebViews.
+
+Requisitos: Android SDK e um JDK 21 ou mais novo (o `jbr` do Android Studio serve).
+
+```bash
+cd sessao
+npm run android:sync        # build web + copia para o projeto Android
+cd capacitor-android
+gradlew assembleDebug       # gera app/build/outputs/apk/debug/app-debug.apk
+```
+
+- O APK de depuração é assinado com `~/.android/debug.keystore`, cujo SHA-1 está cadastrado no app Android `com.natanaelneves.sessao` do Firebase. Em outra máquina, ou para a Play Store com uma chave de release, cadastre o SHA-1 novo no Firebase e baixe o `google-services.json` de novo.
+- Se o celular já tiver uma versão do Sessão assinada com outra chave (o TWA antigo ou a tentativa com Expo), desinstale essa versão antes de instalar o APK.
+- Ícone e tela de abertura: `node scripts/android-assets.mjs`.
+
 ## 📂 Estrutura
 
 ```

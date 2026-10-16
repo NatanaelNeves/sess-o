@@ -2,6 +2,7 @@
 import { createPortal } from "react-dom";
 import { useCallback } from "react";
 import { auth, db } from "./firebase";
+import { isNativeApp, nativeGoogleSignIn, nativeGoogleReauth, nativeGoogleSignOut } from "./nativeAuth.js";
 import {
   onAuthStateChanged, signInWithPopup, signInWithRedirect, getRedirectResult,
   signOut, deleteUser, reauthenticateWithPopup, GoogleAuthProvider,
@@ -5487,7 +5488,7 @@ export default function App() {
 
   // captura o retorno do login via redirect (mobile/PWA)
   useEffect(() => {
-    getRedirectResult(auth).catch(e => console.error(e));
+    if (!isNativeApp()) getRedirectResult(auth).catch(e => console.error(e));
   }, []);
 
   // A página pública de exclusão direciona para este fluxo após o login.
@@ -5606,6 +5607,8 @@ export default function App() {
     setLoginLoading(true);
     const provider = new GoogleAuthProvider();
     try {
+      // no app Android o seletor de contas é o nativo
+      if (isNativeApp()) { await nativeGoogleSignIn(auth); return; }
       await signInWithPopup(auth, provider);
     } catch (e) {
       const fallback = ["auth/popup-blocked","auth/popup-closed-by-user","auth/cancelled-popup-request","auth/operation-not-supported-in-environment"];
@@ -5621,6 +5624,7 @@ export default function App() {
   };
 
   const handleSignOut = async () => {
+    await nativeGoogleSignOut();
     await signOut(auth);
     setWatched([]);
     setWatchlist([]);
@@ -5637,7 +5641,8 @@ export default function App() {
       if (!user) throw new Error("NO_USER");
 
       // Confirma novamente a identidade antes de qualquer remoção irreversível.
-      await reauthenticateWithPopup(user, new GoogleAuthProvider());
+      if (isNativeApp()) await nativeGoogleReauth(user);
+      else await reauthenticateWithPopup(user, new GoogleAuthProvider());
 
       if (coupleId && accountDeletionRole === "owner") {
         // As subcoleções precisam sair antes do documento do casal, que autoriza o acesso.

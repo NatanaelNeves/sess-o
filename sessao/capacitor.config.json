@@ -1,0 +1,17 @@
+{
+  "appId": "com.natanaelneves.sessao",
+  "appName": "Sessão",
+  "webDir": "dist",
+  "android": {
+    "path": "capacitor-android"
+  },
+  "plugins": {
+    "SystemBars": {
+      "style": "DARK"
+    },
+    "FirebaseAuthentication": {
+      "skipNativeAuth": true,
+      "providers": ["google.com"]
+    }
+  }
+}

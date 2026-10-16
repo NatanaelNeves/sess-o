@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Sessão</string>
+    <string name="title_activity_main">Sessão</string>
+    <string name="package_name">com.natanaelneves.sessao</string>
+    <string name="custom_url_scheme">com.natanaelneves.sessao</string>
+</resources>

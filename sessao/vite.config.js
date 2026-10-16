@@ -18,6 +18,8 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
+      // o registro é feito em main.jsx, que pula o service worker dentro do app Android
+      injectRegister: false,
       includeAssets: ['favicon-64.png', 'apple-touch-icon.png', 'icon-192.png', 'icon-512.png'],
       manifest: {
         id: '/',

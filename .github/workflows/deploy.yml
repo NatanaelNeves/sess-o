@@ -46,8 +46,13 @@ jobs:
         with:
           credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
 
-      - name: Publicar regras do banco e dos arquivos
-        run: npx --yes firebase-tools@latest deploy --only firestore:rules,storage --project sess-80b2c --non-interactive
+      # Só o Firestore: o projeto não usa Storage (plano gratuito) e não há storage.rules.
+      # A conta de serviço do CI ainda precisa dos papéis "Service Usage Consumer" e
+      # "Firebase Rules Admin" para publicar regras; até lá este passo não trava o site
+      # e as regras são publicadas à mão com `firebase deploy --only firestore:rules`.
+      - name: Publicar regras do banco
+        continue-on-error: true
+        run: npx --yes firebase-tools@latest deploy --only firestore:rules --project sess-80b2c --non-interactive
 
       - name: Deploy no Firebase Hosting (canal live)
         uses: FirebaseExtended/action-hosting-deploy@v0

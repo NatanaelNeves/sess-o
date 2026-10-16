@@ -1,0 +1,557 @@
+/* ============================================================
+   A cabine do Lumi — a Home como a pequena sala de cinema do casal.
+   Uma única ousadia: a tela iluminada pelo feixe das lentes do Lumi.
+   Todo o resto fica quieto em volta.
+   ============================================================ */
+
+/* ---------- cabeçalho ---------- */
+.cabine-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  padding-top: 22px;
+}
+.cabine-head__ctx { font-size: 14px; color: var(--text-secondary); }
+.cabine-head__names {
+  font-family: var(--font-display);
+  font-size: 36px;
+  font-weight: 700;
+  line-height: 1.04;
+  letter-spacing: -0.01em;
+  margin-top: 2px;
+  overflow-wrap: anywhere;
+}
+.cabine-head__amp { font-style: italic; font-weight: 400; color: var(--text-secondary); }
+.cabine-head__since { font-size: 14px; color: var(--text-secondary); margin-top: 6px; }
+.cabine-head__gear {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 1px solid var(--border-subtle);
+  background: transparent;
+  color: var(--text-secondary);
+  display: grid;
+  place-items: center;
+  transition: color 0.2s ease, transform 0.2s var(--spring);
+}
+.cabine-head__gear:active { transform: scale(0.9) rotate(-20deg); color: var(--text-primary); }
+
+/* ---------- a sala ---------- */
+.cabine {
+  position: relative;
+  margin: 10px -20px 0;
+  padding: 14px 20px 0;
+  background: radial-gradient(95% 55% at 50% 20%, rgba(255, 181, 74, 0.09), transparent 72%);
+}
+/* a tela fica acima do feixe: a luz entra por baixo dela */
+.cabine__tela-wrap { position: relative; z-index: 4; }
+
+/* ---------- a tela projetada ---------- */
+.tela {
+  position: relative;
+  overflow: hidden;
+  border-radius: 20px;
+  padding: 18px 18px 16px;
+  color: #2b1716;
+  background: radial-gradient(130% 120% at 30% 118%, #fff8ea 0%, #fde8c4 42%, #efc58a 100%);
+  box-shadow:
+    0 0 0 1px rgba(255, 214, 160, 0.35),
+    0 22px 64px -20px rgba(255, 181, 74, 0.6),
+    inset 0 0 40px rgba(140, 70, 20, 0.24);
+  animation: telaAcende 0.45s ease-out backwards;
+  transition: filter 1.2s ease;
+}
+/* granulado de película */
+.tela::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.2;
+  mix-blend-mode: multiply;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .45 0 0 0 0 .3 0 0 0 0 .2 0 0 0 .55 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
+}
+.tela__frame { position: relative; z-index: 1; display: flex; gap: 14px; align-items: flex-start; }
+.tela__poster {
+  flex: none;
+  width: 74px;
+  aspect-ratio: 2 / 3;
+  object-fit: cover;
+  border-radius: 6px;
+  box-shadow: 0 8px 18px -6px rgba(70, 25, 10, 0.5);
+}
+.tela__body { min-width: 0; flex: 1; }
+.tela__kicker { font-size: 13px; font-weight: 650; color: rgba(43, 23, 22, 0.78); }
+.tela__title {
+  font-family: var(--font-display);
+  font-size: 25px;
+  font-weight: 700;
+  line-height: 1.08;
+  margin-top: 3px;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.tela__meta { font-size: 14px; line-height: 1.4; color: rgba(43, 23, 22, 0.74); margin-top: 6px; }
+.tela__conta { font-family: var(--font-display); font-style: italic; font-size: 17px; color: #9e2a2d; margin-top: 6px; }
+.tela__barra { height: 6px; border-radius: 99px; background: rgba(43, 23, 22, 0.13); margin-top: 10px; overflow: hidden; }
+.tela__barra span { display: block; height: 100%; border-radius: inherit; background: var(--cachecol); }
+.tela__actions { position: relative; z-index: 1; display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.tela-btn {
+  min-height: 44px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 999px;
+  background: #2b1716;
+  color: var(--pipoca);
+  font-weight: 700;
+  font-size: 15px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transition: transform 0.18s var(--spring), background 0.2s ease;
+}
+.tela-btn:active { transform: scale(0.96); }
+.tela-btn--soft { background: rgba(43, 23, 22, 0.07); color: #2b1716; box-shadow: inset 0 0 0 1.5px rgba(43, 23, 22, 0.24); }
+.tela-btn:focus-visible { outline: 2px solid #2b1716; outline-offset: 2px; }
+
+/* ---------- a plateia, o feixe e o Lumi ---------- */
+.cabine__plateia {
+  --lumi-w: 108px;
+  --lens-x: calc(8px + var(--lumi-w) * 0.7);
+  position: relative;
+  z-index: 3;
+  height: 146px;
+  padding: 0 8px;
+  display: flex;
+  align-items: flex-end;
+}
+.cabine__feixe,
+.cabine__poeiras {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -30px;
+  height: calc(30px + 146px - var(--lumi-w) * 0.62);
+  pointer-events: none;
+  clip-path: polygon(3% 0, 97% 0, calc(var(--lens-x) + 7px) 100%, calc(var(--lens-x) - 4px) 100%);
+  transition: opacity 1.2s ease;
+}
+.cabine__feixe {
+  z-index: 0;
+  mix-blend-mode: screen;
+  background: linear-gradient(to top, rgba(255, 206, 130, 0.8), rgba(255, 181, 74, 0.22) 55%, rgba(255, 181, 74, 0.1));
+  filter: blur(2px);
+}
+.cabine__poeiras { z-index: 1; }
+.cabine__poeira {
+  position: absolute;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: #ffe6bd;
+  opacity: 0;
+  animation: poeira 7.5s linear infinite;
+}
+@keyframes poeira {
+  0% { transform: translate(0, 0); opacity: 0; }
+  25% { opacity: 0.85; }
+  75% { opacity: 0.6; }
+  100% { transform: translate(16px, -34px); opacity: 0; }
+}
+
+/* projetor descansando (madrugada): tela na penumbra, feixe desligado */
+.cabine--apagada .tela { filter: brightness(0.66) saturate(0.75); }
+.cabine--apagada .cabine__feixe,
+.cabine--apagada .cabine__poeiras { opacity: 0; }
+
+/* primeira abertura da sessão: o projetor esquenta */
+.cabine--warm .tela { animation: telaEsquenta 1s ease-out backwards; }
+.cabine--warm .cabine__feixe { animation: feixeEsquenta 1s ease-out both; }
+@keyframes telaAcende { from { filter: brightness(0.7); } to { filter: none; } }
+@keyframes telaEsquenta {
+  0% { filter: brightness(0.25); }
+  12% { filter: brightness(1.12); }
+  18% { filter: brightness(0.45); }
+  30% { filter: brightness(1.05); }
+  38% { filter: brightness(0.75); }
+  100% { filter: none; }
+}
+@keyframes feixeEsquenta {
+  0% { opacity: 0; }
+  12% { opacity: 1; }
+  18% { opacity: 0.2; }
+  30% { opacity: 1; }
+  38% { opacity: 0.6; }
+  100% { opacity: 1; }
+}
+
+/* ---------- o Lumi companheiro ---------- */
+.lumi-co { position: relative; z-index: 2; display: flex; align-items: flex-end; gap: 6px; width: 100%; }
+.lumi-co__hit {
+  position: relative;
+  flex: none;
+  width: var(--lumi-size);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  touch-action: manipulation;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.lumi-co__hit:focus-visible { outline: 2px solid var(--lente); outline-offset: 4px; border-radius: 24px; }
+.lumi-co__floor {
+  position: absolute;
+  left: 20%;
+  right: 20%;
+  bottom: 0;
+  height: 12px;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(0, 0, 0, 0.5), transparent);
+}
+.lumi-co__body {
+  display: block;
+  transform-origin: 50% 92%;
+  animation: lumiIdle 5.6s ease-in-out infinite;
+}
+.lumi-co__img {
+  display: block;
+  width: 100%;
+  height: auto;
+  filter: drop-shadow(0 10px 14px rgba(0, 0, 0, 0.42));
+  animation: lumiPose 0.28s cubic-bezier(0.3, 1.4, 0.5, 1) both;
+}
+@keyframes lumiIdle {
+  0%, 100% { transform: rotate(0deg) scale(1, 1); }
+  32% { transform: rotate(-1.6deg) scale(1.012, 0.992); }
+  64% { transform: rotate(1.2deg) scale(0.996, 1.012); }
+}
+@keyframes lumiPose {
+  from { opacity: 0.35; transform: scale(0.9) translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+.lumi-co--sleeping .lumi-co__body { animation: lumiSono 4.2s ease-in-out infinite; }
+@keyframes lumiSono {
+  0%, 100% { transform: scale(1, 1); }
+  50% { transform: scale(1.025, 1.035); }
+}
+.lumi-co__hearts { position: absolute; left: 50%; top: 18%; width: 0; height: 0; pointer-events: none; }
+.lumi-co__hearts svg {
+  position: absolute;
+  width: calc(20px * var(--s));
+  height: calc(20px * var(--s));
+  fill: var(--bochecha);
+  opacity: 0;
+  animation: coracao 1.25s var(--d) cubic-bezier(0.2, 0.7, 0.3, 1) both;
+}
+@keyframes coracao {
+  0% { opacity: 0; transform: translate(-50%, 0) scale(0.3); }
+  18% { opacity: 1; }
+  100% { opacity: 0; transform: translate(calc(-50% + var(--x)), -96px) scale(1) rotate(12deg); }
+}
+.lumi-co__bubble {
+  flex: 1;
+  min-width: 0;
+  max-width: 240px;
+  margin-bottom: 40px;
+  padding: 11px 14px;
+  border-radius: 18px 18px 18px 6px;
+  background: rgba(42, 28, 31, 0.94);
+  border: 1px solid var(--border-default);
+  box-shadow: 0 10px 24px -10px rgba(0, 0, 0, 0.5);
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: 16px;
+  line-height: 1.35;
+  color: var(--pipoca);
+  transform-origin: 0 100%;
+  animation: bolha 0.34s cubic-bezier(0.3, 1.35, 0.5, 1) both;
+}
+@keyframes bolha {
+  from { opacity: 0; transform: scale(0.85) translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ---------- a fileira de poltronas ---------- */
+.cabine__poltronas {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  height: 44px;
+  margin-top: -22px;
+  padding: 0 10px;
+}
+.poltrona {
+  flex: 1;
+  height: 36px;
+  border-radius: 14px 14px 5px 5px;
+  background: linear-gradient(#4b272c, #2b171a 75%);
+  box-shadow: inset 0 2px 0 rgba(255, 196, 140, 0.13);
+}
+.poltronas-nossas {
+  position: relative;
+  flex: 2;
+  display: flex;
+  gap: 6px;
+  align-items: flex-end;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  transition: transform 0.2s var(--spring);
+}
+.poltronas-nossas:active { transform: translateY(2px); }
+.poltrona--nossa {
+  display: grid;
+  place-items: center;
+  background: linear-gradient(#7c323a, #4a1f25 80%);
+  box-shadow: inset 0 2px 0 rgba(255, 196, 160, 0.25);
+  font-family: var(--font-display);
+  font-weight: 650;
+  font-size: 15px;
+  color: var(--bochecha);
+}
+.poltronas-nossas__badge {
+  position: absolute;
+  top: -6px;
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--cacau);
+  border: 1px solid rgba(242, 167, 160, 0.35);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--bochecha);
+}
+
+/* ---------- seções abaixo da sala ---------- */
+.cabine-sec { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 30px 0 10px; }
+.cabine-sec__title { font-family: var(--font-display); font-size: 21px; font-weight: 650; line-height: 1.2; }
+.cabine-sec__link {
+  flex: none;
+  min-height: 44px;
+  padding: 0 2px;
+  border: 0;
+  background: none;
+  color: var(--lente);
+  font-weight: 650;
+  font-size: 14px;
+}
+
+/* ---------- canhotos ---------- */
+.canhotos__quote { margin: 0 0 16px; }
+.canhotos__quote p { font-family: var(--font-display); font-style: italic; font-size: 19px; line-height: 1.35; }
+.canhotos__quote footer { font-size: 13px; color: var(--text-secondary); margin-top: 4px; }
+.canhotos__trilho {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  margin: 0 -20px;
+  padding: 4px 20px 12px;
+  scrollbar-width: none;
+}
+.canhotos__trilho::-webkit-scrollbar { display: none; }
+.canhoto {
+  position: relative;
+  flex: 0 0 112px;
+  scroll-snap-align: start;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: var(--bombom);
+  color: inherit;
+  text-align: left;
+  box-shadow: 0 12px 22px -14px rgba(0, 0, 0, 0.7);
+  transition: transform 0.2s var(--spring);
+}
+.canhoto:active { transform: scale(0.96) rotate(-1.5deg); }
+.canhoto__poster {
+  position: relative;
+  display: block;
+  aspect-ratio: 2 / 3;
+  border-radius: 10px 10px 0 0;
+  overflow: hidden;
+  background: linear-gradient(160deg, #4a2a2f, #2a1a1d);
+}
+.canhoto__poster img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.canhoto__semposter {
+  display: flex;
+  align-items: flex-end;
+  height: 100%;
+  padding: 10px;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 14px;
+  line-height: 1.15;
+  hyphens: auto;
+  overflow-wrap: break-word;
+}
+.canhoto__cinema {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--lente);
+  color: #2b1716;
+  font-size: 10px;
+  font-weight: 750;
+}
+.canhoto__tira {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  column-gap: 6px;
+  padding: 9px 10px 10px;
+  border-top: 2px dashed rgba(255, 236, 220, 0.16);
+}
+/* os picotes do ingresso */
+.canhoto__tira::before,
+.canhoto__tira::after {
+  content: "";
+  position: absolute;
+  top: -7px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--bg-base);
+}
+.canhoto__tira::before { left: -6px; }
+.canhoto__tira::after { right: -6px; }
+.canhoto__num { font-family: var(--font-display); font-weight: 700; font-size: 15px; }
+.canhoto__data { grid-column: 1; font-size: 12px; color: var(--text-secondary); }
+.canhoto__nota { grid-column: 2; grid-row: 1 / 3; font-size: 13px; font-weight: 700; color: var(--lente); }
+
+/* ---------- nesse dia ---------- */
+.lembranca {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  margin-top: 4px;
+  padding: 10px;
+  border: 0;
+  border-radius: 14px;
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--border-subtle);
+  color: inherit;
+  text-align: left;
+}
+.lembranca__foto {
+  flex: none;
+  width: 52px;
+  aspect-ratio: 2 / 3;
+  border-radius: 4px;
+  object-fit: cover;
+  background: var(--bombom);
+  filter: sepia(0.55) saturate(0.8);
+  transform: rotate(-3deg);
+  box-shadow: 0 0 0 3px #efe2cc, 0 8px 14px -6px rgba(0, 0, 0, 0.6);
+}
+.lembranca__quando { font-size: 13px; color: var(--text-secondary); }
+.lembranca__titulo { font-family: var(--font-display); font-size: 18px; font-weight: 650; line-height: 1.2; margin-top: 2px; }
+
+/* ---------- a parede ---------- */
+.parede__quadros {
+  position: relative;
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  width: 100%;
+  padding: 16px 4px 6px;
+  border: 0;
+  background: none;
+  color: inherit;
+}
+.parede__quadros::before {
+  content: "";
+  position: absolute;
+  top: 4px;
+  left: -20px;
+  right: -20px;
+  height: 2px;
+  background: rgba(255, 236, 220, 0.07);
+}
+.quadro {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 9px;
+  transform: rotate(var(--tilt));
+  transform-origin: 50% -10px;
+}
+/* o preguinho */
+.quadro::before {
+  content: "";
+  position: absolute;
+  top: -11px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #8a6a52;
+}
+.quadro__moldura {
+  display: block;
+  width: 100%;
+  max-width: 88px;
+  aspect-ratio: 1;
+  padding: 6px;
+  border-radius: 6px;
+  background: linear-gradient(145deg, #7a5236, #4a2e1d);
+  box-shadow: 0 12px 18px -10px rgba(0, 0, 0, 0.7);
+}
+.quadro__moldura img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: 3px;
+  background: radial-gradient(circle at 50% 40%, #fbf1e1, #ead3b4);
+}
+.quadro__legenda {
+  font-size: 12px;
+  line-height: 1.3;
+  text-align: center;
+  color: var(--text-secondary);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.quadro--vazio::before { background: #5a4434; }
+.quadro--vazio .quadro__moldura {
+  display: grid;
+  place-items: center;
+  background: transparent;
+  box-shadow: inset 0 0 0 2px rgba(255, 236, 220, 0.16);
+}
+.quadro__progresso { font-family: var(--font-display); font-size: 17px; font-weight: 650; color: var(--text-tertiary); }
+
+/* ---------- movimento reduzido: o Lumi troca de pose, mas não se mexe ---------- */
+@media (prefers-reduced-motion: reduce) {
+  .lumi-co__body,
+  .lumi-co--sleeping .lumi-co__body,
+  .lumi-co__img,
+  .lumi-co__bubble,
+  .tela,
+  .cabine--warm .tela,
+  .cabine--warm .cabine__feixe { animation: none; }
+  .cabine__poeiras,
+  .lumi-co__hearts { display: none; }
+}

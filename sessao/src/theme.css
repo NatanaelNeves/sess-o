@@ -1,20 +1,30 @@
 :root {
-  --bg-base: #080810;
-  --bg-surface: #0f0f1c;
-  --bg-raised: #161625;
-  --bg-hover: #1e1e30;
+  /* "A cabine do Lumi" — a paleta sai do próprio mascote */
+  --cacau: #170f12;     /* o corpo do Lumi, no escuro da sala */
+  --bombom: #2a1c1f;    /* superfícies */
+  --cachecol: #d23a3f;  /* o cachecol: ação principal */
+  --lente: #ffb54a;     /* a luz das lentes: feixe, notas, destaques */
+  --bochecha: #f2a7a0;  /* afeto: corações, "juntos" */
+  --perigo-texto: #ef6b6f; /* o cachecol clareado: vermelho legível como texto no escuro */
+  --pipoca: #fbefdf;    /* texto e a tela iluminada */
 
-  --text-primary: #f0ede8;
-  --text-secondary: #9b98a3;
-  --text-tertiary: #5a5866;
+  --bg-base: var(--cacau);
+  --bg-surface: #221619;
+  --bg-raised: var(--bombom);
+  --bg-hover: #36262a;
 
-  --accent: #c9394a;
-  --accent-hover: #b02f3f;
-  --accent-glow: rgba(201, 57, 74, 0.15);
-  --accent-muted: rgba(201, 57, 74, 0.12);
+  --text-primary: var(--pipoca);
+  --text-secondary: #c4b0a6;
+  --text-tertiary: #a08a81;  /* 5:1 sobre bombom (AA para texto pequeno) */
 
-  --gold: #c9993a;
-  --gold-muted: rgba(201, 153, 58, 0.15);
+  --accent: var(--cachecol);
+  --accent-hover: #b8302f;
+  --accent-glow: rgba(210, 58, 63, 0.18);
+  --accent-muted: rgba(210, 58, 63, 0.12);
+
+  --gold: var(--lente);
+  --gold-muted: rgba(255, 181, 74, 0.15);
+  --blush-muted: rgba(242, 167, 160, 0.16);
 
   --lilac: #8b7ec8;
   --lilac-muted: rgba(139, 126, 200, 0.15);
@@ -25,9 +35,9 @@
   --warning: #f59e0b;
   --success: #22c55e;
 
-  --border-subtle: rgba(255, 255, 255, 0.06);
-  --border-default: rgba(255, 255, 255, 0.1);
-  --border-strong: rgba(255, 255, 255, 0.18);
+  --border-subtle: rgba(255, 236, 220, 0.07);
+  --border-default: rgba(255, 236, 220, 0.11);
+  --border-strong: rgba(255, 236, 220, 0.2);
 
   --space-1: 4px;
   --space-2: 8px;

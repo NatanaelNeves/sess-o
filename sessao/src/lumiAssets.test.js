@@ -42,10 +42,11 @@ test("onboarding Lumi assets keep transparent corners", async () => {
   }
 });
 
-test("the in-app Lumi avatar has no painted halo behind it", async () => {
-  const cssPath = path.resolve(here, "v3.css");
+// O avatar do cabeçalho virou o Lumi companheiro da plateia — a regra continua: sem halo pintado atrás
+test("the Home Lumi companion has no painted halo behind it", async () => {
+  const cssPath = path.resolve(here, "ui/cabine.css");
   const css = await import("node:fs/promises").then(fs => fs.readFile(cssPath, "utf8"));
-  const rule = css.match(/\.home-head__lumi\s*\{([^}]+)\}/)?.[1] || "";
+  const rule = css.match(/\.lumi-co__hit\s*\{([^}]+)\}/)?.[1] || "";
 
-  assert.match(rule, /background:\s*transparent\s*;/, "the header avatar still paints a backdrop behind Lumi");
+  assert.match(rule, /background:\s*transparent\s*;/, "the Home companion paints a backdrop behind Lumi");
 });

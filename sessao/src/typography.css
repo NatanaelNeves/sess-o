@@ -1,8 +1,13 @@
-@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400&family=Inter:wght@400;500;600;700&display=swap');
+/* Fontes servidas pelo próprio app (funcionam offline no PWA).
+   Fraunces com o eixo SOFT: serifa gordinha, de cartaz antigo — ecoa as formas
+   arredondadas do Lumi. Figtree para texto e interface. */
+@import '@fontsource-variable/fraunces/soft.css';
+@import '@fontsource-variable/fraunces/soft-italic.css';
+@import '@fontsource-variable/figtree/index.css';
 
 :root {
-  --font-display: 'Cormorant Garamond', serif;
-  --font-body: 'Inter', sans-serif;
+  --font-display: 'Fraunces Variable', Georgia, serif;
+  --font-body: 'Figtree Variable', system-ui, sans-serif;
 }
 
 body {
@@ -10,4 +15,6 @@ body {
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  /* herdado por todo o app: a Fraunces sempre no desenho macio (a Figtree ignora o eixo) */
+  font-variation-settings: "SOFT" 100;
 }

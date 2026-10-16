@@ -26,8 +26,8 @@ export default defineConfig({
         description: 'O diário cinematográfico do casal',
         lang: 'pt-BR',
         categories: ['entertainment', 'lifestyle'],
-        theme_color: '#080810',
-        background_color: '#080810',
+        theme_color: '#170f12',
+        background_color: '#170f12',
         display: 'standalone',
         start_url: '/',
         scope: '/',
@@ -63,9 +63,11 @@ export default defineConfig({
         // O kit completo do Lumi é grande. O shell fica disponível offline e as
         // ilustrações entram no cache conforme são usadas, sem travar a instalação.
         globPatterns: ['**/*.{js,css,html,ico,svg,woff2}', 'icon-*.png', 'apple-touch-icon.png', 'favicon-64.png'],
+        // subconjuntos de fonte que o português nunca usa ficam fora do precache
+        globIgnores: ['**/*-vietnamese-*.woff2'],
         runtimeCaching: [
           {
-            urlPattern: /\/assets\/kit\/.*\.png$/i,
+            urlPattern: /\/assets\/kit\/.*\.(png|webp)$/i,
             handler: 'CacheFirst',
             options: {
               cacheName: 'lumi-kit',

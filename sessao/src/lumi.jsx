@@ -68,7 +68,8 @@ export const LUMI = {
   headSad:        "ui_cabeca_triste",
 };
 
-export const lumiSrc = name => `${KIT}/${LUMI[name] || name}.png`;
+// .webp é gerado a partir dos .png por `npm run lumi:webp` (~6x mais leve)
+export const lumiSrc = name => `${KIT}/${LUMI[name] || name}.webp`;
 
 /**
  * <Lumi name="welcome" size={200} breathe />

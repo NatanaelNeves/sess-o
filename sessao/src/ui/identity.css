@@ -1,0 +1,200 @@
+/* ============================================================
+   A cabine do Lumi — camada de identidade compartilhada.
+   Carregada por último: harmoniza as telas antigas com a Home
+   sem reescrever cada regra do v3.css/App.css.
+   ============================================================ */
+
+/* ---------- títulos de seção: frase normal, serifa macia, sem caixa alta ---------- */
+.home-last-label,
+.section-label,
+.section-heading,
+.cfg-section,
+.cine-section-label,
+.timeline-month__header,
+.story-chapter__month {
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 650;
+  line-height: 1.2;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text-primary);
+}
+.home-last-label { margin: 28px 0 12px; }
+
+/* sobrancelhas e rótulos pequenos: legíveis, sem caixa alta */
+.v3-eyebrow,
+.continue-hero__eyebrow,
+.ep-hero__eyebrow,
+.ep-hero__badge,
+.ep-stepper__label,
+.celebrate__eyebrow,
+.ep-input > span,
+.mdetail-banner__eyebrow,
+.wl-card__providers-label,
+.acervo-featured__eyebrow,
+.pf-cinema-card__eyebrow,
+.ns-hero__eyebrow,
+.cine-head__eyebrow,
+.cfg-badge,
+.rl-cine__eyebrow,
+.tl-entry__tag,
+.nota-casal--row .nota-casal__label {
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.home-sec-head { margin: 28px 0 12px; align-items: baseline; }
+.home-sec-head__link { color: var(--lente); font-weight: 650; min-height: 44px; }
+
+/* ---------- navegação: a aba ativa é a que está "iluminada" ---------- */
+.v3-nav {
+  background: rgba(27, 17, 20, 0.9);
+  border-top-color: var(--border-subtle);
+}
+.v3-nav__item {
+  width: 60px;
+  height: 56px;
+  flex-direction: column;
+  gap: 3px;
+  color: var(--text-tertiary);
+  border-radius: 16px;
+}
+.v3-nav__label { font-size: 11px; font-weight: 650; line-height: 1; }
+.v3-nav__item--active,
+.v3-nav__item--active.v3-nav__item--gold {
+  background: transparent;
+  color: var(--lente);
+}
+/* a luz que cai sobre a aba ativa */
+.v3-nav__item--active::before {
+  content: "";
+  position: absolute;
+  top: -1px;
+  left: 50%;
+  width: 34px;
+  height: 3px;
+  border-radius: 0 0 4px 4px;
+  transform: translateX(-50%);
+  background: var(--lente);
+  box-shadow: 0 0 14px 3px rgba(255, 181, 74, 0.45);
+}
+.v3-nav__item--active::after {
+  content: "";
+  position: absolute;
+  inset: 0 6px;
+  border-radius: 14px;
+  background: linear-gradient(rgba(255, 181, 74, 0.13), transparent 85%);
+  pointer-events: none;
+}
+.v3-nav__lumi { width: 24px; height: 24px; }
+.v3-nav__fab { background: var(--cachecol); box-shadow: 0 8px 22px rgba(210, 58, 63, 0.45), inset 0 2px 0 rgba(255, 220, 200, 0.25); }
+
+/* ---------- filtros: o que está selecionado fica sob a luz ---------- */
+.chip,
+.wl-chip { min-height: 40px; }
+.wl-chip--sm { height: auto; min-height: 36px; }
+.chip--active,
+.wl-chip--active,
+.chip--gold.chip--active {
+  background: rgba(255, 181, 74, 0.16);
+  border-color: rgba(255, 181, 74, 0.55);
+  color: var(--lente);
+  font-weight: 700;
+}
+.wl-chip--active b { color: var(--lente); opacity: 0.75; }
+
+/* ---------- botões ---------- */
+.pill--primary { background: var(--cachecol); box-shadow: 0 10px 24px -8px rgba(210, 58, 63, 0.6), inset 0 2px 0 rgba(255, 220, 200, 0.2); }
+.pill--gold { background: var(--lente); color: #2b1716; box-shadow: 0 10px 24px -10px rgba(255, 181, 74, 0.6); }
+.pill--gold:hover { box-shadow: 0 14px 28px -10px rgba(255, 181, 74, 0.7); }
+.pill--light { color: #2b1716; }
+.pill--outline { color: var(--text-primary); }
+
+/* ---------- toasts acima da navegação, inclusive no iPhone ---------- */
+.toast-stack { bottom: calc(92px + env(safe-area-inset-bottom, 0px)); }
+
+/* ---------- Lumi companheiro em linha (formulários, rodapés) ---------- */
+.lumi-co--inline { align-items: center; }
+.lumi-co--inline .lumi-co__bubble { margin-bottom: 0; font-size: 15px; max-width: none; }
+
+/* a confirmação de exclusão precisa ficar acima da navegação e das subpáginas */
+.modal-backdrop--confirm { z-index: 4500; }
+
+/* as cores dos dois: o cachecol do Lumi e o caramelo do capacete dele */
+.critica-card__ava--a,
+.pf-ava--a { background: linear-gradient(140deg, #d23a3f, #7c1f26); }
+.critica-card__ava--b,
+.pf-ava--b { background: linear-gradient(140deg, #9a6646, #3e2418); }
+
+/* ---------- toasts: o Lumi dá o recado ---------- */
+.toast {
+  align-items: center;
+  gap: 10px;
+  background: rgba(42, 28, 31, 0.96);
+  border: 1px solid var(--border-default);
+  border-left: 3px solid var(--lente);
+  border-radius: 16px;
+  color: var(--pipoca);
+}
+.toast--success { border-left-color: var(--lente); }
+.toast--error { border-left-color: var(--cachecol); }
+.toast--info,
+.toast--warn,
+.toast--warning { border-left-color: var(--bochecha); }
+.toast__lumi { width: 28px; height: 28px; object-fit: contain; flex: none; animation: toastLumi 0.45s cubic-bezier(0.3, 1.5, 0.5, 1) both; }
+@keyframes toastLumi { from { transform: scale(0.4) rotate(-12deg); opacity: 0; } to { transform: none; opacity: 1; } }
+
+/* ---------- troca de aba: o projetor puxa o foco ---------- */
+.v3-page { animation: focoProjetor 0.3s ease-out both; }
+@keyframes focoProjetor {
+  from { opacity: 0; filter: blur(5px) brightness(1.15); }
+  to { opacity: 1; filter: none; }
+}
+
+/* a cabeça do Lumi na aba Casal dá um pulinho quando a aba acende */
+.v3-nav__item--active .v3-nav__lumi { animation: navLumi 0.5s cubic-bezier(0.3, 1.6, 0.5, 1) both; }
+@keyframes navLumi {
+  0% { transform: translateY(0) scale(1); }
+  40% { transform: translateY(-5px) scale(1.12, 0.92); }
+  100% { transform: none; }
+}
+/* os rótulos de seção nos formulários e no detalhe falam na voz da serifa */
+.field-label {
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 650;
+  color: var(--text-primary);
+}
+@media (prefers-reduced-motion: reduce) {
+  .v3-page, .toast__lumi, .v3-nav__item--active .v3-nav__lumi { animation: none; }
+}
+
+/* vermelho como texto precisa ser mais claro que o cachecol para ser legível no escuro */
+.cfg-row__label--danger,
+.button--danger-text,
+.delete-account__error,
+.error-text { color: var(--perigo-texto); }
+
+/* ============================================================
+   Etapa 7 — acessibilidade: nenhum texto abaixo de 11px,
+   alvos de toque confortáveis e contraste AA
+   ============================================================ */
+.canhoto__cinema,
+.acervo-item__selo { font-size: 11px; }
+.critica-row__date { font-size: 11px; }
+.pf-cinema-card__count-l { font-size: 11px; }
+.stats-bar span { font-size: 11px; }
+.emotion-chip__label { font-size: 12px; }
+.field-sub { font-size: 13px; color: var(--text-secondary); }
+.wl-chip--sm { min-height: 40px; }
+.ns-where-chip { min-height: 44px; }
+.cfg-ingresso__copiar { min-height: 40px; }
+/* os interruptores ganham uma área de toque invisível de 44px */
+.toggle::after { content: ""; position: absolute; left: -6px; right: -6px; top: 50%; height: 44px; transform: translateY(-50%); }
+.wl-badge--prioridade { background: rgba(210, 58, 63, 0.16); border-color: rgba(239, 107, 111, 0.4); color: var(--perigo-texto); }
+
+/* em tablets a navegação acompanha a coluna de 520px do app, sem espalhar os ícones */
+.v3-nav { padding-left: max(12px, calc((100% - 520px) / 2)); padding-right: max(12px, calc((100% - 520px) / 2)); }

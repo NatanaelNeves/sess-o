@@ -7,11 +7,14 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint . --max-warnings 0",
-    "test": "node --test \"src/*.test.js\"",
+    "test": "node --test \"src/*.test.js\" \"src/ui/*.test.js\"",
     "check": "npm run lint && npm test && npm run build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "lumi:webp": "node scripts/lumi-webp.mjs"
   },
   "dependencies": {
+    "@fontsource-variable/figtree": "^5.3.0",
+    "@fontsource-variable/fraunces": "^5.3.0",
     "firebase": "^12.13.0",
     "html-to-image": "^1.11.13",
     "react": "^19.2.6",

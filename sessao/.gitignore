@@ -37,3 +37,6 @@ android/local.properties
 *.njsproj
 *.sln
 *.sw?
+
+# emulador do Firestore (npm run test:rules)
+firestore-debug.log

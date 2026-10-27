@@ -23,14 +23,17 @@ service cloud.firestore {
            : request.auth.uid == coupleData.uid2 ? coupleData.name1
            : null;
     }
+    // Cada um só escreve a própria crítica; as outras chaves de `reviews` ficam
+    // como estavam. Os demais campos da memória podem mudar junto (o formulário
+    // "Editar registro" regrava o documento inteiro).
+    // `keys()` devolve uma lista: `union` só existe em conjuntos, por isso o toSet().
     function ownReviewUpdate(coupleData) {
       let owner = reviewOwnerName(coupleData);
       let partner = reviewPartnerName(coupleData);
       let oldReviews = resource.data.get("reviews", {});
       let newReviews = request.resource.data.get("reviews", {});
       return owner != null
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["reviews"])
-        && newReviews.keys().hasOnly(oldReviews.keys().union([owner]))
+        && newReviews.keys().toSet().hasOnly(oldReviews.keys().toSet().union([owner].toSet()))
         && newReviews.keys().hasAll(oldReviews.keys().removeAll([owner]))
         && (!newReviews.keys().hasAny([owner]) || newReviews[owner] != null)
         && (partner == null

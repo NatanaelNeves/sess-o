@@ -198,3 +198,28 @@
 
 /* em tablets a navegação acompanha a coluna de 520px do app, sem espalhar os ícones */
 .v3-nav { padding-left: max(12px, calc((100% - 520px) / 2)); padding-right: max(12px, calc((100% - 520px) / 2)); }
+
+/* "Fale com a gente" é um link mailto com a cara das outras linhas */
+a.cfg-row { text-decoration: none; }
+
+/* entrar com e-mail */
+.email-auth { display: flex; flex-direction: column; gap: 14px; }
+.email-auth__field { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--text-secondary); }
+.email-auth__field .text-input { font-size: 16px; } /* 16px evita o zoom do iOS ao focar */
+.email-auth__pw { position: relative; display: block; }
+.email-auth__pw .text-input { width: 100%; padding-right: 92px; box-sizing: border-box; }
+.email-auth__eye {
+  position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
+  min-width: 44px; min-height: 44px; padding: 0 12px; border: 0; background: none;
+  color: var(--text-secondary); font: inherit; font-size: 13px; cursor: pointer;
+}
+.email-auth__error { margin: 0; color: var(--perigo-texto); font-size: 14px; }
+.email-auth__notice { margin: 0; color: var(--text-secondary); font-size: 14px; line-height: 1.5; }
+.email-auth__links { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.email-auth__links button {
+  min-height: 44px; padding: 0 4px; border: 0; background: none; cursor: pointer;
+  color: var(--lente, var(--gold)); font: inherit; font-size: 14px; font-weight: 600;
+}
+
+/* aviso pequeno embaixo do rótulo de uma linha das Configurações */
+.cfg-row__hint { display: block; margin-top: 2px; font-size: 12px; color: var(--text-tertiary); }

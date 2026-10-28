@@ -11,7 +11,26 @@
     },
     "FirebaseAuthentication": {
       "skipNativeAuth": true,
-      "providers": ["google.com"]
+      "providers": [
+        "google.com",
+        "apple.com"
+      ]
+    },
+    "LocalNotifications": {
+      "smallIcon": "ic_stat_sessao",
+      "iconColor": "#FFB54A"
+    }
+  },
+  "experimental": {
+    "ios": {
+      "spm": {
+        "swiftToolsVersion": "6.1",
+        "packageTraits": {
+          "@capacitor-firebase/authentication": [
+            "Google"
+          ]
+        }
+      }
     }
   }
 }

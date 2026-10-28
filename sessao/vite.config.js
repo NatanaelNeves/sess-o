@@ -3,6 +3,10 @@ import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 
 export default defineConfig({
+  // ios/ e capacitor-android/ guardam cópias do build: o dev server não deve
+  // varrê-las como código-fonte nem vigiar milhares de arquivos gerados
+  optimizeDeps: { entries: ['index.html'] },
+  server: { watch: { ignored: ['**/ios/**', '**/capacitor-android/**', '**/android/**', '**/native/**'] } },
   build: {
     rollupOptions: {
       output: {
@@ -34,6 +38,12 @@ export default defineConfig({
         start_url: '/',
         scope: '/',
         prefer_related_applications: false,
+        // mesmos atalhos do app nativo; src/appActions.js lê o ?acao=
+        shortcuts: [
+          { name: 'Registrar sessão', short_name: 'Registrar', url: '/?acao=registrar', icons: [{ src: 'icon-192.png', sizes: '192x192' }] },
+          { name: 'Adicionar à lista a dois', short_name: 'Quero ver', url: '/?acao=querover', icons: [{ src: 'icon-192.png', sizes: '192x192' }] },
+          { name: 'O que vamos ver hoje?', short_name: 'Roleta', url: '/?acao=roleta', icons: [{ src: 'icon-192.png', sizes: '192x192' }] },
+        ],
         icons: [
           {
             src: 'icon-192.png',

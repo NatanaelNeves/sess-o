@@ -23,6 +23,8 @@ const app = initializeApp(firebaseConfig);
 export const auth = Capacitor.isNativePlatform()
   ? initializeAuth(app, { persistence: indexedDBLocalPersistence })
   : getAuth(app);
+// e-mails do Firebase Auth (senha nova, verificação) em português
+auth.languageCode = "pt-BR";
 export const db   = initializeFirestore(app, {
   localCache: persistentLocalCache({
     tabManager: persistentMultipleTabManager(),

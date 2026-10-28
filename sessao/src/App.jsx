@@ -2,7 +2,12 @@
 import { createPortal } from "react-dom";
 import { useCallback } from "react";
 import { auth, db } from "./firebase";
-import { isNativeApp, nativeGoogleSignIn, nativeGoogleReauth, nativeGoogleSignOut } from "./nativeAuth.js";
+import { isNativeApp, canSignInWithApple, nativeGoogleSignIn, nativeAppleSignIn, nativeReauth, nativeSignOut } from "./nativeAuth.js";
+import { version as appVersion } from "../package.json";
+import { authErrorMessage, hasPassword, reauthWithPassword, sendReset, signInWithEmail, signUpWithEmail, validateEmailForm, MIN_PASSWORD } from "./emailAuth.js";
+import { askReminderPermission, hapticError, hapticSuccess, hapticTap, listenForActions, reminderPermission, remindersAvailable, syncReminders } from "./nativeDevice.js";
+import { relationshipLine, sessaoDaysLine, daysOnSessao, monthYear } from "./coupleDates.js";
+import { SUPPORT_EMAIL, canShareText, openSitePage, publicOrigin, saveImage, saveTextFile, shareImage, shareText } from "./nativeShare.js";
 import {
   onAuthStateChanged, signInWithPopup, signInWithRedirect, getRedirectResult,
   signOut, deleteUser, reauthenticateWithPopup, GoogleAuthProvider,
@@ -1850,27 +1855,15 @@ const DetailModal = ({ entry, users, onClose, onMarkWatched, onEdit, onSaveRevie
     setCapturedDataUrl(url);
     setShareLoading(false);
   };
+  const shareFileName = `sessao-${entry.title.replace(/[^a-z0-9]/gi, "-").toLowerCase()}.png`;
   const handleDownload = () => {
     if (!capturedDataUrl) return;
-    const a = document.createElement("a");
-    a.href = capturedDataUrl;
-    a.download = `sessao-${entry.title.replace(/[^a-z0-9]/gi, "-").toLowerCase()}.png`;
-    a.click();
+    saveImage(capturedDataUrl, shareFileName, entry.title).catch(e => console.error(e));
   };
   const handleWebShare = async () => {
     if (!capturedDataUrl) return;
-    try {
-      const res = await fetch(capturedDataUrl);
-      const blob = await res.blob();
-      const file = new File([blob], `sessao-${entry.title.slice(0, 20).replace(/\s+/g, "-")}.png`, { type: "image/png" });
-      if (navigator.canShare?.({ files: [file] })) {
-        await navigator.share({ files: [file], title: entry.title });
-      } else {
-        handleDownload();
-      }
-    } catch {
-      handleDownload();
-    }
+    try { await shareImage(capturedDataUrl, shareFileName, entry.title); }
+    catch (e) { console.error(e); }
   };
 
   const fmtDur = m => m ? `${Math.floor(m / 60)}h${m % 60 > 0 ? String(m % 60).padStart(2, "0") : ""}` : null;
@@ -1968,7 +1961,12 @@ const DetailModal = ({ entry, users, onClose, onMarkWatched, onEdit, onSaveRevie
               ) : shots.length ? (
                 <div className="cine-album">
                   {shots.map(k => (
-                    <a key={k.key} href={album[k.key]} target="_blank" rel="noreferrer" className="cine-album__item">
+                    <a key={k.key} href={album[k.key]} target="_blank" rel="noreferrer" className="cine-album__item"
+                      onClick={e => {
+                        if (!isNativeApp()) return;
+                        e.preventDefault();
+                        shareImage(album[k.key], `sessao-${k.key}.jpg`, k.label).catch(err => console.error(err));
+                      }}>
                       <img src={album[k.key]} alt={k.label}/>
                       <span className="cine-album__cap">{k.emoji} {k.label}</span>
                     </a>
@@ -2966,8 +2964,91 @@ const V3Demo = () => {
 };
 
 // login + onboarding — "Oi! Eu sou o Lumi" → "Como funciona" → login (v3)
-const LoginScreen = ({ onLogin, loading }) => {
+// conta própria: entrar, criar conta e recuperar senha com e-mail
+const EmailAuthSheet = ({ onClose }) => {
+  const [mode, setMode] = useState("login"); // login | signup | reset
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+
+  const go = next => { setMode(next); setError(""); setNotice(""); };
+  const resetSent = "Se houver uma conta com esse e-mail, o link para criar uma senha nova chega em instantes. Confira também o spam.";
+
+  const submit = async e => {
+    e.preventDefault();
+    const invalid = validateEmailForm({ mode, name, email, password });
+    if (invalid) { setError(invalid); return; }
+    setBusy(true); setError(""); setNotice("");
+    try {
+      if (mode === "signup") await signUpWithEmail(auth, { name, email, password });
+      else if (mode === "login") await signInWithEmail(auth, { email, password });
+      else { await sendReset(auth, email); setNotice(resetSent); }
+    } catch (err) {
+      // o reset nunca confirma se o e-mail tem conta
+      if (mode === "reset" && err?.code === "auth/user-not-found") setNotice(resetSent);
+      else { console.error(err); setError(authErrorMessage(err)); }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const title = { login: "Entrar com e-mail", signup: "Criar conta", reset: "Recuperar senha" }[mode];
+  return (
+    <Overlay onClose={() => { if (!busy) onClose(); }}>
+      <Modal title={title} onClose={onClose} closeDisabled={busy} maxW={420}>
+        <form className="email-auth" onSubmit={submit} noValidate>
+          {mode === "signup" && (
+            <label className="email-auth__field">
+              <span>Como quer ser chamado</span>
+              <input className="text-input" value={name} onChange={e => setName(e.target.value)}
+                autoComplete="given-name" maxLength={40} enterKeyHint="next" disabled={busy}/>
+            </label>
+          )}
+          <label className="email-auth__field">
+            <span>E-mail</span>
+            <input className="text-input" type="email" inputMode="email" value={email} onChange={e => setEmail(e.target.value)}
+              autoComplete={mode === "signup" ? "email" : "username"} autoCapitalize="none" spellCheck={false}
+              enterKeyHint={mode === "reset" ? "send" : "next"} disabled={busy}/>
+          </label>
+          {mode !== "reset" && (
+            <label className="email-auth__field">
+              <span>Senha{mode === "signup" ? ` (mínimo ${MIN_PASSWORD} caracteres)` : ""}</span>
+              <span className="email-auth__pw">
+                <input className="text-input" type={showPassword ? "text" : "password"} value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  autoComplete={mode === "signup" ? "new-password" : "current-password"} enterKeyHint="go" disabled={busy}/>
+                <button type="button" className="email-auth__eye" onClick={() => setShowPassword(v => !v)}
+                  aria-label={showPassword ? "Esconder senha" : "Mostrar senha"} aria-pressed={showPassword}>
+                  {showPassword ? "ocultar" : "mostrar"}
+                </button>
+              </span>
+            </label>
+          )}
+          {error && <p className="email-auth__error" role="alert">{error}</p>}
+          {notice && <p className="email-auth__notice" role="status">{notice}</p>}
+          <button type="submit" className="pill pill--primary pill--block" disabled={busy}>
+            {busy ? "Um instante…" : { login: "Entrar", signup: "Criar minha conta", reset: "Enviar link" }[mode]}
+          </button>
+          <div className="email-auth__links">
+            {mode === "login" && <>
+              <button type="button" onClick={() => go("reset")}>Esqueci minha senha</button>
+              <button type="button" onClick={() => go("signup")}>Criar conta</button>
+            </>}
+            {mode !== "login" && <button type="button" onClick={() => go("login")}>Já tenho conta</button>}
+          </div>
+        </form>
+      </Modal>
+    </Overlay>
+  );
+};
+
+const LoginScreen = ({ onLogin, onAppleLogin, loading }) => {
   const [slide, setSlide] = useState(() => localStorage.getItem("sessao-onboarded") ? 2 : 0);
+  const [emailOpen, setEmailOpen] = useState(false);
   const finishOnb = () => { localStorage.setItem("sessao-onboarded", "1"); setSlide(2); };
 
   if (slide === 0) return (
@@ -3035,6 +3116,18 @@ const LoginScreen = ({ onLogin, loading }) => {
             )}
           {loading ? "Entrando..." : "Continuar com Google"}
         </button>
+        {canSignInWithApple() && (
+          <button onClick={onAppleLogin} disabled={loading} className="pill pill--light pill--block">
+            <svg width="16" height="19" viewBox="0 0 814 1000" aria-hidden="true">
+              <path fill="currentColor" d="M788 341c-6 4-108 62-108 190 0 149 131 202 135 203-1 3-21 72-69 142-43 62-88 124-156 124s-86-40-165-40c-77 0-104 41-166 41s-106-57-156-127C45 792 0 668 0 551c0-189 123-289 244-289 64 0 118 42 158 42 38 0 98-45 171-45 28 0 128 3 194 82zM554 165c30-36 52-86 52-136 0-7-1-14-2-19-49 2-108 33-143 74-28 32-54 82-54 133 0 8 1 15 2 18 3 1 9 1 14 1 44 0 99-29 131-71z"/>
+            </svg>
+            Continuar com a Apple
+          </button>
+        )}
+        <button onClick={() => setEmailOpen(true)} disabled={loading} className="pill pill--outline pill--block">
+          Entrar com e-mail
+        </button>
+        {emailOpen && <EmailAuthSheet onClose={() => setEmailOpen(false)}/>}
         <div className="onb__privacy-note">
           <span aria-hidden="true">🔒</span> privado — só entre vocês dois · já tem um convite? entre e <span>insira o código</span>
         </div>
@@ -3046,12 +3139,17 @@ const LoginScreen = ({ onLogin, loading }) => {
   );
 };
 
+// convite aberto por link (?convite=CODIGO): guardado até a pessoa entrar
+const PENDING_INVITE = "sessao-convite";
+const pendingInvite = () => { try { return sessionStorage.getItem(PENDING_INVITE) || ""; } catch { return ""; } };
+const clearPendingInvite = () => { try { sessionStorage.removeItem(PENDING_INVITE); } catch { /* sem storage */ } };
+
 // couple setup (create or join)
 const CoupleSetup = ({ authUser, onCreate, onJoin, onSignOut }) => {
-  const [tab, setTab] = useState("create");
+  const [tab, setTab] = useState(() => pendingInvite() ? "join" : "create");
   const [myName, setMyName] = useState(authUser?.displayName || "");
   const [since, setSince] = useState("");
-  const [code, setCode] = useState("");
+  const [code, setCode] = useState(pendingInvite);
   const [joinName, setJoinName] = useState(authUser?.displayName || "");
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
@@ -3075,6 +3173,7 @@ const CoupleSetup = ({ authUser, onCreate, onJoin, onSignOut }) => {
     setErr("");
     try {
       await onJoin(normalizeInviteCode(code), joinName.trim());
+      clearPendingInvite();
     } catch (e) {
       setErr(e.message);
     } finally {
@@ -3102,7 +3201,7 @@ const CoupleSetup = ({ authUser, onCreate, onJoin, onSignOut }) => {
         <h1 className="auth-title auth-title--large">
           Sessão <span className="days-highlight">❤️</span>
         </h1>
-        <p className="auth-subtitle">Olá, {authUser?.displayName?.split(" ")[0]}! Configure seu diário.</p>
+        <p className="auth-subtitle">{authUser?.displayName ? `Olá, ${authUser.displayName.split(" ")[0]}!` : "Olá!"} Configure seu diário.</p>
         {onSignOut && (
           <button type="button" onClick={onSignOut} className="auth-signout">
             Sair / trocar de conta
@@ -3130,8 +3229,8 @@ const CoupleSetup = ({ authUser, onCreate, onJoin, onSignOut }) => {
           <div className="auth-stack">
             <input aria-label="Seu nome" className="auth-input" value={myName} onChange={e => setMyName(e.target.value)} placeholder="Seu nome" style={inp} maxLength={40} autoComplete="name" />
             <p className="auth-note">Você receberá um código para convidar sua pessoa</p>
-            <p className="auth-note auth-note--compact">Desde quando juntos? (opcional)</p>
-            <input aria-label="Desde quando estão juntos" type="date" className="auth-input" value={since} onChange={e => setSince(e.target.value)} style={inp} />
+            <p className="auth-note auth-note--compact">Quando começou o relacionamento de vocês? (opcional)</p>
+            <input aria-label="Data em que o relacionamento começou" type="date" className="auth-input" value={since} onChange={e => setSince(e.target.value)} style={inp} />
             {err && <p className="error-text" role="alert">{err}</p>}
             <button
               onClick={handleCreate}
@@ -3178,13 +3277,13 @@ const CoupleSetup = ({ authUser, onCreate, onJoin, onSignOut }) => {
 // invite code display (after creating couple)
 const InviteScreen = ({ inviteCode, couple, onContinue, onSignOut }) => {
   const [copied, setCopied] = useState(false);
-  const inviteText = `Entra no nosso diário Sessão com o código ${inviteCode}: ${window.location.origin}`;
+  const inviteText = `Entra no nosso diário Sessão com o código ${inviteCode}: ${publicOrigin()}/?convite=${inviteCode}`;
   const copyInvite = async () => {
     await navigator.clipboard?.writeText(inviteCode);
     setCopied(true);
     setTimeout(() => setCopied(false), 1600);
   };
-  const shareInvite = () => navigator.share?.({ title: "Nosso diário Sessão", text: inviteText });
+  const shareInvite = () => shareText({ title: "Nosso diário Sessão", text: inviteText });
 
   return <div className="auth-screen">
     <div className="auth-card">
@@ -3203,7 +3302,7 @@ const InviteScreen = ({ inviteCode, couple, onContinue, onSignOut }) => {
         </button>
       </div>
       <p className="auth-note">Quando sua pessoa usar o código, o diário será atualizado automaticamente.</p>
-      {typeof navigator.share === "function" && (
+      {canShareText() && (
         <button type="button" onClick={() => shareInvite().catch(() => {})} className="auth-btn auth-btn--share">
           Enviar convite
         </button>
@@ -3234,20 +3333,8 @@ const HomePage = ({ watched, watchlist, couple, currentUser, users, coupleId, ad
   const watching = watched.filter(w => w.type === "tv" && w.status === "watching");
   const compat = coupleCompat(watched, users);
 
-  // "juntos há X" — a partir de couple.since, no formato "1 ano e 8 meses"
-  const togetherLabel = (() => {
-    if (!couple.since) return null;
-    const since = new Date(couple.since);
-    const now = new Date();
-    let months = (now.getFullYear() - since.getFullYear()) * 12 + (now.getMonth() - since.getMonth());
-    if (now.getDate() < since.getDate()) months--;
-    if (months < 1) return "pouco tempo";
-    const years = Math.floor(months / 12);
-    const restMonths = months % 12;
-    const y = years ? `${years} ${years === 1 ? "ano" : "anos"}` : "";
-    const m = restMonths ? `${restMonths} ${restMonths === 1 ? "mês" : "meses"}` : "";
-    return [y, m].filter(Boolean).join(" e ");
-  })();
+  // "1 ano e 8 meses de relacionamento" — o tempo do casal, não o tempo no app
+  const togetherLabel = relationshipLine(couple.since);
 
   // próxima ida ao cinema — nasce automaticamente de um item planejado na watchlist.
   // prioriza a sessão que ainda vem (hoje/marcada); se só houver uma que já passou,
@@ -3443,7 +3530,7 @@ const HomePage = ({ watched, watchlist, couple, currentUser, users, coupleId, ad
           <h1 className="cabine-head__names">
             {couple.name2 ? <>{couple.name1} <span className="cabine-head__amp">&amp;</span> {couple.name2}</> : couple.name1}
           </h1>
-          {togetherLabel && <p className="cabine-head__since">juntos há {togetherLabel}</p>}
+          {togetherLabel && <p className="cabine-head__since">{togetherLabel}</p>}
         </div>
         <button type="button" className="cabine-head__gear" onClick={onOpenSettings} aria-label="Configurações">
           <Ic n="settings" s={20}/>
@@ -4322,7 +4409,8 @@ const coupleAchievements = (watched, users, couple) => {
   const cinema = watched.filter(w => w.where === "cinema").length;
   const totalRuntime = watched.reduce((s, w) => s + (w.runtime || 0), 0);
   const dates = watched.map(w => w.date || (w.createdAt || "").slice(0, 10)).filter(Boolean).sort();
-  const dias365 = couple?.since ? (new Date() - new Date(couple.since)) / 86400000 >= 365 : false;
+  // tempo de app conta da criação do diário (since é a data do relacionamento)
+  const dias365 = (daysOnSessao(couple?.createdAt) ?? 0) >= 365;
   const virada = dates.some(d => d.slice(5) === "12-31" || d.slice(5) === "01-01");
   const epDays = {};
   watched.forEach(w => (w.episodeHistory || []).forEach(h => { if (h.date) epDays[h.date] = (epDays[h.date] || 0) + 1; }));
@@ -4495,14 +4583,7 @@ const RetroStory = ({ watched, users, couple, onClose }) => {
     setSharing(true);
     try {
       const url = await toPng(cardRef.current, { pixelRatio: 3 });
-      const blob = await (await fetch(url)).blob();
-      const file = new File([blob], `retrospectiva-${year}.png`, { type: "image/png" });
-      if (navigator.canShare?.({ files: [file] })) {
-        await navigator.share({ files: [file], title: `Retrospectiva ${year}` });
-      } else {
-        const a = document.createElement("a");
-        a.href = url; a.download = `retrospectiva-${year}.png`; a.click();
-      }
+      await shareImage(url, `retrospectiva-${year}.png`, `Retrospectiva ${year}`);
     } catch (e) { console.error(e); }
     setSharing(false);
   };
@@ -4727,6 +4808,13 @@ td.small{font-size:11px;color:#666}
 <div class="footer">Gerado pelo Sessão • ${new Date().toLocaleDateString("pt-BR")}</div>
 </body></html>`;
 
+  // no app não há janela nova nem impressão: o arquivo vai para a folha de
+  // compartilhamento (abrir no navegador, salvar em Arquivos, imprimir...)
+  if (isNativeApp()) {
+    saveTextFile(html, `sessao-memorias-${new Date().toISOString().slice(0, 10)}.html`, "text/html", "Memórias do Sessão")
+      .catch(e => console.error(e));
+    return;
+  }
   const win = window.open("", "_blank");
   if (!win) return;
   win.document.write(html);
@@ -4885,9 +4973,9 @@ const ProfilePage = ({ watched, watchlist, couple, users, prefs, onOpenSettings 
   const total = watched.length;
   const totalMins = watched.reduce((s, w) => s + (w.runtime || 0), 0);
   const compat = coupleCompat(watched, users);
-  const since = couple.since || couple.createdAt;
-  const sinceLabel = since ? new Date(since.slice(0, 10) + "T12:00:00").toLocaleDateString("pt-BR", { month: "short", year: "numeric" }).replace(".", "") : null;
-  const days = couple.since ? Math.floor((new Date() - new Date(couple.since)) / 86400000) : null;
+  // o selo da cabine é a data do relacionamento; a contagem de dias é o tempo no app
+  const sinceLabel = monthYear(couple.since);
+  const relationship = relationshipLine(couple.since);
 
   const allR = watched.flatMap(w => Object.values(w.reviews || {}).map(r => r.rating).filter(Boolean));
   const mediaCasal = allR.length ? allR.reduce((a, b) => a + b, 0) / allR.length : 0;
@@ -5015,11 +5103,11 @@ const ProfilePage = ({ watched, watchlist, couple, users, prefs, onOpenSettings 
           <span className="fotocabine__quadro fotocabine__quadro--a">{couple.name1?.[0]?.toUpperCase()}</span>
           <span className="fotocabine__quadro fotocabine__quadro--lumi"><img src={lumiSrc("apaixonado")} alt=""/></span>
           <span className="fotocabine__quadro fotocabine__quadro--b">{couple.name2?.[0]?.toUpperCase() || "?"}</span>
-          {sinceLabel && <span className="fotocabine__data">{sinceLabel}</span>}
+          {sinceLabel && <span className="fotocabine__data">♥ {sinceLabel}</span>}
         </div>
         <div className="casal-hero__txt">
           <p className="casal-hero__dias">
-            {days !== null ? `${days} dias de Sessão` : sinceLabel ? `no Sessão desde ${sinceLabel}` : "juntos no Sessão"}
+            {relationship ? `${relationship} · ${sessaoDaysLine(couple.createdAt)}` : sessaoDaysLine(couple.createdAt)}
           </p>
           <h1 className="casal-hero__nomes">
             {couple.name2 ? <>{couple.name1} <span className="cabine-head__amp">&amp;</span> {couple.name2}</> : coupleLabel(couple)}
@@ -5215,8 +5303,9 @@ const ProfilePage = ({ watched, watchlist, couple, users, prefs, onOpenSettings 
   );
 };
 
-const DeleteAccountModal = ({ role, deleting, error, onCancel, onConfirm }) => {
+const DeleteAccountModal = ({ role, deleting, error, onCancel, onConfirm, needsPassword = false }) => {
   const [confirmation, setConfirmation] = useState("");
+  const [password, setPassword] = useState("");
   const inputRef = useRef(null);
   const exact = confirmation.trim().toUpperCase() === "EXCLUIR";
   const copy = role === "owner"
@@ -5252,10 +5341,15 @@ const DeleteAccountModal = ({ role, deleting, error, onCancel, onConfirm }) => {
             maxLength={16}
             disabled={deleting}
           />
+          {needsPassword && <>
+            <label className="delete-account__label" htmlFor="delete-account-password">Sua senha do Sessão</label>
+            <input id="delete-account-password" className="text-input" type="password" value={password}
+              onChange={event => setPassword(event.target.value)} autoComplete="current-password" disabled={deleting}/>
+          </>}
           {error && <p className="delete-account__error" role="alert">{error}</p>}
           <div className="delete-account__actions">
             <button type="button" className="button button--ghost" onClick={onCancel} disabled={deleting}>Cancelar</button>
-            <button type="button" className="button button--danger" onClick={onConfirm} disabled={!exact || deleting}>
+            <button type="button" className="button button--danger" onClick={() => onConfirm(password)} disabled={!exact || (needsPassword && !password) || deleting}>
               {deleting ? "Excluindo com segurança…" : "Excluir minha conta"}
             </button>
           </div>
@@ -5266,6 +5360,34 @@ const DeleteAccountModal = ({ role, deleting, error, onCancel, onConfirm }) => {
 };
 
 // configurações — "Lumi ajustável" (v3)
+// "Lembretes de sexta": notificação local, só no app (a web não agenda notificações)
+const FridayReminderRow = ({ on, onChange }) => {
+  const native = remindersAvailable();
+  const [permission, setPermission] = useState(native ? "prompt" : "unavailable");
+  useEffect(() => {
+    if (native) reminderPermission().then(setPermission).catch(() => {});
+  }, [native]);
+  const active = native && on && permission === "granted";
+  const toggle = async () => {
+    if (active) { onChange(false); return; }
+    const granted = await askReminderPermission();
+    setPermission(await reminderPermission());
+    onChange(granted);
+  };
+  return (
+    <div className="cfg-row" style={{ cursor: "default" }}>
+      <img src={lumiSrc("notification")} alt=""/>
+      <span className="cfg-row__label">
+        Lembretes de sexta
+        {!native && <small className="cfg-badge">no app</small>}
+        {native && permission === "denied" && <small className="cfg-row__hint">notificações bloqueadas nos ajustes do celular</small>}
+      </span>
+      <button className={`toggle ${active ? "toggle--on" : ""}`} onClick={toggle} disabled={!native}
+        aria-label="Lembretes de sexta" aria-pressed={active}><i/></button>
+    </div>
+  );
+};
+
 const SettingsPage = ({ couple, users, watched, prefs, onPref, onClose, onSignOut, onDeleteAccount }) => {
   useBackClose(onClose);
   const [copied, setCopied] = useState(false);
@@ -5315,11 +5437,7 @@ const SettingsPage = ({ couple, users, watched, prefs, onPref, onClose, onSignOu
             <button className={`toggle ${prefs.lumiComments ? "toggle--on" : ""}`}
               onClick={() => onPref("lumiComments", !prefs.lumiComments)} aria-label="Comentários do Lumi" aria-pressed={prefs.lumiComments}><i/></button>
           </div>
-          <div className="cfg-row" style={{ cursor: "default" }}>
-            <img src={lumiSrc("notification")} alt=""/>
-            <span className="cfg-row__label">Lembretes de sexta <small className="cfg-badge">em breve</small></span>
-            <button className="toggle" disabled aria-label="Lembretes de sexta, em breve" aria-disabled="true"><i/></button>
-          </div>
+          <FridayReminderRow on={prefs.fridayReminders} onChange={v => onPref("fridayReminders", v)}/>
           <div className="cfg-row" style={{ cursor: "default" }}>
             <img src={lumiSrc("milestone365")} alt=""/>
             <span className="cfg-row__label">Lembranças de "nesse dia"</span>
@@ -5334,14 +5452,18 @@ const SettingsPage = ({ couple, users, watched, prefs, onPref, onClose, onSignOu
             <span className="cfg-row__label">Exportar memórias</span>
             <span className="cfg-row__chev">›</span>
           </button>
-          <button className="cfg-row" onClick={() => window.open("/privacy.html", "_blank", "noopener")}>
+          <button className="cfg-row" onClick={() => openSitePage("/privacy.html")}>
             <span className="cfg-row__label">Privacidade</span>
             <span className="cfg-row__chev">›</span>
           </button>
-          <button className="cfg-row" onClick={() => window.open("/credits.html", "_blank", "noopener")}>
+          <button className="cfg-row" onClick={() => openSitePage("/credits.html")}>
             <span className="cfg-row__label">Sobre e créditos</span>
             <span className="cfg-row__chev">↗</span>
           </button>
+          <a className="cfg-row" href={`mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(`Sessão ${appVersion}`)}`}>
+            <span className="cfg-row__label">Fale com a gente</span>
+            <span className="cfg-row__chev">↗</span>
+          </a>
           <button className="cfg-row" onClick={onSignOut}>
             <span className="cfg-row__label cfg-row__label--danger">Sair</span>
           </button>
@@ -5356,7 +5478,7 @@ const SettingsPage = ({ couple, users, watched, prefs, onPref, onClose, onSignOu
         </div>
 
         <div className="cfg-footer">
-          <img src={lumiSrc("ui_silhueta")} alt=""/> Sessão · beta 0.3
+          <img src={lumiSrc("ui_silhueta")} alt=""/> Sessão · versão {appVersion}
         </div>
       </div>
     </div>,
@@ -5385,11 +5507,8 @@ const downloadIcs = plan => {
     `DESCRIPTION:${icsEscape(`Sessão a dois${plan.seats ? ` · lugares ${plan.seats}` : ""} — marcada no Sessão ❤`)}`,
     "END:VEVENT", "END:VCALENDAR",
   ].join("\r\n");
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(new Blob([ics], { type: "text/calendar" }));
-  a.download = `sessao-cinema-${plan.date}.ics`;
-  a.click();
-  URL.revokeObjectURL(a.href);
+  saveTextFile(ics, `sessao-cinema-${plan.date}.ics`, "text/calendar", "Adicionar ao calendário")
+    .catch(e => console.error(e));
 };
 
 
@@ -5466,6 +5585,16 @@ export default function App() {
   const [installPrompt, setInstallPrompt] = useState(null);
   const [showInstallBanner, setShowInstallBanner] = useState(false);
 
+  // atalho do ícone, notificação ou link: a ação espera o diário carregar
+  const [pendingAction, setPendingAction] = useState(null);
+  useEffect(() => listenForActions(action => {
+    if (action.acao === "convite") {
+      try { sessionStorage.setItem(PENDING_INVITE, action.codigo); } catch { /* sem storage */ }
+      return;
+    }
+    setPendingAction(action);
+  }), []);
+
   // "voltar" do celular: fecha o que estiver aberto e, fora do Início, volta pro Início
   useBackClose(() => setPage("home"), page !== "home");
   useBackClose(() => setMenuOpen(false), menuOpen);
@@ -5473,6 +5602,8 @@ export default function App() {
   useBackClose(() => setCelebration(null), !!celebration);
 
   const addToast = useCallback((message, type="success", undoFn=null) => {
+    if (type === "success") hapticSuccess();
+    else if (type === "error") hapticError();
     const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     setToasts(t => [...t, { id, message, type, undoFn }]);
     setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), type === "error" ? 5000 : 3000);
@@ -5603,6 +5734,13 @@ export default function App() {
 
   // auth actions — popup primeiro (suave no desktop); se o navegador bloquear
   // o popup (comum em mobile/PWA), cai pro redirect, que é mais robusto.
+  const handleAppleLogin = async () => {
+    setLoginLoading(true);
+    try { await nativeAppleSignIn(auth); }
+    catch (e) { console.error(e); }
+    finally { setLoginLoading(false); }
+  };
+
   const handleLogin = async () => {
     setLoginLoading(true);
     const provider = new GoogleAuthProvider();
@@ -5624,7 +5762,7 @@ export default function App() {
   };
 
   const handleSignOut = async () => {
-    await nativeGoogleSignOut();
+    await nativeSignOut();
     await signOut(auth);
     setWatched([]);
     setWatchlist([]);
@@ -5632,7 +5770,7 @@ export default function App() {
     setEnterSolo(false);
   };
 
-  const handleDeleteAccount = async () => {
+  const handleDeleteAccount = async password => {
     setDeletingAccount(true);
     setDeleteAccountError("");
     try {
@@ -5641,7 +5779,9 @@ export default function App() {
       if (!user) throw new Error("NO_USER");
 
       // Confirma novamente a identidade antes de qualquer remoção irreversível.
-      if (isNativeApp()) await nativeGoogleReauth(user);
+      let beforeDelete = async () => {};
+      if (hasPassword(user)) await reauthWithPassword(user, password);
+      else if (isNativeApp()) beforeDelete = await nativeReauth(user);
       else await reauthenticateWithPopup(user, new GoogleAuthProvider());
 
       if (coupleId && accountDeletionRole === "owner") {
@@ -5677,7 +5817,9 @@ export default function App() {
         });
       }
 
+      await beforeDelete();
       await deleteUser(user);
+      await nativeSignOut();
       ["sessao-onboarded", "sessao-prefs", "pwa-install-dismissed"].forEach(key => localStorage.removeItem(key));
       setShowDeleteAccount(false);
       setShowSettings(false);
@@ -5687,9 +5829,12 @@ export default function App() {
       const messages = {
         OFFLINE: "Conecte-se à internet e tente novamente.",
         NO_USER: "Sua sessão terminou. Entre novamente para excluir a conta.",
-        "auth/popup-closed-by-user": "A confirmação com o Google foi cancelada. Tente novamente.",
+        "auth/popup-closed-by-user": "A confirmação da sua conta foi cancelada. Tente novamente.",
         "auth/network-request-failed": "Não foi possível confirmar sua conta. Verifique a conexão.",
-        "auth/requires-recent-login": "Entre novamente com o Google e repita a exclusão.",
+        "auth/requires-recent-login": "Entre novamente e repita a exclusão.",
+        "auth/invalid-credential": "Senha incorreta.",
+        "auth/wrong-password": "Senha incorreta.",
+        "auth/too-many-requests": "Muitas tentativas. Espere alguns minutos e tente de novo.",
         "permission-denied": "A exclusão foi bloqueada pelas regras de segurança. Atualize o app e tente novamente.",
       };
       setDeleteAccountError(messages[error.code || error.message] || "Não foi possível concluir a exclusão. Verifique a conexão e tente novamente; se o erro continuar, fale com o suporte antes de criar outra conta.");
@@ -5918,6 +6063,8 @@ export default function App() {
     updateDoc(doc(db,"couples",coupleId,"watchlist",item.id), { plan })
       .catch(e => { console.error(e); addToast("Não foi possível marcar a sessão","error"); });
     addToast("Sessão marcada 🎟 — está na lista com data", "success");
+    // no app, a primeira sessão marcada é o momento de pedir o lembrete
+    if (remindersAvailable() && await askReminderPermission()) setReminderTick(t => t + 1);
   };
   const clearPlan = item => {
     setCineModal(null);
@@ -5937,14 +6084,38 @@ export default function App() {
         setDeleteAccountError("");
       }}
       onConfirm={handleDeleteAccount}
+      needsPassword={hasPassword(auth.currentUser)}
     />
   ) : null;
+
+  // aplica a ação recebida assim que o diário estiver pronto (ajuste de estado
+  // durante a renderização, sem efeito em cascata)
+  if (pendingAction && couple && dataReadyFor === coupleId) {
+    const { acao, id } = pendingAction;
+    setPendingAction(null);
+    if (acao === "registrar") setAddModal("watched");
+    else if (acao === "querover") setAddModal("watchlist");
+    else if (acao === "roleta") setShowRoulette(true);
+    else if (acao === "lista") setPage("watchlist");
+    else if (acao === "cinema") {
+      setPage("watchlist");
+      const item = watchlist.find(w => w.id === id);
+      if (item?.plan) setCineModal({ mode: "ticket", item });
+    }
+  }
+
+  // lembretes locais acompanham a lista a dois e a preferência de sexta
+  const [reminderTick, setReminderTick] = useState(0);
+  useEffect(() => {
+    if (!couple) return;
+    syncReminders({ watchlist, fridayReminders: prefs.fridayReminders }).catch(e => console.error(e));
+  }, [couple, watchlist, prefs.fridayReminders, reminderTick]);
 
   // render guards
   if (import.meta.env.DEV && typeof window !== "undefined" && window.location.search.includes("v3demo")) return <V3Demo />;
   if (authLoading || bootDelay) return <SplashScreen />;
 
-  if (!authUser) return <LoginScreen onLogin={handleLogin} loading={loginLoading}/>;
+  if (!authUser) return <LoginScreen onLogin={handleLogin} onAppleLogin={handleAppleLogin} loading={loginLoading}/>;
 
   if (!couple) return <>
     <CoupleSetup authUser={authUser} onCreate={handleCreateCouple} onJoin={handleJoinCouple} onSignOut={handleSignOut}/>
@@ -6111,7 +6282,7 @@ export default function App() {
           <button onClick={()=>setPage("diary")} className={`v3-nav__item ${page==="diary"?"v3-nav__item--active":""}`} aria-label="Acervo">
             <Ic n="book" s={21}/><span className="v3-nav__label" aria-hidden="true">Acervo</span>
           </button>
-          <button className="v3-nav__fab" onClick={()=>setMenuOpen(o=>!o)} aria-label="Adicionar"><Ic n="plus" s={22}/></button>
+          <button className="v3-nav__fab" onClick={()=>{ hapticTap(); setMenuOpen(o=>!o); }} aria-label="Adicionar"><Ic n="plus" s={22}/></button>
           <button onClick={()=>setPage("watchlist")} className={`v3-nav__item ${page==="watchlist"?"v3-nav__item--active":""}`} aria-label="Lista a dois">
             <Ic n="bookmark" s={21}/><span className="v3-nav__label" aria-hidden="true">Lista</span>
           </button>

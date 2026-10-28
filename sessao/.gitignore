@@ -40,3 +40,12 @@ android/local.properties
 
 # emulador do Firestore (npm run test:rules)
 firestore-debug.log
+
+# Gradle local (GRADLE_USER_HOME do build Android) e builds gerados
+.gradle-user/
+artifacts/*.apk
+artifacts/*.aab
+# chaves de assinatura nunca entram no repositório (ficam em ~/.sessao-signing)
+*.jks
+*.keystore
+keystore.properties

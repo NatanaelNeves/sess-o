@@ -1,5 +1,16 @@
 apply plugin: 'com.android.application'
 
+// Assinatura de release (upload key do Google Play). A chave e as senhas ficam
+// FORA do repositório: por padrão em ~/.sessao-signing/keystore.properties, ou no
+// caminho de SESSAO_SIGNING_PROPERTIES. Gere com scripts/android-upload-key.ps1.
+// Sem esse arquivo o bundleRelease sai sem assinatura (não serve para a loja).
+def signingPropsFile = file(System.getenv("SESSAO_SIGNING_PROPERTIES")
+        ?: "${System.getProperty('user.home')}/.sessao-signing/keystore.properties")
+def signingProps = new Properties()
+if (signingPropsFile.exists()) {
+    signingPropsFile.withInputStream { signingProps.load(it) }
+}
+
 android {
     namespace = "com.natanaelneves.sessao"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -7,8 +18,8 @@ android {
         applicationId "com.natanaelneves.sessao"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 6
-        versionName "0.6.0"
+        versionCode 7
+        versionName "1.0.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -16,8 +27,23 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        release {
+            if (signingProps["storeFile"]) {
+                storeFile file(signingProps["storeFile"])
+                storePassword signingProps["storePassword"]
+                keyAlias signingProps["keyAlias"]
+                keyPassword signingProps["keyPassword"]
+            }
+        }
+    }
     buildTypes {
         release {
+            if (signingProps["storeFile"]) {
+                signingConfig signingConfigs.release
+            } else {
+                logger.warn("Sessão: ${signingPropsFile} não encontrado — o release sairá SEM assinatura.")
+            }
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }

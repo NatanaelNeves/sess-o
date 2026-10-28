@@ -4,4 +4,11 @@
     <string name="title_activity_main">Sessão</string>
     <string name="package_name">com.natanaelneves.sessao</string>
     <string name="custom_url_scheme">com.natanaelneves.sessao</string>
+    <!-- atalhos do ícone (res/xml/shortcuts.xml) -->
+    <string name="atalho_registrar_curto">Registrar</string>
+    <string name="atalho_registrar">Registrar sessão</string>
+    <string name="atalho_querover_curto">Quero ver</string>
+    <string name="atalho_querover">Adicionar à lista a dois</string>
+    <string name="atalho_roleta_curto">Roleta</string>
+    <string name="atalho_roleta">O que vamos ver hoje?</string>
 </resources>

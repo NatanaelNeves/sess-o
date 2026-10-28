@@ -15,6 +15,10 @@
         "google.com",
         "apple.com"
       ]
+    },
+    "LocalNotifications": {
+      "smallIcon": "ic_stat_sessao",
+      "iconColor": "#FFB54A"
     }
   },
   "experimental": {

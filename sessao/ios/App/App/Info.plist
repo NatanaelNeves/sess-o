@@ -35,6 +35,15 @@
 				<string>com.googleusercontent.apps.SUBSTITUIR-PELO-REVERSED-CLIENT-ID</string>
 			</array>
 		</dict>
+		<!-- links do próprio app: com.natanaelneves.sessao://acao/... (atalhos e notificações) -->
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.natanaelneves.sessao</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.natanaelneves.sessao</string>
+			</array>
+		</dict>
 	</array>
 	<!-- só HTTPS padrão: isento de declaração de exportação de criptografia -->
 	<key>ITSAppUsesNonExemptEncryption</key>
@@ -68,6 +77,40 @@
       </array>
     </dict>
 	</dict>
+	<!-- atalhos do ícone (toque longo); SceneDelegate.swift os transforma em links do app -->
+	<key>UIApplicationShortcutItems</key>
+	<array>
+		<dict>
+			<key>UIApplicationShortcutItemType</key>
+			<string>com.natanaelneves.sessao.registrar</string>
+			<key>UIApplicationShortcutItemTitle</key>
+			<string>Registrar sessão</string>
+			<key>UIApplicationShortcutItemSubtitle</key>
+			<string>o que vocês assistiram hoje?</string>
+			<key>UIApplicationShortcutItemIconType</key>
+			<string>UIApplicationShortcutIconTypeAdd</string>
+		</dict>
+		<dict>
+			<key>UIApplicationShortcutItemType</key>
+			<string>com.natanaelneves.sessao.querover</string>
+			<key>UIApplicationShortcutItemTitle</key>
+			<string>Adicionar à lista a dois</string>
+			<key>UIApplicationShortcutItemSubtitle</key>
+			<string>pra uma próxima noite</string>
+			<key>UIApplicationShortcutItemIconType</key>
+			<string>UIApplicationShortcutIconTypeBookmark</string>
+		</dict>
+		<dict>
+			<key>UIApplicationShortcutItemType</key>
+			<string>com.natanaelneves.sessao.roleta</string>
+			<key>UIApplicationShortcutItemTitle</key>
+			<string>O que vamos ver hoje?</string>
+			<key>UIApplicationShortcutItemSubtitle</key>
+			<string>a roleta escolhe da lista</string>
+			<key>UIApplicationShortcutItemIconType</key>
+			<string>UIApplicationShortcutIconTypeShuffle</string>
+		</dict>
+	</array>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>

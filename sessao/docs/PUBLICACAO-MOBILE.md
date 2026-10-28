@@ -36,15 +36,64 @@ as partes que dependem do navegador e cumprir as regras das lojas (seção 2).
 | `allowBackup="true"` copiava a sessão do Firebase para o backup do Google Drive | Android | Desligado |
 | Sem configuração de assinatura de release | Android | Criada, com chave fora do repositório |
 | Rodapé dizia "beta 0.3" | Configurações | Mostra a versão real (`package.json`) |
-| Página de privacidade diz "fase beta" e não tem e-mail de contato | `public/privacy.html` | **Pendente — decisão sua** (seção 7) |
+| Página de privacidade diz "fase beta" | `public/privacy.html` | **Pendente — decisão sua** (seção 5). Contato já incluído: natanaelnevesalves@gmail.com |
 | Chaves do TMDB vão no bundle (`VITE_*`) | build | Aceitável (token de leitura, como já é na web); não há segredo de servidor no front |
 | Config web do Firebase e `google-services.json` versionados | repo | Não são segredos (a segurança vem das regras); mantidos |
 | Nenhuma credencial admin/service account no front | — | Verificado |
 
-**Não existe no produto (nada a configurar):** notificações push, câmera própria (a foto vem do
-seletor de arquivos do sistema), geolocalização, compras, assinaturas, anúncios, rastreamento,
-links universais/deep links, login por e-mail/senha (logo não há recuperação de senha).
-Os "lembretes de sexta" e "nesse dia" das Configurações são cartões dentro do app, não notificações.
+**Não existe no produto (nada a configurar):** notificações push remotas, câmera própria (a foto vem do
+seletor de arquivos do sistema), geolocalização, compras, assinaturas, anúncios, rastreamento.
+
+## 1b. Segunda etapa (28/10/2026): contas, textos e recursos do celular
+
+**Corrigido**
+- "juntos há 1 ano" confundia: casais liam como "1 ano usando o app". O casal tem duas datas, e o
+  código misturava as duas: `since` é o início do relacionamento; `createdAt` é o dia em que o diário
+  foi criado. Agora a Home mostra "1 ano e 7 meses de relacionamento"; a página do casal mostra
+  "… de relacionamento · 597 dias de Sessão"; a conquista "1 ano usando o Sessão" conta a partir da
+  criação do diário (antes era liberada no primeiro dia para quem informava um namoro de 1 ano).
+  A pergunta na criação virou "Quando começou o relacionamento de vocês?". Lógica em `src/coupleDates.js` (testada).
+- Contato de suporte: na política de privacidade e em Configurações › "Fale com a gente" (abre o e-mail).
+
+**Login próprio (e-mail e senha)** — `src/emailAuth.js` + "Entrar com e-mail" na tela de login:
+criar conta (nome, e-mail, senha de 8+ caracteres), entrar, "Esqueci minha senha" (link por e-mail,
+sem revelar se o e-mail tem conta), e-mail de verificação enviado na criação (não bloqueia o uso),
+mensagens em português. Excluir conta pede a senha de quem usa e-mail. Funciona igual na web e no app.
+Opções de login agora: **Google** (web, Android, iOS), **Apple** (iPhone) e **e-mail** (todos).
+> Precisa de você: Firebase Console → Authentication → Sign-in method → ative **E-mail/senha**.
+> Sem isso o formulário mostra "Entrar com e-mail ainda não está disponível". Em *Templates*, revise
+> o texto dos e-mails de redefinição de senha e verificação (o app já pede o idioma pt-BR).
+
+**Recursos nativos que funcionam de verdade** (testados no emulador Android, exceto onde indicado)
+
+| Recurso | O que faz | Android | iOS |
+|---|---|---|---|
+| Atalhos do ícone (toque longo) | Registrar sessão · Adicionar à lista a dois · Roleta | registrados e abrindo o link certo (testado) | `UIApplicationShortcutItems` + `SceneDelegate.swift` — **não compilado** |
+| Links do app `com.natanaelneves.sessao://acao/...` | abrem a tela certa, inclusive com o app fechado (a ação espera o diário carregar) | testado a frio e com o app aberto | configurado, não testado |
+| Lembrete da sessão de cinema | notificação local 2 h antes do horário marcado (sem horário: meio-dia); tocar abre o ingresso | entregue no emulador com o ícone da claquete | configurado, não testado |
+| Lembretes de sexta | sexta 19h, "Sexta de sessão?", abre a Lista; o toggle saiu de "em breve" | agendamento testado | idem |
+| Permissão de notificação | pedida só ao marcar a primeira sessão de cinema ou ligar o toggle; nunca na abertura | ok | ok |
+| Háptica | sucesso/erro (todos os avisos do app) e o botão + | plugin respondeu no emulador | — |
+| Convite por link | `…/?convite=CODIGO` preenche o código ao entrar (web e app) | testado na web | — |
+| Atalhos do PWA | os mesmos três atalhos para quem instala o site no Android | no `manifest.webmanifest` | — |
+
+Os lembretes usam **alarme inexato**: o plugin pedia alarme exato e abria a tela de ajustes
+"Alarmes e lembretes" do Android; a permissão `SCHEDULE_EXACT_ALARM` foi removida do manifesto.
+
+**Avaliados e não feitos (com motivo)**
+- *Widgets e Live Activities / Dynamic Island*: o único caso real é a contagem da sessão de cinema
+  no dia. Exige um alvo Widget Extension em Swift (iOS) e um App Widget em Kotlin (Android), com os
+  dados compartilhados entre o app e o widget (App Group). Não dá para compilar nem testar o iOS aqui;
+  fica como próxima etapa, depois da publicação.
+- *Push remoto (FCM)*: avisar "sua pessoa registrou um filme" exigiria Cloud Functions (plano Blaze, pago).
+  Os lembretes atuais são locais e não precisam disso.
+- *App Links / Universal Links* (abrir `sess-80b2c.web.app/?convite=` direto no app): dependem do SHA-256
+  da chave de assinatura do Play e do Team ID da Apple. Configure depois da primeira publicação.
+- *Face ID/biometria*: não há fluxo sensível que justifique.
+- *Tema claro*: a identidade aprovada ("A cabine do Lumi") é a sala escura de cinema; um tema claro
+  é uma decisão de produto, não um ajuste.
+- *Barra inferior, botão +, folhas, botão voltar, movimento reduzido, áreas seguras, alvos de toque
+  ≥ 44px*: já existiam do redesign; foram mantidos.
 
 ## 2. O que foi alterado
 
@@ -156,8 +205,8 @@ em Ajustes do iPhone → Apple ID → *Entrar com a Apple* que o Sessão sumiu d
 ## 5. Pendências que dependem de você
 
 1. **Contas**: Google Play Console (pessoal ou organização) e Apple Developer Program.
-2. **Contato público** (e-mail de suporte) para a política de privacidade e as duas lojas. Hoje a página
-   manda abrir issue no repositório.
+2. **Ative o login por e-mail/senha** no Firebase Console (seção 1b). Contato público: feito
+   (natanaelnevesalves@gmail.com, vai ao ar com o site).
 3. **"Beta"**: a página de privacidade diz "O Sessão está em fase beta". A Apple recusa apps
    apresentados como beta na loja (diretriz 2.2). Decida o texto e a versão pública.
 4. **Revisar a política de privacidade** alterada (Apple + correção do Storage) — ela vai ao ar no próximo push na `main`.
@@ -191,8 +240,9 @@ em Ajustes do iPhone → Apple ID → *Entrar com a Apple* que o Sessão sumiu d
 - [ ] Categoria: Entretenimento. Tags: filmes, casal, diário.
 - [ ] Política de privacidade: `https://sess-80b2c.web.app/privacy.html`.
 - [ ] Exclusão de conta (URL obrigatória): `https://sess-80b2c.web.app/delete-account.html`.
-- [ ] *Acesso ao app*: "Entre com qualquer conta Google; o diário pode ser criado sem parceiro
-      ('Começar enquanto espero')." (não há login por senha a fornecer).
+- [ ] *Acesso ao app*: crie uma conta de demonstração por e-mail (ex.: revisao.sessao@…) com um diário
+      já preenchido e informe e-mail e senha. Explique que dá para usar sem parceiro ("Começar enquanto espero").
+- [ ] Declarar a permissão de notificações (lembretes locais); não há alarme exato.
 - [ ] *Anúncios*: não contém anúncios. *Compras no app*: nenhuma.
 - [ ] Classificação de conteúdo (questionário IARC): sem violência/sexo/jogos de azar próprios; exibe capas e
       sinopses de filmes do TMDB; conteúdo do usuário é privado entre duas pessoas. Responda você.
@@ -223,9 +273,9 @@ privacidade (só vocês dois leem o diário), crédito ao TMDB.
 - [ ] Classificação etária (questionário novo de 2025): responda você — o app mostra informações de filmes de todas as faixas.
 - [ ] *Privacidade do app*: mesmas categorias do Play (contato: nome/e-mail; identificadores: ID do usuário;
       conteúdo do usuário: fotos e outros), todas "vinculadas ao usuário", **sem rastreamento**.
-- [ ] Notas para revisão: "Login com Apple ou Google; qualquer conta funciona. Após entrar, toque
-      'Começar enquanto espero' para usar sem parceiro. Excluir conta: Configurações › Excluir conta."
-      Se preferir, crie uma conta Google de demonstração e informe e-mail/senha nos campos de acesso.
+- [ ] Conta de demonstração: a mesma conta por e-mail do Play (campos *Sign-in information*).
+      Notas: "Também é possível entrar com Apple ou Google. Excluir conta: Configurações › Excluir conta.
+      Atalhos: toque longo no ícone. Lembretes: marque uma sessão de cinema na Lista."
 - [ ] Exportação de criptografia: já respondida no `Info.plist` (só HTTPS padrão).
 - [ ] Remover "beta" do que o revisor vê (diretriz 2.2).
 - [ ] Preço: grátis; sem compras no app.
@@ -237,6 +287,7 @@ passos naturais seriam notificações locais (lembrete de sexta) e háptica, nã
 
 ## 9. Próxima ação
 
+0. Ative **E-mail/senha** no Firebase Authentication e teste criar conta, entrar e "Esqueci minha senha" no site.
 1. Faça backup de `C:\Users\Opn_Natan\.sessao-signing\`.
 2. Crie a conta do Play Console, crie o app e envie `app-release.aab` para *Teste interno*.
 3. Pegue o SHA-1 do Play App Signing, cadastre no Firebase (junto com o da upload key), atualize o

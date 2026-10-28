@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Atalhos do ícone (toque longo). Cada um abre o app com o mesmo link que o
+     iOS e o site usam; src/appActions.js decide a tela. -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut android:shortcutId="registrar" android:enabled="true"
+        android:icon="@drawable/ic_shortcut_registrar"
+        android:shortcutShortLabel="@string/atalho_registrar_curto"
+        android:shortcutLongLabel="@string/atalho_registrar">
+        <intent android:action="android.intent.action.VIEW"
+            android:targetPackage="com.natanaelneves.sessao"
+            android:targetClass="com.natanaelneves.sessao.MainActivity"
+            android:data="com.natanaelneves.sessao://acao/registrar"/>
+    </shortcut>
+    <shortcut android:shortcutId="querover" android:enabled="true"
+        android:icon="@drawable/ic_shortcut_querover"
+        android:shortcutShortLabel="@string/atalho_querover_curto"
+        android:shortcutLongLabel="@string/atalho_querover">
+        <intent android:action="android.intent.action.VIEW"
+            android:targetPackage="com.natanaelneves.sessao"
+            android:targetClass="com.natanaelneves.sessao.MainActivity"
+            android:data="com.natanaelneves.sessao://acao/querover"/>
+    </shortcut>
+    <shortcut android:shortcutId="roleta" android:enabled="true"
+        android:icon="@drawable/ic_shortcut_roleta"
+        android:shortcutShortLabel="@string/atalho_roleta_curto"
+        android:shortcutLongLabel="@string/atalho_roleta">
+        <intent android:action="android.intent.action.VIEW"
+            android:targetPackage="com.natanaelneves.sessao"
+            android:targetClass="com.natanaelneves.sessao.MainActivity"
+            android:data="com.natanaelneves.sessao://acao/roleta"/>
+    </shortcut>
+</shortcuts>

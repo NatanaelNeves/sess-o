@@ -14,6 +14,7 @@ const isNative = () => Capacitor.isNativePlatform();
 // (iOS): links que vão para outra pessoa precisam do endereço público do site.
 export const PUBLIC_ORIGIN = "https://sess-80b2c.web.app";
 export const publicOrigin = () => (isNative() ? PUBLIC_ORIGIN : window.location.origin);
+export const SUPPORT_EMAIL = "natanaelnevesalves@gmail.com";
 
 // Fechar a folha de compartilhamento não é erro.
 const ignoreCancel = e => {

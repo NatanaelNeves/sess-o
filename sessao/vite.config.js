@@ -3,6 +3,10 @@ import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 
 export default defineConfig({
+  // ios/ e capacitor-android/ guardam cópias do build: o dev server não deve
+  // varrê-las como código-fonte nem vigiar milhares de arquivos gerados
+  optimizeDeps: { entries: ['index.html'] },
+  server: { watch: { ignored: ['**/ios/**', '**/capacitor-android/**', '**/android/**', '**/native/**'] } },
   build: {
     rollupOptions: {
       output: {

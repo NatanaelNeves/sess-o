@@ -6,7 +6,7 @@ import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
   // projetos Android (Capacitor, TWA e a tentativa nativa) têm cópias do build e código próprio
-  globalIgnores(['dist', 'capacitor-android', 'android', 'android-tools', 'native', '.gradle-user']),
+  globalIgnores(['dist', 'capacitor-android', 'ios', 'android', 'android-tools', 'native', '.gradle-user']),
   {
     files: ['**/*.{js,jsx}'],
     extends: [

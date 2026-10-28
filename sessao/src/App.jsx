@@ -2,7 +2,9 @@
 import { createPortal } from "react-dom";
 import { useCallback } from "react";
 import { auth, db } from "./firebase";
-import { isNativeApp, nativeGoogleSignIn, nativeGoogleReauth, nativeGoogleSignOut } from "./nativeAuth.js";
+import { isNativeApp, canSignInWithApple, nativeGoogleSignIn, nativeAppleSignIn, nativeReauth, nativeSignOut } from "./nativeAuth.js";
+import { version as appVersion } from "../package.json";
+import { canShareText, openSitePage, publicOrigin, saveImage, saveTextFile, shareImage, shareText } from "./nativeShare.js";
 import {
   onAuthStateChanged, signInWithPopup, signInWithRedirect, getRedirectResult,
   signOut, deleteUser, reauthenticateWithPopup, GoogleAuthProvider,
@@ -1850,27 +1852,15 @@ const DetailModal = ({ entry, users, onClose, onMarkWatched, onEdit, onSaveRevie
     setCapturedDataUrl(url);
     setShareLoading(false);
   };
+  const shareFileName = `sessao-${entry.title.replace(/[^a-z0-9]/gi, "-").toLowerCase()}.png`;
   const handleDownload = () => {
     if (!capturedDataUrl) return;
-    const a = document.createElement("a");
-    a.href = capturedDataUrl;
-    a.download = `sessao-${entry.title.replace(/[^a-z0-9]/gi, "-").toLowerCase()}.png`;
-    a.click();
+    saveImage(capturedDataUrl, shareFileName, entry.title).catch(e => console.error(e));
   };
   const handleWebShare = async () => {
     if (!capturedDataUrl) return;
-    try {
-      const res = await fetch(capturedDataUrl);
-      const blob = await res.blob();
-      const file = new File([blob], `sessao-${entry.title.slice(0, 20).replace(/\s+/g, "-")}.png`, { type: "image/png" });
-      if (navigator.canShare?.({ files: [file] })) {
-        await navigator.share({ files: [file], title: entry.title });
-      } else {
-        handleDownload();
-      }
-    } catch {
-      handleDownload();
-    }
+    try { await shareImage(capturedDataUrl, shareFileName, entry.title); }
+    catch (e) { console.error(e); }
   };
 
   const fmtDur = m => m ? `${Math.floor(m / 60)}h${m % 60 > 0 ? String(m % 60).padStart(2, "0") : ""}` : null;
@@ -1968,7 +1958,12 @@ const DetailModal = ({ entry, users, onClose, onMarkWatched, onEdit, onSaveRevie
               ) : shots.length ? (
                 <div className="cine-album">
                   {shots.map(k => (
-                    <a key={k.key} href={album[k.key]} target="_blank" rel="noreferrer" className="cine-album__item">
+                    <a key={k.key} href={album[k.key]} target="_blank" rel="noreferrer" className="cine-album__item"
+                      onClick={e => {
+                        if (!isNativeApp()) return;
+                        e.preventDefault();
+                        shareImage(album[k.key], `sessao-${k.key}.jpg`, k.label).catch(err => console.error(err));
+                      }}>
                       <img src={album[k.key]} alt={k.label}/>
                       <span className="cine-album__cap">{k.emoji} {k.label}</span>
                     </a>
@@ -2966,7 +2961,7 @@ const V3Demo = () => {
 };
 
 // login + onboarding — "Oi! Eu sou o Lumi" → "Como funciona" → login (v3)
-const LoginScreen = ({ onLogin, loading }) => {
+const LoginScreen = ({ onLogin, onAppleLogin, loading }) => {
   const [slide, setSlide] = useState(() => localStorage.getItem("sessao-onboarded") ? 2 : 0);
   const finishOnb = () => { localStorage.setItem("sessao-onboarded", "1"); setSlide(2); };
 
@@ -3035,6 +3030,14 @@ const LoginScreen = ({ onLogin, loading }) => {
             )}
           {loading ? "Entrando..." : "Continuar com Google"}
         </button>
+        {canSignInWithApple() && (
+          <button onClick={onAppleLogin} disabled={loading} className="pill pill--light pill--block">
+            <svg width="16" height="19" viewBox="0 0 814 1000" aria-hidden="true">
+              <path fill="currentColor" d="M788 341c-6 4-108 62-108 190 0 149 131 202 135 203-1 3-21 72-69 142-43 62-88 124-156 124s-86-40-165-40c-77 0-104 41-166 41s-106-57-156-127C45 792 0 668 0 551c0-189 123-289 244-289 64 0 118 42 158 42 38 0 98-45 171-45 28 0 128 3 194 82zM554 165c30-36 52-86 52-136 0-7-1-14-2-19-49 2-108 33-143 74-28 32-54 82-54 133 0 8 1 15 2 18 3 1 9 1 14 1 44 0 99-29 131-71z"/>
+            </svg>
+            Continuar com a Apple
+          </button>
+        )}
         <div className="onb__privacy-note">
           <span aria-hidden="true">🔒</span> privado — só entre vocês dois · já tem um convite? entre e <span>insira o código</span>
         </div>
@@ -3178,13 +3181,13 @@ const CoupleSetup = ({ authUser, onCreate, onJoin, onSignOut }) => {
 // invite code display (after creating couple)
 const InviteScreen = ({ inviteCode, couple, onContinue, onSignOut }) => {
   const [copied, setCopied] = useState(false);
-  const inviteText = `Entra no nosso diário Sessão com o código ${inviteCode}: ${window.location.origin}`;
+  const inviteText = `Entra no nosso diário Sessão com o código ${inviteCode}: ${publicOrigin()}`;
   const copyInvite = async () => {
     await navigator.clipboard?.writeText(inviteCode);
     setCopied(true);
     setTimeout(() => setCopied(false), 1600);
   };
-  const shareInvite = () => navigator.share?.({ title: "Nosso diário Sessão", text: inviteText });
+  const shareInvite = () => shareText({ title: "Nosso diário Sessão", text: inviteText });
 
   return <div className="auth-screen">
     <div className="auth-card">
@@ -3203,7 +3206,7 @@ const InviteScreen = ({ inviteCode, couple, onContinue, onSignOut }) => {
         </button>
       </div>
       <p className="auth-note">Quando sua pessoa usar o código, o diário será atualizado automaticamente.</p>
-      {typeof navigator.share === "function" && (
+      {canShareText() && (
         <button type="button" onClick={() => shareInvite().catch(() => {})} className="auth-btn auth-btn--share">
           Enviar convite
         </button>
@@ -4495,14 +4498,7 @@ const RetroStory = ({ watched, users, couple, onClose }) => {
     setSharing(true);
     try {
       const url = await toPng(cardRef.current, { pixelRatio: 3 });
-      const blob = await (await fetch(url)).blob();
-      const file = new File([blob], `retrospectiva-${year}.png`, { type: "image/png" });
-      if (navigator.canShare?.({ files: [file] })) {
-        await navigator.share({ files: [file], title: `Retrospectiva ${year}` });
-      } else {
-        const a = document.createElement("a");
-        a.href = url; a.download = `retrospectiva-${year}.png`; a.click();
-      }
+      await shareImage(url, `retrospectiva-${year}.png`, `Retrospectiva ${year}`);
     } catch (e) { console.error(e); }
     setSharing(false);
   };
@@ -4727,6 +4723,13 @@ td.small{font-size:11px;color:#666}
 <div class="footer">Gerado pelo Sessão • ${new Date().toLocaleDateString("pt-BR")}</div>
 </body></html>`;
 
+  // no app não há janela nova nem impressão: o arquivo vai para a folha de
+  // compartilhamento (abrir no navegador, salvar em Arquivos, imprimir...)
+  if (isNativeApp()) {
+    saveTextFile(html, `sessao-memorias-${new Date().toISOString().slice(0, 10)}.html`, "text/html", "Memórias do Sessão")
+      .catch(e => console.error(e));
+    return;
+  }
   const win = window.open("", "_blank");
   if (!win) return;
   win.document.write(html);
@@ -5334,11 +5337,11 @@ const SettingsPage = ({ couple, users, watched, prefs, onPref, onClose, onSignOu
             <span className="cfg-row__label">Exportar memórias</span>
             <span className="cfg-row__chev">›</span>
           </button>
-          <button className="cfg-row" onClick={() => window.open("/privacy.html", "_blank", "noopener")}>
+          <button className="cfg-row" onClick={() => openSitePage("/privacy.html")}>
             <span className="cfg-row__label">Privacidade</span>
             <span className="cfg-row__chev">›</span>
           </button>
-          <button className="cfg-row" onClick={() => window.open("/credits.html", "_blank", "noopener")}>
+          <button className="cfg-row" onClick={() => openSitePage("/credits.html")}>
             <span className="cfg-row__label">Sobre e créditos</span>
             <span className="cfg-row__chev">↗</span>
           </button>
@@ -5356,7 +5359,7 @@ const SettingsPage = ({ couple, users, watched, prefs, onPref, onClose, onSignOu
         </div>
 
         <div className="cfg-footer">
-          <img src={lumiSrc("ui_silhueta")} alt=""/> Sessão · beta 0.3
+          <img src={lumiSrc("ui_silhueta")} alt=""/> Sessão · versão {appVersion}
         </div>
       </div>
     </div>,
@@ -5385,11 +5388,8 @@ const downloadIcs = plan => {
     `DESCRIPTION:${icsEscape(`Sessão a dois${plan.seats ? ` · lugares ${plan.seats}` : ""} — marcada no Sessão ❤`)}`,
     "END:VEVENT", "END:VCALENDAR",
   ].join("\r\n");
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(new Blob([ics], { type: "text/calendar" }));
-  a.download = `sessao-cinema-${plan.date}.ics`;
-  a.click();
-  URL.revokeObjectURL(a.href);
+  saveTextFile(ics, `sessao-cinema-${plan.date}.ics`, "text/calendar", "Adicionar ao calendário")
+    .catch(e => console.error(e));
 };
 
 
@@ -5603,6 +5603,13 @@ export default function App() {
 
   // auth actions — popup primeiro (suave no desktop); se o navegador bloquear
   // o popup (comum em mobile/PWA), cai pro redirect, que é mais robusto.
+  const handleAppleLogin = async () => {
+    setLoginLoading(true);
+    try { await nativeAppleSignIn(auth); }
+    catch (e) { console.error(e); }
+    finally { setLoginLoading(false); }
+  };
+
   const handleLogin = async () => {
     setLoginLoading(true);
     const provider = new GoogleAuthProvider();
@@ -5624,7 +5631,7 @@ export default function App() {
   };
 
   const handleSignOut = async () => {
-    await nativeGoogleSignOut();
+    await nativeSignOut();
     await signOut(auth);
     setWatched([]);
     setWatchlist([]);
@@ -5641,7 +5648,8 @@ export default function App() {
       if (!user) throw new Error("NO_USER");
 
       // Confirma novamente a identidade antes de qualquer remoção irreversível.
-      if (isNativeApp()) await nativeGoogleReauth(user);
+      let beforeDelete = async () => {};
+      if (isNativeApp()) beforeDelete = await nativeReauth(user);
       else await reauthenticateWithPopup(user, new GoogleAuthProvider());
 
       if (coupleId && accountDeletionRole === "owner") {
@@ -5677,7 +5685,9 @@ export default function App() {
         });
       }
 
+      await beforeDelete();
       await deleteUser(user);
+      await nativeSignOut();
       ["sessao-onboarded", "sessao-prefs", "pwa-install-dismissed"].forEach(key => localStorage.removeItem(key));
       setShowDeleteAccount(false);
       setShowSettings(false);
@@ -5687,9 +5697,9 @@ export default function App() {
       const messages = {
         OFFLINE: "Conecte-se à internet e tente novamente.",
         NO_USER: "Sua sessão terminou. Entre novamente para excluir a conta.",
-        "auth/popup-closed-by-user": "A confirmação com o Google foi cancelada. Tente novamente.",
+        "auth/popup-closed-by-user": "A confirmação da sua conta foi cancelada. Tente novamente.",
         "auth/network-request-failed": "Não foi possível confirmar sua conta. Verifique a conexão.",
-        "auth/requires-recent-login": "Entre novamente com o Google e repita a exclusão.",
+        "auth/requires-recent-login": "Entre novamente e repita a exclusão.",
         "permission-denied": "A exclusão foi bloqueada pelas regras de segurança. Atualize o app e tente novamente.",
       };
       setDeleteAccountError(messages[error.code || error.message] || "Não foi possível concluir a exclusão. Verifique a conexão e tente novamente; se o erro continuar, fale com o suporte antes de criar outra conta.");
@@ -5944,7 +5954,7 @@ export default function App() {
   if (import.meta.env.DEV && typeof window !== "undefined" && window.location.search.includes("v3demo")) return <V3Demo />;
   if (authLoading || bootDelay) return <SplashScreen />;
 
-  if (!authUser) return <LoginScreen onLogin={handleLogin} loading={loginLoading}/>;
+  if (!authUser) return <LoginScreen onLogin={handleLogin} onAppleLogin={handleAppleLogin} loading={loginLoading}/>;
 
   if (!couple) return <>
     <CoupleSetup authUser={authUser} onCreate={handleCreateCouple} onJoin={handleJoinCouple} onSignOut={handleSignOut}/>

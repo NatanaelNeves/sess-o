@@ -2,7 +2,7 @@
 import { createPortal } from "react-dom";
 import { useCallback } from "react";
 import { auth, db } from "./firebase";
-import { TMDB_IMG, TMDB_BG, tmdbRequest } from "./tmdb.js";
+import { TMDB_IMG, TMDB_BG, tmdbRequest, tmdbCached } from "./tmdb.js";
 import { isNativeApp, canSignInWithApple, nativeGoogleSignIn, nativeAppleSignIn, nativeReauth, nativeSignOut } from "./nativeAuth.js";
 import { version as appVersion } from "../package.json";
 import { authErrorMessage, hasPassword, reauthWithPassword, sendReset, signInWithEmail, signUpWithEmail, validateEmailForm, MIN_PASSWORD } from "./emailAuth.js";
@@ -793,8 +793,48 @@ const Input = ({ style={}, ...p }) => (
   <input {...p} className="text-input" style={style}/>
 );
 // busca premium — "Nova sessão · o que vocês assistiram hoje?" (v3)
-const SearchModal = ({ onSelect, onClose, headTitle = "Nova sessão", headSub = "o que vocês assistiram hoje?", headLumi = "tooltip" }) => {
+// o que está nos cinemas do Brasil agora — a vitrine de "Marcar ida ao cinema"
+async function tmdbEmCartaz() {
+  const d = await tmdbCached("/movie/now_playing", { language: "pt-BR", region: "BR" });
+  return (d.results || []).filter(r => r.poster_path).slice(0, 12).map(r => ({ ...r, media_type: "movie" }));
+}
+
+// O + : três momentos do casal (já viram, vão ao cinema, querem ver um dia)
+// e um atalho para quem ainda não sabe o que ver.
+// Vai num portal para ficar acima da barra de navegação de qualquer tela.
+const AddSheet = ({ onEscolha, onClose }) => {
+  return createPortal(<>
+    <div className="add-sheet-backdrop" onClick={onClose}/>
+    <div className="add-sheet" role="dialog" aria-label="Adicionar">
+      <img src={lumiSrc("peeking")} alt="" className="add-sheet__lumi" aria-hidden="true"/>
+      <div className="add-sheet__handle"/>
+      <p className="add-sheet__titulo">O que vocês querem guardar?</p>
+      {[
+        ["watched", "clapper", "Já assistimos", "Registrar uma sessão", "Contem o que viram e deem a nota de vocês."],
+        ["cinema", "cinemaSign", "Vamos ao cinema", "Marcar ida ao cinema", "Já têm ingresso? Guardem o filme, a data, o horário e os lugares."],
+        ["watchlist", "pointing", "Queremos ver um dia", "Guardar na lista a dois", "Para uma próxima noite, sem data marcada."],
+      ].map(([acao, lumi, quando, titulo, texto]) => (
+        <button key={acao} className="add-sheet__opt" onClick={() => onEscolha(acao)}>
+          <img src={lumiSrc(lumi)} alt=""/>
+          <span>
+            <span className="add-sheet__quando">{quando}</span>
+            <span className="add-sheet__t">{titulo}</span>
+            <span className="add-sheet__s">{texto}</span>
+          </span>
+        </button>
+      ))}
+      <button className="add-sheet__escolher" onClick={() => onEscolha("escolher")}>
+        Não sabem o que ver? Escolher o que ver hoje
+      </button>
+    </div>
+  </>, document.body);
+};
+
+const VITRINE_CINEMA = { titulo: "Em cartaz nos cinemas", carregar: tmdbEmCartaz };
+
+const SearchModal = ({ onSelect, onClose, headTitle = "Nova sessão", headSub = "o que vocês assistiram hoje?", headLumi = "tooltip", vitrine = null }) => {
   const [q, setQ] = useState("");
+  const [vitrineRes, setVitrineRes] = useState([]);
   const [res, setRes] = useState([]);
   const [loading, setLoading] = useState(false);
   const [fetching, setFetching] = useState(false);
@@ -803,6 +843,12 @@ const SearchModal = ({ onSelect, onClose, headTitle = "Nova sessão", headSub = 
   const inputRef = useRef();
 
   useEffect(() => { setTimeout(() => inputRef.current?.focus(), 80); }, []);
+  useEffect(() => {
+    if (!vitrine) return;
+    let vivo = true;
+    vitrine.carregar().then(r => { if (vivo) setVitrineRes(r); }).catch(() => {});
+    return () => { vivo = false; };
+  }, [vitrine]);
   useEffect(() => {
     const t = setTimeout(async () => {
       if (q.length < 2) { setRes([]); setError(""); return; }
@@ -900,6 +946,22 @@ const SearchModal = ({ onSelect, onClose, headTitle = "Nova sessão", headSub = 
               </button>
             ))}
           </div>
+        )}
+
+        {/* sem nada digitado, a vitrine mostra por onde começar (ex.: o que está em cartaz) */}
+        {vitrine && q.length < 2 && vitrineRes.length > 0 && (
+          <>
+            <div className="search-vitrine">{vitrine.titulo}</div>
+            <div className="ns-grid">
+              {vitrineRes.map(r => (
+                <button key={r.id} onClick={() => !fetching && pick(r)}
+                  className={`ns-result ${picked === r.id ? "ns-result--sel" : ""}`}>
+                  <img src={`${TMDB_IMG}${r.poster_path}`} alt="" className="ns-result__img"/>
+                  <span className="ns-result__label">{r.title}</span>
+                </button>
+              ))}
+            </div>
+          </>
         )}
 
         {fetching && <div className="search-loading">O Lumi está buscando os detalhes...</div>}
@@ -2584,6 +2646,10 @@ const V3Demo = () => {
       settings: <SettingsPage couple={DEMO_COUPLE} users={DEMO_USERS} watched={DEMO_WATCHED}
         prefs={demoPrefs} onPref={noop} onSaveStreamings={async () => {}} onClose={noop} onSignOut={noop} onDeleteAccount={noop}/>,
       // &semstreamings mostra a escolha dos streamings antes das sugestões
+      mais: <AddSheet onEscolha={noop} onClose={noop}/>,
+      marcarcinema: <SearchModal headTitle="Marcar ida ao cinema" headSub="qual filme vocês vão ver?" headLumi="cinemaSign"
+        vitrine={VITRINE_CINEMA} onSelect={noop} onClose={noop}/>,
+      planocinema: <CinemaPlanSheet item={DEMO_WATCHLIST[0]} initial={null} novo onSave={noop} onClose={noop}/>,
       escolher: <Escolher users={DEMO_USERS} watchlist={DEMO_WATCHLIST} streamings={[]} prefs={demoPrefs}
         onSessao={noop} onAdivinha={noop} onMatch={noop} onRoleta={noop} onClose={noop}/>,
       adivinha: <Adivinha users={DEMO_USERS} currentUser="Ana" watched={DEMO_WATCHED} watchlist={DEMO_WATCHLIST} streamings={[8, 119]} prefs={demoPrefs}
@@ -3693,7 +3759,17 @@ const waitingCopy = d => {
 };
 
 // ---------- Planejar ida ao cinema (bottom sheet na jornada do filme) ----------
-const CinemaPlanSheet = ({ item, initial, onSave, onClose }) => {
+// data local (o toISOString puro vira o dia seguinte à noite no Brasil)
+const isoLocal = d => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+
+const CinemaPlanSheet = ({ item, initial, novo = false, onSave, onClose }) => {
+  // hoje e amanhã ficam fixos enquanto a folha está aberta
+  const [[hojeIso, amanhaIso]] = useState(() => {
+    const hoje = new Date();
+    const amanha = new Date(hoje);
+    amanha.setDate(hoje.getDate() + 1);
+    return [isoLocal(hoje), isoLocal(amanha)];
+  });
   const [form, setForm] = useState({
     date: initial?.date || "",
     time: initial?.time || "",
@@ -3708,7 +3784,7 @@ const CinemaPlanSheet = ({ item, initial, onSave, onClose }) => {
         <div className="ns-head">
           <img src={lumiSrc("cinemaSign")} alt=""/>
           <div>
-            <div className="ns-head__t">{initial ? "Editar sessão 🎟" : "Planejar ida ao cinema 🍿"}</div>
+            <div className="ns-head__t">{initial ? "Editar sessão 🎟" : novo ? "Marcar ida ao cinema" : "Planejar ida ao cinema 🍿"}</div>
             <div className="ns-head__s">{item.title}</div>
           </div>
         </div>
@@ -3719,11 +3795,21 @@ const CinemaPlanSheet = ({ item, initial, onSave, onClose }) => {
             : <div className="preview-poster preview-poster--fallback"><Ic n="film" s={22} className="icon-muted"/></div>}
           <div className="preview-meta">
             <div className="preview-title">{item.title}</div>
-            <div className="preview-meta__line preview-meta__line--muted">o filme continua na lista — só ganha um compromisso ❤️</div>
+            <div className="preview-meta__line preview-meta__line--muted">
+              {novo ? "entra na lista a dois já com a data marcada" : "o filme continua na lista — só ganha um compromisso ❤️"}
+            </div>
           </div>
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 16 }}>
+          {/* o ingresso costuma ser para hoje ou amanhã: um toque resolve */}
+          <div className="cine-atalhos" role="group" aria-label="Quando é a sessão">
+            {[[hojeIso, "Hoje"], [amanhaIso, "Amanhã"]].map(([d, rotulo]) => (
+              <button key={d} type="button" aria-pressed={form.date === d}
+                className={`cine-atalho ${form.date === d ? "cine-atalho--on" : ""}`}
+                onClick={() => setForm(f => ({ ...f, date: d }))}>{rotulo}</button>
+            ))}
+          </div>
           <div className="ep-input-row">
             <label className="ep-input"><span>📅 Data</span>
               <input className="text-input" type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))}/>
@@ -3750,7 +3836,7 @@ const CinemaPlanSheet = ({ item, initial, onSave, onClose }) => {
           </button>
           <button className="pill pill--primary pill--block" disabled={!canSave}
             onClick={() => onSave({ date: form.date, time: form.time || "", venue: form.venue || "", seats: form.seats || "", imax: !!form.imax })}>
-            🍿 Confirmar sessão
+            {novo ? "Guardar o ingresso" : "🍿 Confirmar sessão"}
           </button>
         </div>
       </Modal>
@@ -5434,6 +5520,7 @@ export default function App() {
   const [showMatch, setShowMatch] = useState(false);
   const [showAdivinha, setShowAdivinha] = useState(false);
   const [showEscolher, setShowEscolher] = useState(false);
+  const [cinemaFilme, setCinemaFilme] = useState(null); // filme escolhido no "Marcar ida ao cinema"
   const [menuOpen,     setMenuOpen]     = useState(false);
   const menuRef = useRef(null);
   const [installPrompt, setInstallPrompt] = useState(null);
@@ -5950,6 +6037,25 @@ export default function App() {
     // no app, a primeira sessão marcada é o momento de pedir o lembrete
     if (remindersAvailable() && await askReminderPermission()) setReminderTick(t => t + 1);
   };
+  // marcar do zero: se o filme já está na lista, ele ganha a data; se não, entra com ela.
+  // O id sai antes da escrita, então o ingresso aparece na hora (até offline).
+  const marcarCinema = async (movie, plan) => {
+    const existente = watchlist.find(w => w.tmdbId && w.tmdbId === movie.tmdbId && (w.type || "movie") === (movie.type || "movie"));
+    let item;
+    if (existente) {
+      item = { ...existente, plan };
+      updateDoc(doc(db,"couples",coupleId,"watchlist",existente.id), { plan })
+        .catch(e => { console.error(e); addToast("Não foi possível marcar a sessão","error"); });
+    } else {
+      const ref = doc(collection(db,"couples",coupleId,"watchlist"));
+      const data = { ...movie, priority: "alta", suggestedBy: currentUser, wantedBy: users.length ? [...users] : [currentUser], addedAt: new Date().toISOString(), plan };
+      item = { ...data, id: ref.id };
+      setDoc(ref, data).catch(e => { console.error(e); addToast("Não foi possível marcar a sessão","error"); });
+    }
+    setCineModal({ mode: "ticket", item });
+    addToast("Ingresso guardado na lista a dois 🎟", "success");
+    if (remindersAvailable() && await askReminderPermission()) setReminderTick(t => t + 1);
+  };
   const clearPlan = item => {
     setCineModal(null);
     updateDoc(doc(db,"couples",coupleId,"watchlist",item.id), { plan: deleteField() })
@@ -6045,6 +6151,19 @@ export default function App() {
             onRegistrar={item => { setShowRoulette(false); setShowEscolher(false); setAddModal({ type: "watched", movie: item, fromWatchlist: true }); }}
           />
         )}
+        {addModal==="cinema" && (
+          <SearchModal headTitle="Marcar ida ao cinema" headSub="qual filme vocês vão ver?" headLumi="cinemaSign"
+            vitrine={VITRINE_CINEMA}
+            onSelect={m => { setAddModal(null); setCinemaFilme(m); }} onClose={() => setAddModal(null)}/>
+        )}
+        {cinemaFilme && (() => {
+          const existente = watchlist.find(w => w.tmdbId && w.tmdbId === cinemaFilme.tmdbId);
+          return (
+            <CinemaPlanSheet item={cinemaFilme} initial={existente?.plan || null} novo={!existente?.plan}
+              onSave={plan => { const m = cinemaFilme; setCinemaFilme(null); marcarCinema(m, plan); }}
+              onClose={() => setCinemaFilme(null)}/>
+          );
+        })()}
         {addModal==="watchlist" && (
           <AddWatchlistModal users={users} currentUser={currentUser} onSave={addWatchlist} onSaveSaga={addSagaToWatchlist} onClose={()=>setAddModal(null)}/>
         )}
@@ -6161,27 +6280,12 @@ export default function App() {
 
         {/* sheet de adicionar (FAB) */}
         {menuOpen && (
-          <>
-            <div className="add-sheet-backdrop" onClick={()=>setMenuOpen(false)}/>
-            <div className="add-sheet" role="dialog" aria-label="Adicionar">
-              <img src={lumiSrc("peeking")} alt="" className="add-sheet__lumi" aria-hidden="true"/>
-              <div className="add-sheet__handle"/>
-              <button className="add-sheet__opt" onClick={()=>{ setAddModal("watched"); setMenuOpen(false); }}>
-                <img src={lumiSrc("clapper")} alt=""/>
-                <span>
-                  <span className="add-sheet__t">Registrar sessão</span>
-                  <div className="add-sheet__s">o que vocês assistiram hoje?</div>
-                </span>
-              </button>
-              <button className="add-sheet__opt" onClick={()=>{ setAddModal("watchlist"); setMenuOpen(false); }}>
-                <img src={lumiSrc("pointing")} alt=""/>
-                <span>
-                  <span className="add-sheet__t">Adicionar à lista a dois</span>
-                  <div className="add-sheet__s">guardar pra uma próxima noite</div>
-                </span>
-              </button>
-            </div>
-          </>
+          <AddSheet onClose={() => setMenuOpen(false)}
+            onEscolha={acao => {
+              setMenuOpen(false);
+              if (acao === "escolher") setShowEscolher(true);
+              else setAddModal(acao);
+            }}/>
         )}
 
         {/* bottom nav v3 */}

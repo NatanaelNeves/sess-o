@@ -111,6 +111,15 @@ function proximosDaLista(watchlist) {
   return [...soltos, ...proximoDaSaga.values()];
 }
 
+/** O nome do streaming como a gente fala: "Amazon Prime Video" vira "Prime Video", "Disney Plus" vira "Disney+". */
+export function nomeCurto(nome = "") {
+  return nome
+    .replace(/\s+(Standard|Basic)?\s*with Ads$/i, "")
+    .replace(/^Amazon\s+/, "")
+    .replace(/\s+Plus\b/, "+")
+    .trim();
+}
+
 /** Em quais dos streamings do casal o título está agora (assinatura, no Brasil). */
 async function ondeAssistir(request, c, streamings) {
   try {
@@ -118,7 +127,7 @@ async function ondeAssistir(request, c, streamings) {
     const br = d.results?.[REGIAO];
     const nossos = (br?.flatrate || []).filter(p => streamings.includes(p.provider_id));
     return nossos.length
-      ? { provedores: nossos.map(p => p.provider_name), logos: nossos.map(p => p.logo_path || null), link: br.link || null }
+      ? { provedores: nossos.map(p => nomeCurto(p.provider_name)), logos: nossos.map(p => p.logo_path || null), link: br.link || null }
       : null;
   } catch {
     return null;

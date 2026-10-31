@@ -127,7 +127,19 @@
 
 /* ---------- o baralho ---------- */
 .bar { display: flex; flex-direction: column; align-items: center; width: 100%; margin-top: 18px; }
-.bar__pilha { position: relative; width: min(74vw, 290px); aspect-ratio: 2 / 3; outline: none; }
+.bar__pilha { --forca: 0; position: relative; isolation: isolate; width: min(74vw, 290px); aspect-ratio: 2 / 3; outline: none; }
+.bar__pilha::before,
+.bar__pilha::after {
+  content: "";
+  position: absolute;
+  inset: -12% -40%;
+  z-index: -1;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+/* a cor fica forte até a borda do cartaz e se espalha por fora dele */
+.bar__pilha::before { background: radial-gradient(closest-side, rgba(255, 181, 74, 0.6) 55%, transparent); opacity: clamp(0, var(--forca), 1); }
+.bar__pilha::after { background: radial-gradient(closest-side, rgba(242, 167, 160, 0.5) 55%, transparent); opacity: clamp(0, calc(var(--forca) * -1), 1); }
 .bar__pilha:focus-visible { outline: 2px solid var(--lente); outline-offset: 6px; border-radius: 18px; }
 .bar__carta {
   position: absolute;

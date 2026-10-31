@@ -1,0 +1,173 @@
+/* ============================================================
+   Match a dois — um baralho de cartazes, dois votos, um celular.
+   ============================================================ */
+
+.match__lumi { margin: 12px 0 6px; }
+.match__centro { display: flex; flex-direction: column; align-items: center; gap: 14px; margin-top: 48px; text-align: center; }
+
+/* ---------- intro ---------- */
+.match__intro { display: flex; flex-direction: column; align-items: center; text-align: center; margin-top: 36px; }
+.match__duo { display: flex; align-items: center; gap: 10px; }
+.match__ava {
+  display: inline-grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  font-family: var(--font-display);
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--pipoca);
+}
+.match__ava--a { background: linear-gradient(140deg, #d23a3f, #7c1f26); }
+.match__ava--b { background: linear-gradient(140deg, #9a6646, #3e2418); }
+.match__coracao { font-size: 26px; color: var(--bochecha); text-shadow: 0 0 14px rgba(242, 167, 160, 0.6); }
+.match__titulo { margin-top: 22px; font-family: var(--font-display); font-size: 28px; font-weight: 700; line-height: 1.1; }
+.match__texto { margin-top: 10px; max-width: 34ch; font-size: 15px; line-height: 1.55; color: var(--text-secondary); }
+.match__intro .prog__assistir { margin-top: 26px; }
+
+/* ---------- a vez de cada um ---------- */
+.match__vez { display: flex; flex-direction: column; align-items: center; }
+.match__placar { display: flex; align-items: center; gap: 10px; width: 100%; margin-top: 10px; }
+.match__placar .match__ava { width: 36px; height: 36px; font-size: 17px; }
+.match__placar strong { flex: 1; font-family: var(--font-display); font-size: 20px; font-weight: 700; }
+.match__progresso { font-size: 13px; font-weight: 650; color: var(--text-secondary); }
+.match__barra { width: 100%; height: 4px; margin-top: 10px; border-radius: 99px; background: rgba(255, 236, 220, 0.1); overflow: hidden; }
+.match__barra span { display: block; height: 100%; background: var(--lente); border-radius: inherit; transition: width 0.3s ease; }
+
+/* ---------- o baralho ---------- */
+.bar { display: flex; flex-direction: column; align-items: center; width: 100%; margin-top: 16px; }
+.bar__pilha { position: relative; width: min(78vw, 300px); aspect-ratio: 2 / 3; outline: none; }
+.bar__pilha:focus-visible { outline: 2px solid var(--lente); outline-offset: 6px; border-radius: 18px; }
+.bar__carta {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: 16px;
+  background: linear-gradient(160deg, #3a2328, #241518);
+  box-shadow: 0 0 0 1px rgba(255, 236, 220, 0.08), 0 26px 50px -20px rgba(0, 0, 0, 0.85);
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: grab;
+  transition: transform 0.26s cubic-bezier(0.3, 0.7, 0.4, 1), opacity 0.26s ease;
+}
+.bar__carta:active { cursor: grabbing; }
+.bar__carta > img { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; }
+.bar__carta--atras { transform: scale(0.94) translateY(14px); opacity: 0.55; pointer-events: none; }
+.bar__semposter { display: grid; place-items: center; height: 100%; padding: 20px; font-family: var(--font-display); font-size: 24px; font-weight: 700; text-align: center; }
+.bar__info {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 46px 16px 14px;
+  background: linear-gradient(transparent, rgba(16, 9, 11, 0.92) 45%);
+  text-align: left;
+}
+.bar__info strong { font-family: var(--font-display); font-size: 22px; font-weight: 700; line-height: 1.1; color: var(--pipoca); }
+.bar__info span { font-size: 13px; color: var(--text-secondary); }
+.bar__info b { color: var(--lente); }
+.bar__onde { display: inline-flex; align-items: center; gap: 6px; margin-top: 4px; font-weight: 650; }
+.bar__onde img { width: 20px; height: 20px; border-radius: 5px; }
+
+/* os selos que aparecem ao arrastar */
+.bar__selo {
+  position: absolute;
+  top: 22px;
+  padding: 6px 14px;
+  border-radius: 8px;
+  font-family: var(--font-display);
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  border: 3px solid currentColor;
+  background: rgba(16, 9, 11, 0.55);
+  pointer-events: none;
+}
+.bar__selo--sim { left: 18px; color: var(--lente); transform: rotate(-12deg); }
+.bar__selo--nao { right: 18px; color: var(--bochecha); transform: rotate(12deg); }
+
+.bar__motivo {
+  margin-top: 16px;
+  max-width: 32ch;
+  min-height: 2.7em;
+  text-align: center;
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: 16px;
+  line-height: 1.35;
+  color: var(--lente);
+}
+
+.bar__botoes { display: flex; justify-content: center; gap: 28px; margin-top: 12px; }
+.bar__botao {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  background: none;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 650;
+}
+.bar__botao svg {
+  width: 64px;
+  height: 64px;
+  padding: 19px;
+  border-radius: 50%;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: transform 0.18s var(--spring, ease);
+}
+.bar__botao--nao svg { color: var(--bochecha); box-shadow: inset 0 0 0 2px rgba(242, 167, 160, 0.45); }
+.bar__botao--sim svg { color: #2b1716; background: var(--lente); fill: #2b1716; box-shadow: 0 10px 24px -10px rgba(255, 181, 74, 0.8); }
+.bar__botao:active svg { transform: scale(0.9); }
+
+/* ---------- passa o celular ---------- */
+.match__troca { display: flex; flex-direction: column; align-items: center; gap: 24px; margin-top: 56px; text-align: center; }
+
+/* ---------- resultado ---------- */
+.match__resultado { position: relative; display: flex; flex-direction: column; align-items: center; margin-top: 8px; text-align: center; }
+.match__resultado .lumi-co { width: 100%; text-align: left; }
+.match__vencedor { flex: none; width: 100%; margin-top: 14px; }
+.match__outros { margin-top: 18px; color: var(--text-secondary); font-size: 14px; }
+.match__outros ul { list-style: none; margin: 6px 0 0; padding: 0; color: var(--pipoca); font-family: var(--font-display); font-size: 17px; }
+.match__resultado .prog__trocar { margin-top: 18px; }
+.match__resultado .prog__trocar:disabled { opacity: 0.7; box-shadow: inset 0 0 0 1.5px var(--lente); color: var(--lente); }
+.match__desencontro { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; width: 100%; margin: 18px 0 6px; text-align: left; }
+.match__desencontro div { display: flex; flex-direction: column; gap: 4px; padding: 14px; border-radius: 14px; background: var(--bg-surface); box-shadow: inset 0 0 0 1px var(--border-subtle); }
+.match__desencontro strong { font-family: var(--font-display); font-size: 17px; }
+.match__desencontro span { font-size: 13px; line-height: 1.4; color: var(--text-secondary); }
+
+/* confete de pipoca e corações caindo uma vez */
+.match__festa { position: absolute; inset: -20px 0 auto; height: 0; pointer-events: none; }
+.match__festa i {
+  position: absolute;
+  top: 0;
+  left: calc(4% + var(--i) * 6.8%);
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--lente);
+  animation: festa 1.6s calc(var(--i) * 60ms) cubic-bezier(0.2, 0.6, 0.4, 1) both;
+}
+.match__festa i:nth-child(3n) { background: var(--bochecha); border-radius: 50%; }
+.match__festa i:nth-child(4n) { background: var(--cachecol); }
+@keyframes festa {
+  from { transform: translateY(0) rotate(0); opacity: 1; }
+  to { transform: translateY(420px) rotate(320deg); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bar__carta { transition: none; }
+  .match__festa { display: none; }
+}

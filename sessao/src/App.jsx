@@ -26,6 +26,8 @@ import LumiCompanion from "./ui/LumiCompanion.jsx";
 import Programacao from "./ui/Programacao.jsx";
 import Match from "./ui/Match.jsx";
 import Adivinha from "./ui/Adivinha.jsx";
+import Escolher, { FaixaEscolher } from "./ui/Escolher.jsx";
+import Roleta from "./ui/Roleta.jsx";
 import { itemDaLista, querendoJuntos } from "./recs/paraLista.js";
 import Streamings from "./ui/Streamings.jsx";
 import NotaDoCasal from "./ui/NotaDoCasal.jsx";
@@ -1493,149 +1495,6 @@ const AddWatchlistModal = ({ currentUser, onSave, onSaveSaga, onClose }) => {
   );
 };
 
-// roulette modal
-const ROULETTE_COLORS = ["#c9394a", "#8b7ec8", "#c9993a", "#2a2050"];
-
-// Roleta da noite — evento cinematográfico em tela cheia (com suspense do Lumi)
-const RouletteModal = ({ watchlist, onClose, onWatchNow }) => {
-  useBackClose(onClose);
-  const [typeFilter, setTypeFilter] = useState("all");
-  const [rotation, setRotation]     = useState(0);
-  const [phase, setPhase]           = useState("idle"); // idle | spinning | result
-  const [result, setResult]         = useState(null);
-
-  // IMPORTANTE: a lista da roda é congelada (useMemo) — sem isso o embaralhamento
-  // roda a cada render e o resultado deixa de bater com a fatia sob o ponteiro.
-  const wheelItems = useMemo(() => {
-    const f = watchlist.filter(w =>
-      typeFilter === "movie" ? w.type === "movie" :
-      typeFilter === "tv"    ? w.type === "tv"    : true
-    );
-    if (f.length <= 12) return f;
-    return [...f]
-      .sort((a, b) => String(a.id || a.tmdbId || a.title).localeCompare(String(b.id || b.tmdbId || b.title)))
-      .slice(0, 12);
-  }, [watchlist, typeFilter]);
-
-  const numItems = wheelItems.length;
-  const SVG = 300;
-  const cx = SVG / 2, cy = SVG / 2, r = SVG / 2 - 2;
-  const truncate = (s, max = 14) => s.length > max ? s.slice(0, max) + "…" : s;
-
-  const spin = () => {
-    if (phase === "spinning" || numItems < 2) return;
-    const sliceAngle  = 360 / numItems;
-    const targetIndex = Math.floor(Math.random() * numItems);
-    const chosen      = wheelItems[targetIndex]; // congela o vencedor agora
-    const currentMod  = ((rotation % 360) + 360) % 360;
-    // rotação (mod 360) que coloca o meio da fatia targetIndex sob o ponteiro (topo)
-    const targetAngle = ((360 - (targetIndex + 0.5) * sliceAngle) % 360 + 360) % 360;
-    const delta       = ((targetAngle - currentMod) + 360) % 360;
-    const finalRot    = rotation + 6 * 360 + delta;
-    setResult(null);
-    setPhase("spinning");
-    setRotation(finalRot);
-    setTimeout(() => { setResult(chosen); setPhase("result"); }, 4300);
-  };
-
-  const spinning = phase === "spinning";
-  const fmtRuntime = m => m ? `${Math.floor(m / 60)}h${m % 60 ? String(m % 60).padStart(2, "0") : ""}` : null;
-
-  return createPortal(
-    <div className={`rl-cine rl-cine--${phase}`} onClick={e => e.target === e.currentTarget && !spinning && onClose()}>
-      {phase === "result" && <Confetti count={40}/>}
-      <button className="rl-cine__close" onClick={onClose} aria-label="Fechar"><Ic n="x" s={22}/></button>
-
-      <div className="rl-cine__header">
-        <div className="rl-cine__eyebrow">Roleta da noite</div>
-        <div className="rl-cine__title">
-          {phase === "idle" ? "Não conseguem decidir?" : phase === "spinning" ? "Preparando a sessão…" : "A sorte escolheu ✦"}
-        </div>
-      </div>
-
-      <Lumi name={phase === "result" ? "celebrating" : phase === "spinning" ? "animado" : "roulette"}
-        size={phase === "result" ? 120 : 104} breathe className="rl-cine__lumi"
-        alt="Lumi na roleta"/>
-
-      {phase === "idle" && (
-        <div className="rl-cine__pills">
-          {[["all", "Tudo"], ["movie", "Só filmes"], ["tv", "Só séries"]].map(([v, l]) => (
-            <button key={v} onClick={() => { setTypeFilter(v); setResult(null); }}
-              className={`rl-cine__pill ${typeFilter === v ? "rl-cine__pill--active" : ""}`}>{l}</button>
-          ))}
-        </div>
-      )}
-
-      {numItems < 2 ? (
-        <div className="rl-cine__empty">
-          <p>Poucos títulos com esse filtro.<br/>Adicionem mais à lista a dois 🍿</p>
-        </div>
-      ) : (
-        <>
-          <div className={`rl-cine__wheel ${spinning ? "rl-cine__wheel--spin" : ""} ${phase === "result" ? "rl-cine__wheel--done" : ""}`}>
-            <div className="rl-cine__glow" aria-hidden="true"/>
-            <div className="rl-cine__pointer"/>
-            <svg viewBox={`0 0 ${SVG} ${SVG}`} className="rl-cine__svg"
-              style={{ transform: `rotate(${rotation}deg)`, transition: spinning ? "transform 4.2s cubic-bezier(0.16,0.84,0.14,1)" : "none" }}>
-              {wheelItems.map((item, i) => {
-                const sliceAngle = 360 / numItems;
-                const sa = (i * sliceAngle - 90) * Math.PI / 180;
-                const ea = ((i + 1) * sliceAngle - 90) * Math.PI / 180;
-                const x1 = cx + r * Math.cos(sa), y1 = cy + r * Math.sin(sa);
-                const x2 = cx + r * Math.cos(ea), y2 = cy + r * Math.sin(ea);
-                const large = sliceAngle > 180 ? 1 : 0;
-                const pathD = `M${cx},${cy} L${x1},${y1} A${r},${r} 0 ${large},1 ${x2},${y2} Z`;
-                const ma = ((i + 0.5) * sliceAngle - 90) * Math.PI / 180;
-                const tr = r * 0.62;
-                const tx = cx + tr * Math.cos(ma), ty = cy + tr * Math.sin(ma);
-                let trot = (i + 0.5) * sliceAngle - 90;
-                if (trot > 90 && trot < 270) trot += 180; // mantém o texto legível na metade de baixo
-                return (
-                  <g key={item.id || i}>
-                    <path d={pathD} fill={ROULETTE_COLORS[i % 4]} stroke="#0d0d1a" strokeWidth="2"/>
-                    <text x={tx} y={ty} transform={`rotate(${trot},${tx},${ty})`}
-                      textAnchor="middle" dominantBaseline="middle"
-                      fill="white" fontSize="11" fontFamily="Inter,sans-serif" fontWeight="600">
-                      {truncate(item.title)}
-                    </text>
-                  </g>
-                );
-              })}
-              <circle cx={cx} cy={cy} r={26} fill="#0d0d1a" stroke="#f0ede8" strokeWidth="3"/>
-              <text x={cx} y={cy + 1} textAnchor="middle" dominantBaseline="middle" fill="#c9394a" fontSize="20">♥</text>
-            </svg>
-          </div>
-
-          {phase === "idle" && (
-            <button onClick={spin} className="rl-cine__spin">🎲 Girar a roleta</button>
-          )}
-          {phase === "spinning" && (
-            <div className="rl-cine__suspense">🍿 quem será a memória de hoje…</div>
-          )}
-          {phase === "result" && result && (
-            <div className="rl-cine__result">
-              <div className="rl-result-card">
-                <div className="rl-result-card__label">a sorte escolheu</div>
-                <div className="rl-result-card__title">{result.title}</div>
-                <div className="rl-result-card__sub">
-                  {result.type === "tv" ? "série" : "filme"}
-                  {result.runtime ? ` · cabe em ${fmtRuntime(result.runtime)} da noite de vocês` : result.year ? ` · ${result.year}` : ""}
-                </div>
-              </div>
-              <div className="rl-cine__actions">
-                <button onClick={() => onWatchNow(result)} className="pill pill--primary" style={{ flex: 1 }}>Aceitar destino ✦</button>
-                <button onClick={() => { setResult(null); setPhase("idle"); }} className="pill pill--outline pill--sm">Girar de novo</button>
-              </div>
-            </div>
-          )}
-        </>
-      )}
-    </div>,
-    document.body
-  );
-};
-
-
 // ---------- helpers do design v3 ----------
 // Notas exibidas na escala 0–10 do design (média das estrelas ×2, vírgula pt-BR)
 const nota10 = v => (v * 2).toFixed(1).replace(".", ",");
@@ -2701,13 +2560,13 @@ const V3Demo = () => {
   if (pageParam) {
     const pages = {
       home: <HomePage watched={DEMO_WATCHED} watchlist={DEMO_WATCHLIST} couple={DEMO_COUPLE} currentUser="Ana" users={DEMO_USERS}
-        onRoulette={noop} onAdd={noop} onSaveReview={noop} onUpdateStatus={noop} onContinueEpisode={noop} onToggleTogether={noop}
+        onEscolher={noop} onAdd={noop} onSaveReview={noop} onUpdateStatus={noop} onContinueEpisode={noop} onToggleTogether={noop}
         onOpenSettings={noop} onOpenTicket={noop} onOpenCheckin={noop} onGoWatchlist={noop} onGoDiary={noop} onGoProfile={noop} onEdit={noop} prefs={demoPrefs}
         now={demoHour !== null ? new Date(new Date().setHours(demoHour, 0)) : undefined}/>,
       acervo: <DiaryPage watched={DEMO_WATCHED} users={DEMO_USERS} currentUser="Ana" onDelete={noop} onEdit={noop}
         onSaveReview={noop} onUpdateStatus={noop} onContinueEpisode={noop} onToggleTogether={noop} onAddToWatchlist={noop} prefs={demoPrefs}/>,
       watchlist: <WatchlistPage watchlist={DEMO_WATCHLIST} watched={DEMO_WATCHED} users={DEMO_USERS} currentUser="Ana" onDelete={noop}
-        onMarkWatched={noop} onRoulette={noop} onSuggest={noop} onMatch={noop} onAdivinha={noop} onAlsoWant={noop} onPlan={noop} onOpenTicket={noop} onCheckin={noop} prefs={demoPrefs}/>,
+        onMarkWatched={noop} onEscolher={noop} onAlsoWant={noop} onPlan={noop} onOpenTicket={noop} onCheckin={noop} prefs={demoPrefs}/>,
       perfil: <ProfilePage watched={DEMO_WATCHED} watchlist={DEMO_WATCHLIST} couple={DEMO_COUPLE} users={DEMO_USERS}
         prefs={demoPrefs} onOpenSettings={noop}/>,
       episodio: <EpisodeSheet entry={DEMO_WATCHED[5]} coupleId={null} onClose={noop} addToast={noop}/>,
@@ -2718,13 +2577,15 @@ const V3Demo = () => {
         item={{ title: "Superman", poster: null, plan: { date: "2030-07-20", time: "21:40",
           venue: "Cinemark Iguatemi · Sala 6", seats: "H7 · H8", imax: true } }}
         onEdit={noop} onClear={noop} onCheckin={noop} onRegister={noop} onClose={noop}/>,
-      roleta: <RouletteModal watchlist={Array.from({ length: 14 }, (_, i) => ({
+      roleta: <Roleta watchlist={Array.from({ length: 14 }, (_, i) => ({
         id: `r${i}`, title: ["Dark", "Homem-Aranha", "Arcane", "Gente Grande", "Coringa", "Socorro!", "Rogue One", "As Crônicas de Nárnia", "Batman", "O Cavaleiro das Trevas", "Supergirl", "Interestelar", "Duna", "La La Land"][i],
         type: i % 4 === 0 ? "tv" : "movie", runtime: 90 + i * 6, year: `20${10 + i}`,
-      }))} onClose={noop} onWatchNow={noop}/>,
+      }))} onClose={noop} onRegistrar={noop}/>,
       settings: <SettingsPage couple={DEMO_COUPLE} users={DEMO_USERS} watched={DEMO_WATCHED}
         prefs={demoPrefs} onPref={noop} onSaveStreamings={async () => {}} onClose={noop} onSignOut={noop} onDeleteAccount={noop}/>,
       // &semstreamings mostra a escolha dos streamings antes das sugestões
+      escolher: <Escolher users={DEMO_USERS} watchlist={DEMO_WATCHLIST} streamings={[]} prefs={demoPrefs}
+        onSessao={noop} onAdivinha={noop} onMatch={noop} onRoleta={noop} onClose={noop}/>,
       adivinha: <Adivinha users={DEMO_USERS} currentUser="Ana" watched={DEMO_WATCHED} watchlist={DEMO_WATCHLIST} streamings={[8, 119]} prefs={demoPrefs}
         onSaveStreamings={async () => {}} onSalvarNaLista={async () => {}} onVeredito={async () => {}} loadVereditos={async () => new Set()} onClose={noop}/>,
       match: <Match users={DEMO_USERS} watched={DEMO_WATCHED} watchlist={DEMO_WATCHLIST} streamings={[8, 119]} prefs={demoPrefs}
@@ -3293,10 +3154,10 @@ const InviteScreen = ({ inviteCode, couple, onContinue, onSignOut }) => {
 // home page — v3: a Home responde uma única pergunta, "o que faz sentido agora?" —
 // um único card principal muda por prioridade (avaliação pendente > sessão marcada >
 // continue assistindo > sugestão do Lumi), o resto é identidade do casal + memórias.
-const HomePage = ({ watched, watchlist, couple, currentUser, users, coupleId, addToast, onRoulette, onAdd,
+const HomePage = ({ watched, watchlist, couple, currentUser, users, coupleId, addToast, onAdd,
   onSaveReview, onUpdateStatus, onContinueEpisode, onToggleTogether, onOpenSettings,
   onOpenTicket, onOpenCheckin, onGoWatchlist, onGoDiary, onGoProfile,
-  onEdit, onDelete, onSuggest, prefs, now }) => {
+  onEdit, onDelete, onEscolher, prefs, now }) => {
   const [sel, setSel] = useState(null);
   const [editing, setEditing] = useState(null);
 
@@ -3461,14 +3322,13 @@ const HomePage = ({ watched, watchlist, couple, currentUser, users, coupleId, ad
     }
     const n = watchlist.length;
     return (
-      <Tela kicker={evening ? "Hoje à noite" : "Para hoje"} title="Que tal uma sessão?"
-        meta={onSuggest
-          ? "O Lumi separa três que combinam com vocês e estão nos seus streamings."
+      <Tela kicker={evening ? "Hoje à noite" : "Para hoje"} title="O que vamos ver hoje?"
+        meta={onEscolher
+          ? "O Lumi ajuda: sugere três, adivinha com perguntas, faz o match de vocês ou gira a roleta da lista."
           : n ? `A lista de vocês tem ${n} ${n === 1 ? "título" : "títulos"} esperando.` : "Escolham um filme e guardem na lista a dois."}
         actions={<>
-          {onSuggest && <button type="button" className="tela-btn" onClick={onSuggest}>Ver a sessão de hoje</button>}
-          <button type="button" className={onSuggest ? "tela-btn tela-btn--soft" : "tela-btn"} onClick={onGoWatchlist}>Escolher na lista</button>
-          {!onSuggest && n >= 2 && <button type="button" className="tela-btn tela-btn--soft" onClick={onRoulette}>Girar a roleta</button>}
+          {onEscolher && <button type="button" className="tela-btn" onClick={onEscolher}>Escolher o que ver</button>}
+          <button type="button" className={onEscolher ? "tela-btn tela-btn--soft" : "tela-btn"} onClick={onGoWatchlist}>Ver a lista</button>
         </>}/>
     );
   })();
@@ -3521,6 +3381,8 @@ const HomePage = ({ watched, watchlist, couple, currentUser, users, coupleId, ad
         } : null}>
         {tela}
       </Cabine>
+
+      {onEscolher && mainCard !== "suggestion" && <FaixaEscolher onAbrir={onEscolher}/>}
 
       {stubs.length > 0 && (
         <Canhotos items={stubs} total={total} quote={quote} onSelect={setSel} onSeeAll={onGoDiary}/>
@@ -4236,7 +4098,7 @@ const SagaWatchlistCard = ({ collection: col, group, watched, onMarkWatched, onD
   );
 };
 
-const WatchlistPage = ({ watchlist, watched = [], users, currentUser, onDelete, onMarkWatched, onRoulette, onSuggest, onMatch, onAdivinha, onAlsoWant, onPlan, onOpenTicket, onCheckin, prefs }) => {
+const WatchlistPage = ({ watchlist, watched = [], users, currentUser, onDelete, onMarkWatched, onEscolher, onAlsoWant, onPlan, onOpenTicket, onCheckin, prefs }) => {
   const [who, setWho] = useState("all"); // all | both | <nome>
   const [refine, setRefine] = useState("all"); // all | high | imdb | recent | <genre>
 
@@ -4284,20 +4146,8 @@ const WatchlistPage = ({ watchlist, watched = [], users, currentUser, onDelete, 
         </p>
       </header>
 
-      {/* não conseguem decidir? o Lumi sugere algo novo ou sorteia da lista */}
-      <div className="wl-planner">
-        <img src={lumiSrc("roulette")} alt="" className="wl-planner__lumi"/>
-        <div className="wl-planner__body">
-          <div className="wl-planner__eyebrow">Não conseguem decidir?</div>
-          <div className="wl-planner__title">Deixem o Lumi escolher a sessão de hoje</div>
-          <div className="wl-planner__acoes">
-            {onSuggest && <button type="button" className="wl-planner__cta" onClick={onSuggest}>Sugestões do Lumi</button>}
-            {onMatch && users.length === 2 && <button type="button" className="wl-planner__cta wl-planner__cta--soft" onClick={onMatch}>Match a dois</button>}
-            {onAdivinha && <button type="button" className="wl-planner__cta wl-planner__cta--soft" onClick={onAdivinha}>O Lumi adivinha</button>}
-            {watchlist.length >= 2 && <button type="button" className="wl-planner__cta wl-planner__cta--soft" onClick={onRoulette}>Sortear da lista</button>}
-          </div>
-        </div>
-      </div>
+      {/* não conseguem decidir? os quatro jeitos de escolher ficam numa tela só */}
+      {onEscolher && <FaixaEscolher onAbrir={onEscolher} titulo="Não conseguem decidir?" texto="Vejam os quatro jeitos de escolher com o Lumi."/>}
 
       {watchlist.length === 0 ? (
         <LumiState
@@ -5583,6 +5433,7 @@ export default function App() {
   const [showProgramacao, setShowProgramacao] = useState(false);
   const [showMatch, setShowMatch] = useState(false);
   const [showAdivinha, setShowAdivinha] = useState(false);
+  const [showEscolher, setShowEscolher] = useState(false);
   const [menuOpen,     setMenuOpen]     = useState(false);
   const menuRef = useRef(null);
   const [installPrompt, setInstallPrompt] = useState(null);
@@ -6188,10 +6039,10 @@ export default function App() {
 
         {/* modals */}
         {showRoulette && (
-          <RouletteModal
+          <Roleta
             watchlist={watchlist}
             onClose={() => setShowRoulette(false)}
-            onWatchNow={item => { setShowRoulette(false); setAddModal({ type: "watched", movie: item, fromWatchlist: true }); }}
+            onRegistrar={item => { setShowRoulette(false); setShowEscolher(false); setAddModal({ type: "watched", movie: item, fromWatchlist: true }); }}
           />
         )}
         {addModal==="watchlist" && (
@@ -6212,13 +6063,18 @@ export default function App() {
             onClose={()=>setShowSettings(false)} onSignOut={handleSignOut}
             onDeleteAccount={() => { setDeleteAccountError(""); setShowDeleteAccount(true); }}/>
         )}
+        {showEscolher && (
+          <Escolher users={users} watchlist={watchlist} streamings={couple.streamings || []}
+            prefs={prefs} onSessao={() => setShowProgramacao(true)} onAdivinha={() => setShowAdivinha(true)}
+            onMatch={() => setShowMatch(true)} onRoleta={() => setShowRoulette(true)}
+            onClose={() => setShowEscolher(false)}/>
+        )}
         {showProgramacao && (
           <Programacao users={users} currentUser={currentUser} watched={watched} watchlist={watchlist}
             streamings={couple.streamings || []} prefs={prefs}
             onSaveStreamings={saveStreamings} onAddWatchlist={addWatchlist} onAlsoWant={alsoWant}
             onVeredito={saveVeredito} loadVereditos={loadVereditos}
-            onMatch={users.length === 2 ? () => { setShowProgramacao(false); setShowMatch(true); } : undefined}
-            onAdivinha={() => { setShowProgramacao(false); setShowAdivinha(true); }}
+            onOutroJeito={() => { setShowProgramacao(false); setShowEscolher(true); }}
             onClose={() => setShowProgramacao(false)}/>
         )}
         {showMatch && (
@@ -6267,7 +6123,7 @@ export default function App() {
           {!dataReady ? <ContentSkeleton/> : (
             <div key={page} className="v3-page">
               {page==="home"      && <HomePage      watched={watched} watchlist={watchlist} couple={couple} currentUser={currentUser} users={users} coupleId={coupleId} addToast={addToast}
-                                       onRoulette={()=>setShowRoulette(true)} onSuggest={()=>setShowProgramacao(true)} onAdd={()=>setAddModal("watched")}
+                                       onEscolher={()=>setShowEscolher(true)} onAdd={()=>setAddModal("watched")}
                                        onSaveReview={saveReview} onUpdateStatus={saveStatus} onContinueEpisode={continueEpisode} onToggleTogether={toggleTogether}
                                        onOpenSettings={()=>setShowSettings(true)}
                                        onOpenTicket={openTicket} onOpenCheckin={openCheckin} onGoWatchlist={()=>setPage("watchlist")}
@@ -6278,7 +6134,7 @@ export default function App() {
                                        onContinueEpisode={continueEpisode} onToggleTogether={toggleTogether}
                                        onAddToWatchlist={()=>setAddModal("watchlist")} prefs={prefs}/>}
               {page==="watchlist" && <WatchlistPage watchlist={watchlist} watched={watched} users={users} currentUser={currentUser}
-                                       onDelete={e=>requestDelete(e,"watchlist")} onMarkWatched={markWatched} onRoulette={()=>setShowRoulette(true)} onSuggest={()=>setShowProgramacao(true)} onMatch={()=>setShowMatch(true)} onAdivinha={()=>setShowAdivinha(true)} onAlsoWant={alsoWant}
+                                       onDelete={e=>requestDelete(e,"watchlist")} onMarkWatched={markWatched} onEscolher={()=>setShowEscolher(true)} onAlsoWant={alsoWant}
                                        onPlan={openPlan} onOpenTicket={openTicket} onCheckin={openCheckin} prefs={prefs}/>}
               {page==="profile"   && <ProfilePage   watched={watched} watchlist={watchlist} couple={couple} users={users} prefs={prefs}
                                        onOpenSettings={()=>setShowSettings(true)}/>}

@@ -1,0 +1,236 @@
+/* ============================================================
+   O que vamos ver hoje? — quatro salas, uma acesa por vez.
+   A sala acesa ganha a luz da cabine e explica em três passos
+   como aquele jeito funciona; as outras ficam no escuro.
+   ============================================================ */
+
+.esc__titulo { margin-top: 6px; font-family: var(--font-display); font-size: 32px; font-weight: 700; line-height: 1.05; }
+.esc__lumi { margin: 14px 0 6px; }
+.esc-ic { flex: none; }
+
+/* ---------- as salas ---------- */
+.esc__salas { display: flex; flex-direction: column; gap: 10px; margin: 14px 0 0; padding: 0; list-style: none; }
+.esc__sala {
+  border-radius: 18px;
+  background: rgba(255, 236, 220, 0.025);
+  box-shadow: inset 0 0 0 1px var(--border-subtle);
+  transition: background 0.35s ease, box-shadow 0.35s ease;
+}
+/* acesa: a luz âmbar entra por cima, como o feixe do projetor */
+.esc__sala--acesa {
+  background: radial-gradient(110% 70% at 30% 0%, rgba(255, 181, 74, 0.16), transparent 65%), var(--bg-surface);
+  box-shadow: inset 0 0 0 1px rgba(255, 181, 74, 0.38), 0 22px 44px -26px rgba(0, 0, 0, 0.85), 0 0 40px -18px rgba(255, 181, 74, 0.45);
+}
+
+.esc__porta {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 14px 14px 14px 12px;
+  border: 0;
+  border-radius: 18px;
+  background: none;
+  color: var(--pipoca);
+  font: inherit;
+  text-align: left;
+}
+.esc__porta:focus-visible { outline: 2px solid var(--lente); outline-offset: 2px; }
+.esc__porta > .esc-ic--seta { color: var(--text-tertiary); transform: rotate(90deg); transition: transform 0.3s ease, color 0.3s ease; }
+.esc__sala--acesa .esc__porta > .esc-ic--seta { color: var(--lente); transform: rotate(-90deg); }
+
+.esc__arte {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 72px;
+  height: 64px;
+  filter: grayscale(0.7) brightness(0.6);
+  transition: filter 0.35s ease;
+}
+.esc__sala--acesa .esc__arte { filter: none; }
+
+.esc__cabeca { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.esc__situacao {
+  font-family: var(--font-display);
+  font-size: 19px;
+  font-weight: 700;
+  line-height: 1.15;
+  text-wrap: balance;
+  color: var(--text-secondary);
+  transition: color 0.3s ease;
+}
+.esc__sala--acesa .esc__situacao { color: var(--pipoca); }
+.esc__nome { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-top: 5px; font-size: 13px; font-weight: 700; color: var(--lente); }
+.esc__selo {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(255, 181, 74, 0.14);
+  color: var(--lente);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+/* ---------- dentro da sala acesa: como funciona ---------- */
+.esc__dentro { padding: 0 16px 18px; animation: salaAcende 0.35s ease both; }
+@keyframes salaAcende { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+
+/* três passos de verdade: a numeração conta a ordem do que acontece */
+.esc__passos {
+  counter-reset: passo;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 4px 0 0;
+  padding: 14px 0 0;
+  border-top: 1px dashed rgba(255, 181, 74, 0.25);
+  list-style: none;
+}
+.esc__passos li {
+  counter-increment: passo;
+  display: grid;
+  grid-template-columns: 26px 1fr;
+  gap: 10px;
+  align-items: start;
+  font-size: 14.5px;
+  line-height: 1.45;
+  color: var(--pipoca);
+}
+.esc__passos li::before {
+  content: counter(passo);
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: rgba(255, 181, 74, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(255, 181, 74, 0.45);
+  color: var(--lente);
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.esc__fatos { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }
+.esc__fatos > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(255, 236, 220, 0.05);
+  font-size: 12.5px;
+  font-weight: 650;
+  color: var(--text-secondary);
+}
+.esc__fatos .esc-ic { width: 14px; height: 14px; color: var(--lente); }
+.esc__nota { margin-top: 14px; font-size: 14px; line-height: 1.45; color: var(--bochecha); }
+
+.esc__acao {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 52px;
+  margin-top: 16px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--lente);
+  color: #2b1716;
+  font: inherit;
+  font-size: 16px;
+  font-weight: 700;
+  box-shadow: 0 10px 24px -12px rgba(255, 181, 74, 0.8);
+  transition: transform 0.18s var(--spring, ease);
+}
+.esc__acao:active { transform: scale(0.97); }
+.esc__acao:focus-visible { outline: 2px solid var(--pipoca); outline-offset: 3px; }
+
+/* ---------- as miniaturas ---------- */
+/* três salas: a do meio acesa, como na sessão de hoje */
+.arte-salas { display: flex; align-items: flex-end; gap: 4px; }
+.arte-salas__sala {
+  display: block;
+  width: 18px;
+  aspect-ratio: 2 / 3;
+  padding: 2px;
+  border-radius: 3px;
+  background: #3a2328;
+  box-shadow: 0 0 0 1px #7a4a34;
+  opacity: 0.8;
+}
+.arte-salas__sala--frente {
+  width: 30px;
+  padding: 3px;
+  opacity: 1;
+  box-shadow: 0 0 0 1px #ffd58a, 0 0 14px -2px rgba(255, 181, 74, 0.8);
+}
+.arte-salas__sala img,
+.arte-salas__sala i { display: block; width: 100%; height: 100%; border-radius: 2px; object-fit: cover; background: linear-gradient(160deg, #4a2d22, #241518); }
+.arte-salas--mini { gap: 3px; }
+.arte-salas--mini .arte-salas__sala { width: 16px; padding: 1.5px; }
+.arte-salas--mini .arte-salas__sala--frente { width: 22px; box-shadow: 0 0 0 1px #ffd58a, 0 0 10px -2px rgba(255, 181, 74, 0.8); }
+
+/* a parede de cartazes com poucos acesos */
+.arte-parede {
+  display: grid;
+  flex: none;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 3px;
+  width: 56px;
+  padding: 5px;
+  border-radius: 8px;
+  background: #0f090b;
+}
+.arte-parede i { aspect-ratio: 2 / 3; border-radius: 2px; background: #2b1d20; }
+.arte-parede i.acesa { background: linear-gradient(160deg, #ffe0a8, var(--lente)); box-shadow: 0 0 6px rgba(255, 181, 74, 0.7); }
+
+/* o ingresso rasgado, uma metade para cada um */
+.arte-ingresso { display: flex; flex: none; gap: 4px; width: 60px; }
+.arte-ingresso i {
+  display: grid;
+  flex: 1;
+  place-items: center;
+  height: 44px;
+  background: linear-gradient(170deg, #fbefdf, #f0d8b4);
+  color: #2b1716;
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-style: normal;
+  font-weight: 700;
+}
+.arte-ingresso i:first-child { border-radius: 6px 0 0 6px; transform: rotate(-5deg); }
+.arte-ingresso i:last-child { border-radius: 0 6px 6px 0; border-left: 1.5px dashed rgba(43, 23, 22, 0.35); transform: rotate(5deg) translateY(3px); }
+
+.arte-roleta { display: block; flex: none; width: 58px; height: 58px; }
+.arte-roleta svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.arte-roleta--mini { width: 34px; height: 34px; }
+
+/* ---------- a faixa que leva para cá (Home e lista a dois) ---------- */
+.esc-faixa {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  margin-top: 18px;
+  padding: 14px 14px 14px 16px;
+  border: 0;
+  border-radius: 18px;
+  background: linear-gradient(100deg, rgba(255, 181, 74, 0.13), rgba(255, 181, 74, 0.03) 70%), var(--bg-surface);
+  box-shadow: inset 0 0 0 1px rgba(255, 181, 74, 0.3);
+  color: var(--pipoca);
+  font: inherit;
+  text-align: left;
+}
+.esc-faixa:active { transform: scale(0.99); }
+.esc-faixa:focus-visible { outline: 2px solid var(--lente); outline-offset: 3px; }
+.esc-faixa__artes { display: flex; flex: none; align-items: center; gap: 8px; }
+.esc-faixa__texto { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.esc-faixa__titulo { font-family: var(--font-display); font-size: 19px; font-weight: 700; line-height: 1.15; }
+.esc-faixa__sub { margin-top: 3px; font-size: 13px; line-height: 1.35; color: var(--text-secondary); }
+.esc-faixa > .esc-ic--seta { color: var(--lente); }
+
+@media (prefers-reduced-motion: reduce) {
+  .esc__sala, .esc__arte, .esc__situacao, .esc__porta > .esc-ic--seta { transition: none; }
+  .esc__dentro { animation: none; }
+}

@@ -537,39 +537,129 @@
 .wl-planner__cta--soft { background: transparent; color: var(--pipoca); box-shadow: inset 0 0 0 1.5px rgba(255, 236, 220, 0.3); }
 
 /* ============================================================
-   O + — três momentos do casal: já viram, vão ao cinema, querem ver um dia
+   O + — a bilheteria do casal. Três objetos de cinema, um para
+   cada tempo: o canhoto usado (já viram), o ingresso de hoje
+   (vão ao cinema, o único aceso) e o cartaz de "em breve".
    ============================================================ */
-.add-sheet__titulo { margin: 0 0 6px 4px; font-family: var(--font-display); font-size: 22px; font-weight: 700; }
-.add-sheet__opt { align-items: flex-start; padding: 12px; }
-.add-sheet__opt + .add-sheet__opt { border-top: 1px solid var(--border-subtle); border-radius: 0 0 18px 18px; }
-.add-sheet__opt img { width: 52px; height: 52px; }
-.add-sheet__opt > span { display: flex; flex-direction: column; min-width: 0; }
-.add-sheet__quando { font-size: 12px; font-weight: 700; color: var(--lente); }
-.add-sheet__t { margin-top: 1px; font-family: var(--font-display); font-size: 18px; line-height: 1.2; }
-.add-sheet__s { margin-top: 3px; font-size: 13px; line-height: 1.4; }
-.add-sheet__opt:active { background: rgba(255, 236, 220, 0.06); }
-.add-sheet__opt:focus-visible,
-.add-sheet__escolher:focus-visible { outline: 2px solid var(--lente); outline-offset: 2px; }
-.add-sheet__escolher {
+.add-sheet { padding-top: 14px; }
+.add-sheet__titulo { margin: 0 0 18px; font-family: var(--font-display); font-size: 23px; font-weight: 700; text-align: center; }
+
+.bilheteria { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.bilheteria__obj {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 14px 6px 14px;
+  border: 0;
+  border-radius: 18px;
+  background: rgba(255, 236, 220, 0.03);
+  box-shadow: inset 0 0 0 1px var(--border-subtle);
+  color: var(--pipoca);
+  font: inherit;
+  text-align: center;
+  transition: transform 0.18s var(--spring, ease), background 0.2s ease;
+}
+.bilheteria__obj:active { transform: scale(0.96); background: rgba(255, 236, 220, 0.07); }
+.bilheteria__obj:focus-visible { outline: 2px solid var(--lente); outline-offset: 2px; }
+/* o de agora fica na luz: é a novidade e o mais urgente */
+.bilheteria__obj--agora {
+  background: radial-gradient(90% 70% at 50% 20%, rgba(255, 181, 74, 0.18), transparent 70%), rgba(255, 236, 220, 0.03);
+  box-shadow: inset 0 0 0 1px rgba(255, 181, 74, 0.4);
+}
+.bilheteria__quando { margin-top: 12px; font-family: var(--font-display); font-size: 16px; font-weight: 700; line-height: 1.15; }
+.bilheteria__o-que { font-size: 12px; line-height: 1.3; color: var(--text-secondary); }
+
+/* os objetos, todos com 74px de altura para alinharem pela base */
+.obj-canhoto,
+.obj-ingresso,
+.obj-cartaz { display: grid; place-items: center; height: 74px; }
+
+/* canhoto usado: papel creme picotado do lado, já rasgado e carimbado */
+.obj-canhoto {
+  position: relative;
+  width: 46px;
+  align-content: center;
+  gap: 4px;
+  border-radius: 4px 7px 7px 4px;
+  background: linear-gradient(170deg, #efe2cf, #d9c3a2);
+  transform: rotate(-7deg);
+  -webkit-mask: radial-gradient(circle 3px at 0 6px, transparent 98%, #000) 0 0 / 100% 12px;
+  mask: radial-gradient(circle 3px at 0 6px, transparent 98%, #000) 0 0 / 100% 12px;
+}
+.obj-canhoto__nota { font-family: var(--font-display); font-size: 20px; line-height: 1; color: #9e2a2d; }
+.obj-canhoto i { display: block; width: 24px; height: 3px; border-radius: 2px; background: rgba(43, 23, 22, 0.3); }
+
+/* ingresso inteiro com o dia de hoje: o objeto aceso */
+.obj-ingresso {
+  width: 64px;
+  height: 74px;
+  align-content: center;
+  border-radius: 8px;
+  background: linear-gradient(170deg, #fbefdf, #f0d8b4);
+  color: #2b1716;
+  box-shadow: 0 0 22px -4px rgba(255, 181, 74, 0.8);
+  -webkit-mask:
+    radial-gradient(circle 6px at 0 70%, transparent 97%, #000) left / 51% 100% no-repeat,
+    radial-gradient(circle 6px at 100% 70%, transparent 97%, #000) right / 51% 100% no-repeat;
+  mask:
+    radial-gradient(circle 6px at 0 70%, transparent 97%, #000) left / 51% 100% no-repeat,
+    radial-gradient(circle 6px at 100% 70%, transparent 97%, #000) right / 51% 100% no-repeat;
+}
+.obj-ingresso b { font-family: var(--font-display); font-size: 28px; font-weight: 700; line-height: 0.9; }
+.obj-ingresso small { margin-top: 2px; padding-bottom: 12px; border-bottom: 1.5px dashed rgba(43, 23, 22, 0.35); font-size: 12px; font-weight: 700; color: #9e2a2d; }
+
+/* cartaz de "em breve": moldura de lâmpadas apagadas, esperando a noite */
+.obj-cartaz {
+  position: relative;
+  width: 50px;
+  padding: 4px;
+  border-radius: 5px;
+  background:
+    radial-gradient(circle, #ffd58a 0 1.2px, transparent 1.7px) 0 0 / 7px 7px repeat-x,
+    radial-gradient(circle, #ffd58a 0 1.2px, transparent 1.7px) 0 100% / 7px 7px repeat-x,
+    #2b1716;
+  box-shadow: 0 0 0 1px #5a3524;
+  transform: rotate(6deg);
+}
+.obj-cartaz i {
   display: block;
   width: 100%;
-  min-height: 46px;
-  margin-top: 8px;
+  height: 100%;
+  border-radius: 2px;
+  background:
+    linear-gradient(transparent 62%, rgba(255, 244, 234, 0.85) 62% 70%, transparent 70%),
+    linear-gradient(165deg, #f6c2bb, #8a4048);
+}
+
+.add-sheet__escolher {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 52px;
+  margin-top: 12px;
+  padding: 4px 14px 4px 6px;
   border: 0;
   border-radius: 999px;
-  background: rgba(255, 181, 74, 0.1);
-  box-shadow: inset 0 0 0 1px rgba(255, 181, 74, 0.3);
-  color: var(--lente);
+  background: rgba(255, 181, 74, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(255, 181, 74, 0.28);
+  color: var(--text-secondary);
   font: inherit;
-  font-size: 14px;
-  font-weight: 700;
+  font-size: 13px;
+  text-align: left;
 }
+.add-sheet__escolher img { flex: none; width: 44px; height: 44px; object-fit: contain; }
+.add-sheet__escolher b { color: var(--lente); font-weight: 700; }
+.add-sheet__escolher:focus-visible { outline: 2px solid var(--lente); outline-offset: 2px; }
 
 /* vitrine da busca: o que está em cartaz, antes de digitar */
 .search-vitrine { margin-top: 18px; font-size: 13px; font-weight: 700; color: var(--lente); }
 
-/* atalhos de data do ingresso */
-.cine-atalhos { display: flex; gap: 8px; }
+/* ============================================================
+   Marcar ida ao cinema — o formulário é o próprio ingresso
+   ============================================================ */
+.cine-atalhos { display: flex; gap: 8px; margin-top: 16px; }
 .cine-atalho {
   flex: 1;
   min-height: 44px;
@@ -584,3 +674,123 @@
 }
 .cine-atalho--on { background: var(--lente); box-shadow: none; color: #2b1716; }
 .cine-atalho:focus-visible { outline: 2px solid var(--lente); outline-offset: 2px; }
+
+.ingresso-form {
+  --papel: #2b1716;
+  position: relative;
+  margin-top: 14px;
+  border-radius: 16px;
+  background: linear-gradient(170deg, #fbefdf, #f0d8b4);
+  color: var(--papel);
+  box-shadow: 0 18px 36px -18px rgba(0, 0, 0, 0.8);
+}
+.ingresso-form__topo { display: flex; align-items: center; gap: 12px; padding: 14px 16px 6px; }
+.ingresso-form__poster { flex: none; width: 46px; aspect-ratio: 2 / 3; border-radius: 4px; object-fit: cover; box-shadow: 0 4px 10px rgba(43, 23, 22, 0.35); }
+.ingresso-form__poster--vazio { display: block; background: linear-gradient(165deg, #e2545a, #6e1a24); }
+.ingresso-form__filme { display: flex; flex-direction: column; min-width: 0; }
+.ingresso-form__marca { font-size: 12px; font-weight: 700; color: #9e2a2d; }
+.ingresso-form__titulo { font-family: var(--font-display); font-size: 21px; font-weight: 700; line-height: 1.12; overflow-wrap: anywhere; }
+
+.ingresso-form__campos { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 14px; padding: 8px 16px 16px; }
+.ingresso-campo { display: flex; flex-direction: column; min-width: 0; }
+.ingresso-campo--largo { grid-column: 1 / -1; }
+.ingresso-campo span { margin-top: 8px; font-size: 12px; font-weight: 700; color: rgba(43, 23, 22, 0.62); }
+.ingresso-campo input {
+  width: 100%;
+  min-height: 40px;
+  padding: 4px 0;
+  border: 0;
+  border-bottom: 1.5px dashed rgba(43, 23, 22, 0.35);
+  border-radius: 0;
+  background: transparent;
+  color: var(--papel);
+  color-scheme: light;
+  font: inherit;
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 700;
+}
+.ingresso-campo input::placeholder { color: rgba(43, 23, 22, 0.32); font-weight: 600; }
+.ingresso-campo input:focus { outline: none; border-bottom: 2px solid #9e2a2d; }
+
+/* o picote separa o canhoto do carimbo */
+.ingresso-form__picote { position: relative; height: 0; border-top: 2px dashed rgba(43, 23, 22, 0.28); }
+.ingresso-form__picote::before,
+.ingresso-form__picote::after {
+  content: "";
+  position: absolute;
+  top: -11px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--bg-surface);
+}
+.ingresso-form__picote::before { left: -10px; }
+.ingresso-form__picote::after { right: -10px; }
+
+.ingresso-form__carimbo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 14px 16px 16px;
+  border: 0;
+  background: none;
+  color: var(--papel);
+  font: inherit;
+  text-align: left;
+}
+.ingresso-form__carimbo:focus-visible { outline: 2px solid #9e2a2d; outline-offset: -4px; border-radius: 0 0 16px 16px; }
+.ingresso-form__selo {
+  flex: none;
+  padding: 6px 10px;
+  border: 2px dashed rgba(43, 23, 22, 0.35);
+  border-radius: 8px;
+  color: rgba(43, 23, 22, 0.55);
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 700;
+  transform: rotate(-4deg);
+  transition: transform 0.25s var(--spring, ease), color 0.2s ease, border-color 0.2s ease;
+}
+.ingresso-form--especial .ingresso-form__selo { border: 2.5px double #9e2a2d; color: #9e2a2d; transform: rotate(-8deg) scale(1.05); }
+.ingresso-form__explica { font-size: 13px; line-height: 1.35; color: rgba(43, 23, 22, 0.72); }
+.ingresso-form__salvar { margin-top: 16px; }
+
+/* ============================================================
+   Lista a dois — quanta vontade de ver, em corações
+   ============================================================ */
+.vontade { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.vontade__opcao {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-height: 70px;
+  padding: 10px 4px;
+  border: 0;
+  border-radius: 14px;
+  background: rgba(255, 236, 220, 0.04);
+  box-shadow: inset 0 0 0 1px var(--border-subtle);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 700;
+}
+.vontade__opcao:focus-visible { outline: 2px solid var(--lente); outline-offset: 2px; }
+.vontade__coracoes { display: flex; gap: 3px; }
+.vontade__coracoes i {
+  width: 12px;
+  height: 11px;
+  background: rgba(255, 236, 220, 0.18);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 22'%3E%3Cpath d='M12 21.6 1.9 11.5A6 6 0 0 1 12 3.3a6 6 0 0 1 10.1 8.2z'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 22'%3E%3Cpath d='M12 21.6 1.9 11.5A6 6 0 0 1 12 3.3a6 6 0 0 1 10.1 8.2z'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+.vontade__opcao--on { color: var(--pipoca); box-shadow: inset 0 0 0 1.5px var(--lente); background: rgba(255, 181, 74, 0.08); }
+.vontade__opcao--on .vontade__coracoes i.cheio { background: var(--lente); }
+.vontade__opcao--alta.vontade__opcao--on { box-shadow: inset 0 0 0 1.5px var(--cachecol); background: rgba(210, 58, 63, 0.1); }
+.vontade__opcao--alta.vontade__opcao--on .vontade__coracoes i.cheio { background: var(--bochecha); }
+
+/* rótulos dos formulários de adicionar: frase, não grito */
+.add-rotulo { margin: 0 0 10px; font-family: var(--font-display); font-size: 17px; font-weight: 700; color: var(--pipoca); }
+.add-rotulo span { margin-left: 4px; font-family: var(--font-body); font-size: 13px; font-weight: 600; color: var(--text-tertiary); }

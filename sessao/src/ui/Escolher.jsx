@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { createPortal } from "react-dom";
 import { TMDB_MINI } from "../tmdb.js";
+import { lumiSrc } from "../lumi.jsx";
 import LumiCompanion from "./LumiCompanion.jsx";
 import useBackClose from "./useBackClose.js";
 import "./escolher.css";
@@ -139,10 +140,7 @@ export default function Escolher({ users, watchlist = [], streamings = [], prefs
 export function FaixaEscolher({ onAbrir, titulo = "O que vamos ver hoje?", texto = "Quatro jeitos de decidir juntos, com a ajuda do Lumi." }) {
   return (
     <button type="button" className="esc-faixa" onClick={onAbrir}>
-      <span className="esc-faixa__artes" aria-hidden="true">
-        <ArteSalas mini/>
-        <ArteRoleta mini/>
-      </span>
+      <img src={lumiSrc("roulette")} alt="" className="esc-faixa__lumi"/>
       <span className="esc-faixa__texto">
         <span className="esc-faixa__titulo">{titulo}</span>
         <span className="esc-faixa__sub">{texto}</span>
@@ -162,12 +160,13 @@ function Fatos({ itens }) {
 
 /* ---------- as miniaturas: cada uma mostra o jeito de escolher ---------- */
 
-function ArteSalas({ cartazes = [], mini = false }) {
+function ArteSalas({ cartazes = [] }) {
   return (
-    <span className={`arte-salas ${mini ? "arte-salas--mini" : ""}`} aria-hidden="true">
+    <span className="arte-salas" aria-hidden="true">
       {[0, 1, 2].map(i => (
         <span key={i} className={`arte-salas__sala ${i === 1 ? "arte-salas__sala--frente" : ""}`}>
-          {cartazes[i] ? <img src={`${TMDB_MINI}${cartazes[i]}`} alt=""/> : <i/>}
+          {/* sem pôster na lista, cada sala ganha um cartaz de cor, nunca uma moldura vazia */}
+          {cartazes[i] ? <img src={`${TMDB_MINI}${cartazes[i]}`} alt=""/> : <i className={`arte-salas__cor arte-salas__cor--${i}`}/>}
         </span>
       ))}
     </span>
@@ -193,10 +192,10 @@ function ArteIngresso({ iniciais = [] }) {
 }
 
 const FATIAS = ["#d23a3f", "#2b1716", "#fbefdf", "#4a2a20", "#d23a3f", "#2b1716", "#fbefdf", "#4a2a20"];
-function ArteRoleta({ mini = false }) {
+function ArteRoleta() {
   const r = 30;
   return (
-    <span className={`arte-roleta ${mini ? "arte-roleta--mini" : ""}`} aria-hidden="true">
+    <span className="arte-roleta" aria-hidden="true">
       <svg viewBox="-36 -36 72 72">
         {FATIAS.map((cor, i) => {
           const a = (i / FATIAS.length) * 2 * Math.PI - Math.PI / 2;

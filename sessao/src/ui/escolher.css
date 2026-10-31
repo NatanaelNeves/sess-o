@@ -167,9 +167,22 @@
 }
 .arte-salas__sala img,
 .arte-salas__sala i { display: block; width: 100%; height: 100%; border-radius: 2px; object-fit: cover; background: linear-gradient(160deg, #4a2d22, #241518); }
-.arte-salas--mini { gap: 3px; }
-.arte-salas--mini .arte-salas__sala { width: 16px; padding: 1.5px; }
-.arte-salas--mini .arte-salas__sala--frente { width: 22px; box-shadow: 0 0 0 1px #ffd58a, 0 0 10px -2px rgba(255, 181, 74, 0.8); }
+/* sem pôster: cartazes de cor com uma faixa clara de título, nunca uma moldura vazia */
+.arte-salas__sala i.arte-salas__cor { position: relative; }
+.arte-salas__sala i.arte-salas__cor--0 { background: linear-gradient(165deg, #e2545a, #6e1a24); }
+.arte-salas__sala i.arte-salas__cor--1 { background: linear-gradient(165deg, #ffe0a8, #e08a1e); }
+.arte-salas__sala i.arte-salas__cor--2 { background: linear-gradient(165deg, #f6c2bb, #8a4048); }
+.arte-salas__cor::after {
+  content: "";
+  position: absolute;
+  left: 18%;
+  right: 18%;
+  bottom: 16%;
+  height: 10%;
+  border-radius: 2px;
+  background: rgba(255, 244, 234, 0.75);
+}
+.arte-salas__cor--1::after { background: rgba(43, 23, 22, 0.55); }
 
 /* a parede de cartazes com poucos acesos */
 .arte-parede {
@@ -204,7 +217,6 @@
 
 .arte-roleta { display: block; flex: none; width: 58px; height: 58px; }
 .arte-roleta svg { display: block; width: 100%; height: 100%; overflow: visible; }
-.arte-roleta--mini { width: 34px; height: 34px; }
 
 /* ---------- a faixa que leva para cá (Home e lista a dois) ---------- */
 .esc-faixa {
@@ -224,7 +236,7 @@
 }
 .esc-faixa:active { transform: scale(0.99); }
 .esc-faixa:focus-visible { outline: 2px solid var(--lente); outline-offset: 3px; }
-.esc-faixa__artes { display: flex; flex: none; align-items: center; gap: 8px; }
+.esc-faixa__lumi { flex: none; width: 64px; height: 64px; margin: -6px 0 -6px -4px; object-fit: contain; }
 .esc-faixa__texto { display: flex; flex-direction: column; flex: 1; min-width: 0; }
 .esc-faixa__titulo { font-family: var(--font-display); font-size: 19px; font-weight: 700; line-height: 1.15; }
 .esc-faixa__sub { margin-top: 3px; font-size: 13px; line-height: 1.35; color: var(--text-secondary); }

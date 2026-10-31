@@ -2,6 +2,7 @@
 import { createPortal } from "react-dom";
 import { useCallback } from "react";
 import { auth, db } from "./firebase";
+import { TMDB_IMG, TMDB_BG, tmdbRequest } from "./tmdb.js";
 import { isNativeApp, canSignInWithApple, nativeGoogleSignIn, nativeAppleSignIn, nativeReauth, nativeSignOut } from "./nativeAuth.js";
 import { version as appVersion } from "../package.json";
 import { authErrorMessage, hasPassword, reauthWithPassword, sendReset, signInWithEmail, signUpWithEmail, validateEmailForm, MIN_PASSWORD } from "./emailAuth.js";
@@ -22,6 +23,8 @@ import { Lumi, lumiSrc } from "./lumi.jsx";
 import { Cabine, Tela, Canhotos, Parede } from "./ui/Cabine.jsx";
 import { homeLumi } from "./ui/lumiMood.js";
 import LumiCompanion from "./ui/LumiCompanion.jsx";
+import Programacao from "./ui/Programacao.jsx";
+import Streamings from "./ui/Streamings.jsx";
 import NotaDoCasal from "./ui/NotaDoCasal.jsx";
 import useBackClose from "./ui/useBackClose.js";
 import "./ui/telas.css";
@@ -32,9 +35,6 @@ import { generateInviteCode, normalizeInviteCode, isInviteCodeValid, INVITE_CODE
 import { chunkItems, getAccountDeletionRole, withoutUserReview } from "./accountDeletion.js";
 import { albumKinds, compressPhotoToDataUrl, loadAlbum, newAlbumId, removePhoto, savePhoto } from "./photoAlbum";
 
-const TMDB_BASE = "https://api.themoviedb.org/3";
-const TMDB_IMG = "https://image.tmdb.org/t/p/w500";
-const TMDB_BG   = "https://image.tmdb.org/t/p/w1280";
 const coupleLabel = couple => [couple?.name1, couple?.name2].filter(Boolean).join(" & ");
 const escapeHtml = value => String(value ?? "").replace(/[&<>"']/g, char => ({
   "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;",
@@ -533,47 +533,6 @@ async function generateSharePng(entry, users, format, specialInfo = null) {
 
   try { return canvas.toDataURL("image/png"); }
   catch { return null; }
-}
-
-const TMDB_READ_TOKEN = import.meta.env.VITE_TMDB_READ_TOKEN;
-const TMDB_API_KEY = import.meta.env.VITE_TMDB_API_KEY;
-
-async function tmdbRequest(endpoint, params = {}) {
-  if (!TMDB_READ_TOKEN && !TMDB_API_KEY) {
-    const error = new Error("TMDB_AUTH_MISSING");
-    error.status = 0;
-    throw error;
-  }
-
-  const url = new URL(`${TMDB_BASE}${endpoint}`);
-  if (TMDB_API_KEY) {
-    url.searchParams.set("api_key", TMDB_API_KEY);
-  }
-
-  Object.entries(params).forEach(([key, value]) => {
-    if (value !== undefined && value !== null && value !== "") {
-      url.searchParams.set(key, value);
-    }
-  });
-
-  const response = await fetch(url, {
-    headers: TMDB_READ_TOKEN
-      ? {
-          Authorization: `Bearer ${TMDB_READ_TOKEN}`,
-          Accept: "application/json",
-        }
-      : undefined,
-  });
-
-  const data = await response.json().catch(() => ({}));
-
-  if (!response.ok) {
-    const error = new Error(data.status_message || `TMDB_HTTP_${response.status}`);
-    error.status = response.status;
-    throw error;
-  }
-
-  return data;
 }
 
 async function tmdbSearch(q) {
@@ -2745,7 +2704,7 @@ const V3Demo = () => {
       acervo: <DiaryPage watched={DEMO_WATCHED} users={DEMO_USERS} currentUser="Ana" onDelete={noop} onEdit={noop}
         onSaveReview={noop} onUpdateStatus={noop} onContinueEpisode={noop} onToggleTogether={noop} onAddToWatchlist={noop} prefs={demoPrefs}/>,
       watchlist: <WatchlistPage watchlist={DEMO_WATCHLIST} watched={DEMO_WATCHED} users={DEMO_USERS} currentUser="Ana" onDelete={noop}
-        onMarkWatched={noop} onRoulette={noop} onAlsoWant={noop} onPlan={noop} onOpenTicket={noop} onCheckin={noop} prefs={demoPrefs}/>,
+        onMarkWatched={noop} onRoulette={noop} onSuggest={noop} onAlsoWant={noop} onPlan={noop} onOpenTicket={noop} onCheckin={noop} prefs={demoPrefs}/>,
       perfil: <ProfilePage watched={DEMO_WATCHED} watchlist={DEMO_WATCHLIST} couple={DEMO_COUPLE} users={DEMO_USERS}
         prefs={demoPrefs} onOpenSettings={noop}/>,
       episodio: <EpisodeSheet entry={DEMO_WATCHED[5]} coupleId={null} onClose={noop} addToast={noop}/>,
@@ -2761,7 +2720,12 @@ const V3Demo = () => {
         type: i % 4 === 0 ? "tv" : "movie", runtime: 90 + i * 6, year: `20${10 + i}`,
       }))} onClose={noop} onWatchNow={noop}/>,
       settings: <SettingsPage couple={DEMO_COUPLE} users={DEMO_USERS} watched={DEMO_WATCHED}
-        prefs={demoPrefs} onPref={noop} onClose={noop} onSignOut={noop} onDeleteAccount={noop}/>,
+        prefs={demoPrefs} onPref={noop} onSaveStreamings={async () => {}} onClose={noop} onSignOut={noop} onDeleteAccount={noop}/>,
+      // &semstreamings mostra a escolha dos streamings antes das sugestões
+      sugestoes: <Programacao users={DEMO_USERS} currentUser="Ana" watched={DEMO_WATCHED} watchlist={DEMO_WATCHLIST}
+        streamings={new URLSearchParams(window.location.search).has("semstreamings") ? [] : [8, 119]} prefs={demoPrefs}
+        onSaveStreamings={async () => {}} onAddWatchlist={noop} onAlsoWant={noop}
+        onVeredito={async () => {}} loadVereditos={async () => new Set()} onClose={noop}/>,
       delete: <DeleteAccountModal role="owner" deleting={false} error="" onCancel={noop} onConfirm={noop}/>,
     };
     return (
@@ -3325,7 +3289,7 @@ const InviteScreen = ({ inviteCode, couple, onContinue, onSignOut }) => {
 const HomePage = ({ watched, watchlist, couple, currentUser, users, coupleId, addToast, onRoulette, onAdd,
   onSaveReview, onUpdateStatus, onContinueEpisode, onToggleTogether, onOpenSettings,
   onOpenTicket, onOpenCheckin, onGoWatchlist, onGoDiary, onGoProfile,
-  onEdit, onDelete, prefs, now }) => {
+  onEdit, onDelete, onSuggest, prefs, now }) => {
   const [sel, setSel] = useState(null);
   const [editing, setEditing] = useState(null);
 
@@ -3491,10 +3455,13 @@ const HomePage = ({ watched, watchlist, couple, currentUser, users, coupleId, ad
     const n = watchlist.length;
     return (
       <Tela kicker={evening ? "Hoje à noite" : "Para hoje"} title="Que tal uma sessão?"
-        meta={n ? `A lista de vocês tem ${n} ${n === 1 ? "título" : "títulos"} esperando.` : "Escolham um filme e guardem na lista a dois."}
+        meta={onSuggest
+          ? "O Lumi separa três que combinam com vocês e estão nos seus streamings."
+          : n ? `A lista de vocês tem ${n} ${n === 1 ? "título" : "títulos"} esperando.` : "Escolham um filme e guardem na lista a dois."}
         actions={<>
-          <button type="button" className="tela-btn" onClick={onGoWatchlist}>Escolher na lista</button>
-          {n >= 2 && <button type="button" className="tela-btn tela-btn--soft" onClick={onRoulette}>Girar a roleta</button>}
+          {onSuggest && <button type="button" className="tela-btn" onClick={onSuggest}>Ver a sessão de hoje</button>}
+          <button type="button" className={onSuggest ? "tela-btn tela-btn--soft" : "tela-btn"} onClick={onGoWatchlist}>Escolher na lista</button>
+          {!onSuggest && n >= 2 && <button type="button" className="tela-btn tela-btn--soft" onClick={onRoulette}>Girar a roleta</button>}
         </>}/>
     );
   })();
@@ -4262,7 +4229,7 @@ const SagaWatchlistCard = ({ collection: col, group, watched, onMarkWatched, onD
   );
 };
 
-const WatchlistPage = ({ watchlist, watched = [], users, currentUser, onDelete, onMarkWatched, onRoulette, onAlsoWant, onPlan, onOpenTicket, onCheckin, prefs }) => {
+const WatchlistPage = ({ watchlist, watched = [], users, currentUser, onDelete, onMarkWatched, onRoulette, onSuggest, onAlsoWant, onPlan, onOpenTicket, onCheckin, prefs }) => {
   const [who, setWho] = useState("all"); // all | both | <nome>
   const [refine, setRefine] = useState("all"); // all | high | imdb | recent | <genre>
 
@@ -4310,17 +4277,18 @@ const WatchlistPage = ({ watchlist, watched = [], users, currentUser, onDelete, 
         </p>
       </header>
 
-      {/* a roleta: quando não conseguem decidir, o Lumi sorteia */}
-      {watchlist.length >= 2 && (
-        <button className="wl-planner" onClick={onRoulette}>
-          <img src={lumiSrc("roulette")} alt="" className="wl-planner__lumi"/>
-          <div className="wl-planner__body">
-            <div className="wl-planner__eyebrow">Não conseguem decidir?</div>
-            <div className="wl-planner__title">Deixem o Lumi escolher a sessão de hoje</div>
-            <span className="wl-planner__cta">Girar a roleta</span>
+      {/* não conseguem decidir? o Lumi sugere algo novo ou sorteia da lista */}
+      <div className="wl-planner">
+        <img src={lumiSrc("roulette")} alt="" className="wl-planner__lumi"/>
+        <div className="wl-planner__body">
+          <div className="wl-planner__eyebrow">Não conseguem decidir?</div>
+          <div className="wl-planner__title">Deixem o Lumi escolher a sessão de hoje</div>
+          <div className="wl-planner__acoes">
+            {onSuggest && <button type="button" className="wl-planner__cta" onClick={onSuggest}>Sugestões do Lumi</button>}
+            {watchlist.length >= 2 && <button type="button" className="wl-planner__cta wl-planner__cta--soft" onClick={onRoulette}>Sortear da lista</button>}
           </div>
-        </button>
-      )}
+        </div>
+      </div>
 
       {watchlist.length === 0 ? (
         <LumiState
@@ -5388,9 +5356,11 @@ const FridayReminderRow = ({ on, onChange }) => {
   );
 };
 
-const SettingsPage = ({ couple, users, watched, prefs, onPref, onClose, onSignOut, onDeleteAccount }) => {
+const SettingsPage = ({ couple, users, watched, prefs, onPref, onSaveStreamings, onClose, onSignOut, onDeleteAccount }) => {
   useBackClose(onClose);
   const [copied, setCopied] = useState(false);
+  const [editStreamings, setEditStreamings] = useState(false);
+  const nStreamings = (couple.streamings || []).length;
   const copy = () => {
     navigator.clipboard?.writeText(couple.inviteCode || "").then(() => {
       setCopied(true);
@@ -5445,6 +5415,27 @@ const SettingsPage = ({ couple, users, watched, prefs, onPref, onClose, onSignOu
               onClick={() => onPref("onThisDay", !prefs.onThisDay)} aria-label="Nesse dia" aria-pressed={prefs.onThisDay}><i/></button>
           </div>
         </div>
+
+        {onSaveStreamings && (
+          <>
+            <div className="cfg-section">Sugestões do Lumi</div>
+            <div className="cfg-group">
+              <button className="cfg-row" onClick={() => setEditStreamings(v => !v)} aria-expanded={editStreamings}>
+                <span className="cfg-row__label">
+                  Nossos streamings
+                  <small className="cfg-row__hint">
+                    {nStreamings ? `${nStreamings} ${nStreamings === 1 ? "serviço" : "serviços"}: o Lumi só sugere o que dá pra ver neles` : "Ainda não escolhidos"}
+                  </small>
+                </span>
+                <span className="cfg-row__chev">{editStreamings ? "–" : "›"}</span>
+              </button>
+            </div>
+            {editStreamings && (
+              <Streamings inicial={couple.streamings || []}
+                onSalvar={async ids => { await onSaveStreamings(ids); setEditStreamings(false); }}/>
+            )}
+          </>
+        )}
 
         <div className="cfg-section">Conta</div>
         <div className="cfg-group">
@@ -5580,6 +5571,7 @@ export default function App() {
   const [toasts,    setToasts]    = useState([]);
   const [confirm,      setConfirm]      = useState(null);
   const [showRoulette, setShowRoulette] = useState(false);
+  const [showProgramacao, setShowProgramacao] = useState(false);
   const [menuOpen,     setMenuOpen]     = useState(false);
   const menuRef = useRef(null);
   const [installPrompt, setInstallPrompt] = useState(null);
@@ -6031,6 +6023,23 @@ export default function App() {
     addToast(wantedBy.length >= 2 ? "Agora é vontade dos dois ❤️" : "Marcado que você quer ✦", "success");
   };
 
+  // Sugestões do Lumi: os streamings ficam no casal (os dois compartilham) e os
+  // "já vimos / não é pra nós" numa subcoleção, para nunca repetir a sugestão.
+  const saveStreamings = async ids => {
+    try {
+      await updateDoc(doc(db, "couples", coupleId), { streamings: ids });
+      addToast("Streamings de vocês salvos", "success");
+    } catch (e) {
+      console.error(e);
+      addToast("Não foi possível salvar os streamings", "error");
+      throw e;
+    }
+  };
+  const saveVeredito = (key, veredito) =>
+    setDoc(doc(db, "couples", coupleId, "sugestoes", key), { veredito, por: currentUser, em: new Date().toISOString() });
+  const loadVereditos = async () =>
+    new Set((await getDocs(collection(db, "couples", coupleId, "sugestoes"))).docs.map(d => d.id));
+
   const requestDelete = (item, type) => {
     setConfirm({
       message: "Tem certeza? Essa ação não pode ser desfeita.",
@@ -6175,9 +6184,16 @@ export default function App() {
         )}
         {showSettings && (
           <SettingsPage couple={couple} users={users} watched={watched}
-            prefs={prefs} onPref={setPref}
+            prefs={prefs} onPref={setPref} onSaveStreamings={saveStreamings}
             onClose={()=>setShowSettings(false)} onSignOut={handleSignOut}
             onDeleteAccount={() => { setDeleteAccountError(""); setShowDeleteAccount(true); }}/>
+        )}
+        {showProgramacao && (
+          <Programacao users={users} currentUser={currentUser} watched={watched} watchlist={watchlist}
+            streamings={couple.streamings || []} prefs={prefs}
+            onSaveStreamings={saveStreamings} onAddWatchlist={addWatchlist} onAlsoWant={alsoWant}
+            onVeredito={saveVeredito} loadVereditos={loadVereditos}
+            onClose={() => setShowProgramacao(false)}/>
         )}
         {cineModal && (() => {
           const live = watchlist.find(w => w.id === cineModal.item.id) || cineModal.item;
@@ -6213,7 +6229,7 @@ export default function App() {
           {!dataReady ? <ContentSkeleton/> : (
             <div key={page} className="v3-page">
               {page==="home"      && <HomePage      watched={watched} watchlist={watchlist} couple={couple} currentUser={currentUser} users={users} coupleId={coupleId} addToast={addToast}
-                                       onRoulette={()=>setShowRoulette(true)} onAdd={()=>setAddModal("watched")}
+                                       onRoulette={()=>setShowRoulette(true)} onSuggest={()=>setShowProgramacao(true)} onAdd={()=>setAddModal("watched")}
                                        onSaveReview={saveReview} onUpdateStatus={saveStatus} onContinueEpisode={continueEpisode} onToggleTogether={toggleTogether}
                                        onOpenSettings={()=>setShowSettings(true)}
                                        onOpenTicket={openTicket} onOpenCheckin={openCheckin} onGoWatchlist={()=>setPage("watchlist")}
@@ -6224,7 +6240,7 @@ export default function App() {
                                        onContinueEpisode={continueEpisode} onToggleTogether={toggleTogether}
                                        onAddToWatchlist={()=>setAddModal("watchlist")} prefs={prefs}/>}
               {page==="watchlist" && <WatchlistPage watchlist={watchlist} watched={watched} users={users} currentUser={currentUser}
-                                       onDelete={e=>requestDelete(e,"watchlist")} onMarkWatched={markWatched} onRoulette={()=>setShowRoulette(true)} onAlsoWant={alsoWant}
+                                       onDelete={e=>requestDelete(e,"watchlist")} onMarkWatched={markWatched} onRoulette={()=>setShowRoulette(true)} onSuggest={()=>setShowProgramacao(true)} onAlsoWant={alsoWant}
                                        onPlan={openPlan} onOpenTicket={openTicket} onCheckin={openCheckin} prefs={prefs}/>}
               {page==="profile"   && <ProfilePage   watched={watched} watchlist={watchlist} couple={couple} users={users} prefs={prefs}
                                        onOpenSettings={()=>setShowSettings(true)}/>}

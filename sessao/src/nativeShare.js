@@ -35,6 +35,12 @@ export function openSitePage(path) {
   window.open(path, "_blank", "noopener");
 }
 
+// Links de fora (ex.: a página do filme no JustWatch, que leva ao streaming).
+export function openExternal(url) {
+  if (isNative()) return Browser.open({ url });
+  window.open(url, "_blank", "noopener");
+}
+
 const safeName = name => name.replace(/[^\w.-]+/g, "-");
 
 async function shareNativeFile({ filename, data, encoding, title }) {

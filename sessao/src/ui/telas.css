@@ -528,3 +528,10 @@
   .retro-story--s1::before,
   .retro-story--s1::after { display: none; }
 }
+
+/* "Não conseguem decidir?": sugestões do Lumi ou sorteio da lista */
+.wl-planner { cursor: default; }
+.wl-planner:hover { transform: none; }
+.wl-planner__acoes { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.wl-planner__acoes .wl-planner__cta { margin-top: 0; min-height: 40px; border: 0; font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
+.wl-planner__cta--soft { background: transparent; color: var(--pipoca); box-shadow: inset 0 0 0 1.5px rgba(255, 236, 220, 0.3); }

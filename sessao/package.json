@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint . --max-warnings 0",
-    "test": "node --test \"src/*.test.js\" \"src/ui/*.test.js\"",
+    "test": "node --test \"src/*.test.js\" \"src/ui/*.test.js\" \"src/recs/*.test.js\"",
     "check": "npm run lint && npm test && npm run build",
     "preview": "vite preview",
     "lumi:webp": "node scripts/lumi-webp.mjs",

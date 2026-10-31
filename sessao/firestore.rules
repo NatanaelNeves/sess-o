@@ -57,6 +57,13 @@ service cloud.firestore {
           || (resource.data.uid2 == request.auth.uid && request.resource.data.name1 == resource.data.name1)
         );
     }
+    // "Nossos streamings": qualquer um dos dois escolhe; só uma lista curta de IDs do TMDB
+    function isStreamingsUpdate() {
+      return isMember(resource.data)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["streamings"])
+        && request.resource.data.streamings is list
+        && request.resource.data.streamings.size() <= 40;
+    }
     function isLeavingCouple() {
       return resource.data.uid2 == request.auth.uid
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["uid2", "name2"])
@@ -81,7 +88,7 @@ service cloud.firestore {
         && request.resource.data.inviteCode.size() >= 6
         && request.resource.data.inviteCode.size() <= 8;
 
-      allow update: if isAuth() && (isOwnProfileUpdate() || isJoiningCouple(coupleId) || isLeavingCouple());
+      allow update: if isAuth() && (isOwnProfileUpdate() || isJoiningCouple(coupleId) || isLeavingCouple() || isStreamingsUpdate());
 
       // Delete: only uid1 can delete
       allow delete: if isAuth() && resource.data.uid1 == request.auth.uid;
@@ -103,6 +110,15 @@ service cloud.firestore {
       // Watchlist subcollection
       match /watchlist/{entryId} {
         allow read, write: if isAuth() && isMember(coupleData(coupleId));
+      }
+
+      // Sugestões recusadas ("já vimos" / "não é pra nós") — o Lumi não repete
+      match /sugestoes/{titleKey} {
+        allow read, delete: if isAuth() && isMember(coupleData(coupleId));
+        allow create, update: if isAuth() && isMember(coupleData(coupleId))
+          && request.resource.data.veredito in ["ja_vimos", "nao_e_pra_nos"]
+          && request.resource.data.por is string
+          && request.resource.data.em is string;
       }
 
       // Álbum das sessões — uma foto por documento, guardada como data URL

@@ -799,38 +799,59 @@ async function tmdbEmCartaz() {
   return (d.results || []).filter(r => r.poster_path).slice(0, 12).map(r => ({ ...r, media_type: "movie" }));
 }
 
-// O + : três momentos do casal (já viram, vão ao cinema, querem ver um dia)
-// e um atalho para quem ainda não sabe o que ver.
+// O + é a bilheteria do casal: três objetos de cinema, um para cada tempo.
+// O canhoto usado é o que já viram, o ingresso com a data de hoje é a ida ao
+// cinema, o cartaz de "em breve" é o que querem ver um dia.
 // Vai num portal para ficar acima da barra de navegação de qualquer tela.
 const AddSheet = ({ onEscolha, onClose }) => {
+  const [hoje] = useState(() => new Date());
+  const mes = hoje.toLocaleDateString("pt-BR", { month: "short" }).replace(".", "");
   return createPortal(<>
     <div className="add-sheet-backdrop" onClick={onClose}/>
     <div className="add-sheet" role="dialog" aria-label="Adicionar">
-      <img src={lumiSrc("peeking")} alt="" className="add-sheet__lumi" aria-hidden="true"/>
       <div className="add-sheet__handle"/>
       <p className="add-sheet__titulo">O que vocês querem guardar?</p>
-      {[
-        ["watched", "clapper", "Já assistimos", "Registrar uma sessão", "Contem o que viram e deem a nota de vocês."],
-        ["cinema", "cinemaSign", "Vamos ao cinema", "Marcar ida ao cinema", "Já têm ingresso? Guardem o filme, a data, o horário e os lugares."],
-        ["watchlist", "pointing", "Queremos ver um dia", "Guardar na lista a dois", "Para uma próxima noite, sem data marcada."],
-      ].map(([acao, lumi, quando, titulo, texto]) => (
-        <button key={acao} className="add-sheet__opt" onClick={() => onEscolha(acao)}>
-          <img src={lumiSrc(lumi)} alt=""/>
-          <span>
-            <span className="add-sheet__quando">{quando}</span>
-            <span className="add-sheet__t">{titulo}</span>
-            <span className="add-sheet__s">{texto}</span>
+
+      <div className="bilheteria">
+        <button type="button" className="bilheteria__obj" onClick={() => onEscolha("watched")}>
+          <span className="obj-canhoto" aria-hidden="true">
+            <span className="obj-canhoto__nota">★</span>
+            <i/><i/>
           </span>
+          <span className="bilheteria__quando">Já vimos</span>
+          <span className="bilheteria__o-que">Registrar e dar a nota</span>
         </button>
-      ))}
+        <button type="button" className="bilheteria__obj bilheteria__obj--agora" onClick={() => onEscolha("cinema")}>
+          <span className="obj-ingresso" aria-hidden="true">
+            <b>{hoje.getDate()}</b>
+            <small>{mes}</small>
+          </span>
+          <span className="bilheteria__quando">Vamos ao cinema</span>
+          <span className="bilheteria__o-que">Guardar o ingresso</span>
+        </button>
+        <button type="button" className="bilheteria__obj" onClick={() => onEscolha("watchlist")}>
+          <span className="obj-cartaz" aria-hidden="true"><i/></span>
+          <span className="bilheteria__quando">Queremos ver</span>
+          <span className="bilheteria__o-que">Guardar na lista a dois</span>
+        </button>
+      </div>
+
       <button className="add-sheet__escolher" onClick={() => onEscolha("escolher")}>
-        Não sabem o que ver? Escolher o que ver hoje
+        <img src={lumiSrc("roulette")} alt="" aria-hidden="true"/>
+        <span>Não sabem o que ver? <b>Escolher o que ver hoje</b></span>
       </button>
     </div>
   </>, document.body);
 };
 
 const VITRINE_CINEMA = { titulo: "Em cartaz nos cinemas", carregar: tmdbEmCartaz };
+// o que está em alta, para a lista a dois não abrir vazia
+async function tmdbEmAlta() {
+  const d = await tmdbCached("/trending/all/week", { language: "pt-BR" });
+  return (d.results || []).filter(r => r.poster_path && (r.media_type === "movie" || r.media_type === "tv")).slice(0, 12)
+    .map(r => ({ ...r, title: r.title || r.name }));
+}
+const VITRINE_ALTA = { titulo: "Em alta nesta semana", carregar: tmdbEmAlta };
 
 const SearchModal = ({ onSelect, onClose, headTitle = "Nova sessão", headSub = "o que vocês assistiram hoje?", headLumi = "tooltip", vitrine = null }) => {
   const [q, setQ] = useState("");
@@ -1468,6 +1489,8 @@ const sagaCleanName = n => (n || "")
   .replace(/^A\s+Saga\s+/i, "")
   .trim();
 
+const VONTADES = [["baixa", "Um dia", 1], ["normal", "Em breve", 2], ["alta", "Muita", 3]];
+
 const AddWatchlistModal = ({ currentUser, onSave, onSaveSaga, onClose }) => {
   const [step, setStep] = useState(0);
   const [movie, setMovie] = useState(null);
@@ -1478,7 +1501,8 @@ const AddWatchlistModal = ({ currentUser, onSave, onSaveSaga, onClose }) => {
 
   if (step === 0) return (
     <SearchModal onSelect={m => { setMovie(m); setMode(m.collection ? "single" : "single"); setStep(1); }} onClose={onClose}
-      headTitle="Lista a dois" headSub="o que vocês querem ver juntos?" headLumi="pointing"/>
+      headTitle="Guardar na lista a dois" headSub="qual filme ou série vocês querem ver um dia?" headLumi="pointing"
+      vitrine={VITRINE_ALTA}/>
   );
 
   const hasSaga = !!movie.collection?.id;
@@ -1500,8 +1524,8 @@ const AddWatchlistModal = ({ currentUser, onSave, onSaveSaga, onClose }) => {
         <div className="ns-head">
           <img src={lumiSrc(hasSaga ? "clapper" : "pointing")} alt=""/>
           <div>
-            <div className="ns-head__t">Lista a dois</div>
-            <div className="ns-head__s">guardar pra uma próxima noite</div>
+            <div className="ns-head__t">Guardar na lista a dois</div>
+            <div className="ns-head__s">para uma próxima noite, sem data marcada</div>
           </div>
         </div>
         <div className="preview-row" style={{ marginTop: 14 }}>
@@ -1535,14 +1559,25 @@ const AddWatchlistModal = ({ currentUser, onSave, onSaveSaga, onClose }) => {
         {mode === "single" && (
           <>
             <div className="field-block">
-              <Label>Vontade de ver</Label>
-              <SegBtn options={[["baixa", "Um dia"], ["normal", "Em breve"], ["alta", "❤ Muita"]]}
-                value={priority} onChange={setPriority} colorMap={{ baixa: "#8fd0c0", normal: "#c9993a", alta: "#c9394a" }}/>
+              <p className="add-rotulo">Quanta vontade de ver?</p>
+              {/* a vontade acende como um termômetro: um, dois ou três corações */}
+              <div className="vontade" role="radiogroup" aria-label="Quanta vontade de ver">
+                {VONTADES.map(([v, rotulo, nivel]) => (
+                  <button key={v} type="button" role="radio" aria-checked={priority === v}
+                    className={`vontade__opcao vontade__opcao--${v} ${priority === v ? "vontade__opcao--on" : ""}`}
+                    onClick={() => setPriority(v)}>
+                    <span className="vontade__coracoes" aria-hidden="true">
+                      {[1, 2, 3].map(n => <i key={n} className={n <= nivel ? "cheio" : ""}/>)}
+                    </span>
+                    {rotulo}
+                  </button>
+                ))}
+              </div>
             </div>
             <div className="field-block field-block--wide">
-              <Label>Por que indicar?</Label>
+              <p className="add-rotulo">Por que vale a pena? <span>opcional</span></p>
               <textarea value={note} onChange={e => setNote(e.target.value)}
-                placeholder="conta por que querem assistir..." rows={2}
+                placeholder="quem indicou, o trailer, a vontade do dia…" rows={2}
                 className="note-textarea"/>
             </div>
           </>
@@ -1550,7 +1585,7 @@ const AddWatchlistModal = ({ currentUser, onSave, onSaveSaga, onClose }) => {
 
         <button onClick={submit} disabled={savingSaga}
           className="pill pill--primary pill--block" style={{ marginTop: 8 }}>
-          {savingSaga ? "Montando a maratona…" : mode === "saga" ? `Adicionar a ${sagaName} 🍿` : "Adicionar à lista ✦"}
+          {savingSaga ? "Montando a maratona…" : mode === "saga" ? `Guardar a saga ${sagaName}` : "Guardar na lista"}
         </button>
       </Modal>
     </Overlay>
@@ -3778,67 +3813,72 @@ const CinemaPlanSheet = ({ item, initial, novo = false, onSave, onClose }) => {
     imax: initial?.imax || false,
   });
   const canSave = !!form.date;
+  const campo = k => e => setForm(f => ({ ...f, [k]: e.target.value }));
   return (
     <Overlay onClose={onClose}>
       <Modal title="" onClose={onClose} maxW={480}>
         <div className="ns-head">
           <img src={lumiSrc("cinemaSign")} alt=""/>
           <div>
-            <div className="ns-head__t">{initial ? "Editar sessão 🎟" : novo ? "Marcar ida ao cinema" : "Planejar ida ao cinema 🍿"}</div>
-            <div className="ns-head__s">{item.title}</div>
-          </div>
-        </div>
-
-        <div className="preview-row" style={{ marginTop: 14 }}>
-          {item.poster
-            ? <img src={`${TMDB_IMG}${item.poster}`} alt="" className="preview-poster"/>
-            : <div className="preview-poster preview-poster--fallback"><Ic n="film" s={22} className="icon-muted"/></div>}
-          <div className="preview-meta">
-            <div className="preview-title">{item.title}</div>
-            <div className="preview-meta__line preview-meta__line--muted">
-              {novo ? "entra na lista a dois já com a data marcada" : "o filme continua na lista — só ganha um compromisso ❤️"}
+            <div className="ns-head__t">{initial ? "Editar o ingresso" : novo ? "Marcar ida ao cinema" : "Marcar a sessão"}</div>
+            <div className="ns-head__s">
+              {novo ? "o filme entra na lista a dois já com a data" : "o filme continua na lista, agora com data marcada"}
             </div>
           </div>
         </div>
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 16 }}>
-          {/* o ingresso costuma ser para hoje ou amanhã: um toque resolve */}
-          <div className="cine-atalhos" role="group" aria-label="Quando é a sessão">
-            {[[hojeIso, "Hoje"], [amanhaIso, "Amanhã"]].map(([d, rotulo]) => (
-              <button key={d} type="button" aria-pressed={form.date === d}
-                className={`cine-atalho ${form.date === d ? "cine-atalho--on" : ""}`}
-                onClick={() => setForm(f => ({ ...f, date: d }))}>{rotulo}</button>
-            ))}
+        {/* o ingresso costuma ser para hoje ou amanhã: um toque resolve */}
+        <div className="cine-atalhos" role="group" aria-label="Quando é a sessão">
+          {[[hojeIso, "Hoje"], [amanhaIso, "Amanhã"]].map(([d, rotulo]) => (
+            <button key={d} type="button" aria-pressed={form.date === d}
+              className={`cine-atalho ${form.date === d ? "cine-atalho--on" : ""}`}
+              onClick={() => setForm(f => ({ ...f, date: d }))}>{rotulo}</button>
+          ))}
+        </div>
+
+        {/* o formulário é o próprio ingresso: vocês preenchem o papel */}
+        <div className={`ingresso-form ${form.imax ? "ingresso-form--especial" : ""}`}>
+          <div className="ingresso-form__topo">
+            {item.poster
+              ? <img src={`${TMDB_IMG}${item.poster}`} alt="" className="ingresso-form__poster"/>
+              : <span className="ingresso-form__poster ingresso-form__poster--vazio"/>}
+            <div className="ingresso-form__filme">
+              <span className="ingresso-form__marca">Sessão para dois</span>
+              <span className="ingresso-form__titulo">{item.title}</span>
+            </div>
           </div>
-          <div className="ep-input-row">
-            <label className="ep-input"><span>📅 Data</span>
-              <input className="text-input" type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))}/>
+
+          <div className="ingresso-form__campos">
+            <label className="ingresso-campo"><span>Data</span>
+              <input type="date" value={form.date} onChange={campo("date")} required/>
             </label>
-            <label className="ep-input"><span>🕒 Horário</span>
-              <input className="text-input" type="time" value={form.time} onChange={e => setForm(f => ({ ...f, time: e.target.value }))}/>
+            <label className="ingresso-campo"><span>Horário</span>
+              <input type="time" value={form.time} onChange={campo("time")}/>
+            </label>
+            <label className="ingresso-campo ingresso-campo--largo"><span>Cinema e sala</span>
+              <input placeholder="Kinoplex, sala 6" value={form.venue} onChange={campo("venue")}/>
+            </label>
+            <label className="ingresso-campo ingresso-campo--largo"><span>Lugares</span>
+              <input placeholder="H7 e H8" value={form.seats} onChange={campo("seats")}/>
             </label>
           </div>
-          <label className="ep-input"><span>📍 Cinema · sala</span>
-            <input className="text-input" placeholder="ex.: Kinoplex · Sala 6" value={form.venue}
-              onChange={e => setForm(f => ({ ...f, venue: e.target.value }))} style={{ textAlign: "left" }}/>
-          </label>
-          <label className="ep-input"><span>🎟️ Lugares</span>
-            <input className="text-input" placeholder="ex.: H7 · H8" value={form.seats}
-              onChange={e => setForm(f => ({ ...f, seats: e.target.value }))} style={{ textAlign: "left" }}/>
-          </label>
-          <button type="button" onClick={() => setForm(f => ({ ...f, imax: !f.imax }))}
-            className={`together-toggle ${form.imax ? "together-toggle--on" : ""}`}>
-            <span className="together-toggle__check">{form.imax ? "✦" : "○"}</span>
-            <span className="together-toggle__body">
-              <span className="together-toggle__title">Sessão especial (IMAX · 3D · estreia)</span>
-              <span className="together-toggle__sub">marca noites que merecem uma conquista</span>
+
+          <div className="ingresso-form__picote" aria-hidden="true"/>
+
+          {/* sessão especial vira um carimbo no ingresso */}
+          <button type="button" className="ingresso-form__carimbo" aria-pressed={form.imax}
+            onClick={() => setForm(f => ({ ...f, imax: !f.imax }))}>
+            <span className="ingresso-form__selo">{form.imax ? "Sessão especial" : "Carimbar"}</span>
+            <span className="ingresso-form__explica">
+              {form.imax ? "IMAX, 3D ou estreia. Conta para as conquistas." : "É IMAX, 3D ou estreia? Toquem para carimbar."}
             </span>
           </button>
-          <button className="pill pill--primary pill--block" disabled={!canSave}
-            onClick={() => onSave({ date: form.date, time: form.time || "", venue: form.venue || "", seats: form.seats || "", imax: !!form.imax })}>
-            {novo ? "Guardar o ingresso" : "🍿 Confirmar sessão"}
-          </button>
         </div>
+
+        <button className="pill pill--primary pill--block ingresso-form__salvar" disabled={!canSave}
+          onClick={() => onSave({ date: form.date, time: form.time || "", venue: form.venue || "", seats: form.seats || "", imax: !!form.imax })}>
+          {canSave ? "Guardar o ingresso" : "Escolham a data da sessão"}
+        </button>
       </Modal>
     </Overlay>
   );

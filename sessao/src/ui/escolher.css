@@ -35,7 +35,7 @@
   font-size: 12px;
   font-weight: 700;
 }
-.esc__destaque .esc__nome { margin-top: 10px; font-size: 24px; }
+.esc__destaque .esc__situacao { margin-top: 12px; font-size: 25px; }
 .esc__acao {
   display: flex;
   align-items: center;
@@ -74,12 +74,15 @@
 .esc__jeito:disabled .arte-parede,
 .esc__jeito:disabled .arte-ingresso,
 .esc__jeito:disabled .arte-roleta,
+.esc__jeito:disabled .esc__situacao,
 .esc__jeito:disabled .esc__nome,
 .esc__jeito:disabled .esc-ic--seta { opacity: 0.45; }
 .esc__jeito > .esc-ic--seta { color: var(--text-tertiary); }
 .esc__texto { display: flex; flex-direction: column; flex: 1; min-width: 0; }
 
-.esc__nome { font-family: var(--font-display); font-size: 20px; font-weight: 700; line-height: 1.15; }
+/* a situação é o título; o nome do jeito vem embaixo, pequeno, para reconhecer a tela que abre */
+.esc__situacao { font-family: var(--font-display); font-size: 20px; font-weight: 700; line-height: 1.15; text-wrap: balance; }
+.esc__nome { margin-top: 6px; font-size: 13px; font-weight: 700; color: var(--lente); }
 .esc__desc { margin-top: 4px; font-size: 14px; line-height: 1.45; color: var(--text-secondary); }
 .esc__fatos { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 8px; font-size: 12px; font-weight: 650; color: var(--text-tertiary); }
 .esc__fatos > span { display: inline-flex; align-items: center; gap: 5px; }

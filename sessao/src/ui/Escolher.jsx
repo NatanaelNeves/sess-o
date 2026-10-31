@@ -23,29 +23,30 @@ export default function Escolher({ users, watchlist = [], streamings = [], onSes
         </div>
 
         <h1 className="esc__titulo">O que vamos ver hoje?</h1>
-        <p className="esc__sub">Escolham como decidir. Se não gostarem do resultado, é só voltar e tentar outro jeito.</p>
+        <p className="esc__sub">Cada jeito resolve um tipo de indecisão. Escolham o que mais parece com a noite de vocês.</p>
 
-        <h2 className="esc__secao">Descobrir algo nos seus streamings</h2>
-
-        {/* o jeito mais rápido ganha o destaque: é por onde quem chega deve começar */}
+        {/* cada jeito começa pela situação do casal; o nome e a mecânica vêm embaixo */}
         <button type="button" className="esc__destaque" onClick={onSessao}>
           <ArteSalas cartazes={cartazes}/>
           <span className="esc__selo">Comecem por aqui</span>
+          <span className="esc__situacao">Não sabem nem por onde começar?</span>
           <span className="esc__nome">Sessão de hoje</span>
-          <span className="esc__desc">O Lumi separa três filmes que combinam com o gosto de vocês e que estão nos streamings que vocês assinam.</span>
-          <Fatos itens={[["relogio", "Na hora"], ["tv", "Dos seus streamings"]]}/>
+          <span className="esc__desc">O Lumi escolhe três filmes pelo gosto de vocês, entre o que está nos seus streamings. Vocês só olham.</span>
+          <Fatos itens={[["relogio", "Na hora"], ["coracao", "Decide pelo gosto de vocês"]]}/>
           {semStreamings && <span className="esc__nota">Na primeira vez, vocês marcam onde assistem.</span>}
           <span className="esc__acao">Ver a sessão de hoje</span>
         </button>
 
+        <h2 className="esc__secao">Outros tipos de indecisão</h2>
         <ul className="esc__lista">
           <li>
             <button type="button" className="esc__jeito" onClick={onAdivinha}>
               <ArteParede/>
               <span className="esc__texto">
+                <span className="esc__situacao">Sabem o clima, mas não o filme?</span>
                 <span className="esc__nome">O Lumi adivinha</span>
-                <span className="esc__desc">Respondam juntos perguntas de sim ou não. A cada resposta ele apaga os cartazes que não combinam, até sobrar um.</span>
-                <Fatos itens={[["relogio", "Uns 2 minutos"], ["pessoas", "Os dois juntos"]]}/>
+                <span className="esc__desc">Respondam perguntas sobre hoje, como rir ou levar susto, e ele apaga os cartazes até sobrar um.</span>
+                <Fatos itens={[["relogio", "Uns 2 minutos"], ["balao", "Decide pelo humor de hoje"]]}/>
               </span>
               <Icone n="seta"/>
             </button>
@@ -54,27 +55,25 @@ export default function Escolher({ users, watchlist = [], streamings = [], onSes
             <button type="button" className="esc__jeito" onClick={onMatch} disabled={!doisNoApp}>
               <ArteIngresso iniciais={users.map(u => u[0])}/>
               <span className="esc__texto">
+                <span className="esc__situacao">Cada um quer uma coisa?</span>
                 <span className="esc__nome">Match a dois</span>
-                <span className="esc__desc">Cada um vota sozinho em 12 cartazes, passando o celular. O que os dois quiserem vira o filme da noite.</span>
+                <span className="esc__desc">Cada um vota sozinho em 12 cartazes, passando o celular. O que os dois quiserem ganha.</span>
                 {doisNoApp
-                  ? <Fatos itens={[["relogio", "Uns 3 minutos"], ["pessoas", "Um de cada vez"]]}/>
+                  ? <Fatos itens={[["relogio", "Uns 3 minutos"], ["pessoas", "Decide pelo voto de cada um"]]}/>
                   : <span className="esc__nota">Liberado quando sua pessoa entrar no diário.</span>}
               </span>
               <Icone n="seta"/>
             </button>
           </li>
-        </ul>
-
-        <h2 className="esc__secao">Sortear o que já está na lista</h2>
-        <ul className="esc__lista">
           <li>
             <button type="button" className="esc__jeito" onClick={onRoleta} disabled={naLista < 2}>
               <ArteRoleta/>
               <span className="esc__texto">
+                <span className="esc__situacao">Já têm a lista, só falta escolher?</span>
                 <span className="esc__nome">Roleta da lista</span>
-                <span className="esc__desc">A sorte escolhe entre os títulos que vocês já guardaram na lista a dois.</span>
+                <span className="esc__desc">A sorte escolhe entre o que vocês já guardaram na lista a dois.</span>
                 {naLista >= 2
-                  ? <Fatos itens={[["relogio", "Na hora"], ["lista", `${naLista} na lista`]]}/>
+                  ? <Fatos itens={[["relogio", "Na hora"], ["lista", `Entre os ${naLista} da lista`]]}/>
                   : <span className="esc__nota">Guardem pelo menos dois títulos na lista para girar.</span>}
               </span>
               <Icone n="seta"/>
@@ -174,6 +173,8 @@ const CAMINHOS = {
   tv: "M4 6h16v11H4zM9 21h6M12 17v4",
   pessoas: "M16 19v-1a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v1M9.5 10a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM21 19v-1a4 4 0 0 0-3-3.9M16 4.1a3 3 0 0 1 0 5.8",
   lista: "M6 3h12v18l-6-4-6 4z",
+  coracao: "M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1-1.1a5.5 5.5 0 0 0-7.8 7.8l1 1.1L12 21.2l7.8-7.7 1-1.1a5.5 5.5 0 0 0 0-7.8z",
+  balao: "M21 12a8 8 0 0 1-11.6 7.1L4 20.5l1.4-4.6A8 8 0 1 1 21 12z",
 };
 function Icone({ n }) {
   return (

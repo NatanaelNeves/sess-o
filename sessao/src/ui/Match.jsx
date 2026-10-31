@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { TMDB_IMG, TMDB_LOGO, tmdbCached } from "../tmdb.js";
+import { TMDB_IMG, TMDB_LOGO, TMDB_SM, tmdbCached } from "../tmdb.js";
 import { gostoDoCasal } from "../recs/gosto.js";
 import { montarProgramacao } from "../recs/candidatos.js";
 import { montarBaralho, resultadoDoMatch, TAMANHO_DO_BARALHO } from "../recs/match.js";
@@ -12,10 +12,15 @@ import useBackClose from "./useBackClose.js";
 import "./programacao.css";
 import "./match.css";
 
+const CORTINA_MS = 750;
+const semMovimento = () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+
 /**
- * Match a dois, num celular só: cada um desliza o mesmo baralho sozinho, com
- * uma tela de "passa o celular" no meio. Os votos ficam só no aparelho; o banco
- * só é tocado se vocês pedirem para guardar algo na lista a dois.
+ * Match a dois, num celular só: um ingresso rasgado ao meio, uma metade para
+ * cada um. Cada um desliza o mesmo baralho sozinho, a cortina fecha para passar
+ * o celular, e o filme que os dois quiserem junta o ingresso de novo.
+ * Os votos ficam só no aparelho; o banco só é tocado se vocês pedirem para
+ * guardar algo na lista a dois.
  */
 export default function Match({
   users, watched, watchlist, streamings = [], prefs,
@@ -31,6 +36,8 @@ export default function Match({
   const [vez, setVez] = useState(0);           // 0 = primeiro a votar, 1 = segundo
   const [votos, setVotos] = useState(() => [new Map(), new Map()]);
   const [guardados, setGuardados] = useState(() => new Set());
+  const [escolhido, setEscolhido] = useState(0); // qual match está no cartaz
+  const [abrindo, setAbrindo] = useState(false);
   const [erro, setErro] = useState("");
   const [tentativa, setTentativa] = useState(0);
   const gosto = useMemo(() => gostoDoCasal(watched, users, now), [watched, users, now]);
@@ -67,6 +74,8 @@ export default function Match({
   const restantes = baralho.filter(c => !meusVotos.has(c.key));
   const votados = baralho.length - restantes.length;
   const resultado = fase === "resultado" ? resultadoDoMatch(baralho, votos[0], votos[1]) : null;
+  const vencedor = resultado?.matches[Math.min(escolhido, resultado.matches.length - 1)];
+  const ambiente = fase === "vez" ? restantes[0] : vencedor;
 
   const votar = (c, sim) => {
     const novos = [new Map(votos[0]), new Map(votos[1])];
@@ -81,10 +90,17 @@ export default function Match({
     novos[vez].delete(ultimo);
     setVotos(novos);
   };
+  const abrirCortina = () => {
+    const entrar = () => { setAbrindo(false); setVez(1); setFase("vez"); };
+    if (semMovimento()) return entrar();
+    setAbrindo(true);
+    setTimeout(entrar, CORTINA_MS);
+  };
   const novaRodada = () => {
     setRodada(r => r + 1);
     setVotos([new Map(), new Map()]);
     setVez(0);
+    setEscolhido(0);
     setGuardados(new Set());
     setFase("intro");
   };
@@ -116,8 +132,20 @@ export default function Match({
     );
   }
 
+  const fundo = (
+    <>
+      {ambiente && (ambiente.backdrop || ambiente.poster) && (
+        <div key={ambiente.key} className="prog__ambiente" aria-hidden="true"
+          style={{ backgroundImage: `url(${TMDB_SM}${ambiente.backdrop || ambiente.poster})` }}/>
+      )}
+      {fase === "troca" && (
+        <div className={`match-cortina ${abrindo ? "match-cortina--abrindo" : ""}`} aria-hidden="true"><i/><i/></div>
+      )}
+    </>
+  );
+
   return createPortal(
-    <Casca titulo="Match a dois" onClose={onClose}>
+    <Casca titulo="Match a dois" onClose={onClose} fundo={fundo}>
       {fase === "streamings" && (
         <>
           <div className="match__lumi">
@@ -150,101 +178,167 @@ export default function Match({
 
       {fase === "intro" && (
         <div className="match__intro">
-          <div className="match__duo" aria-hidden="true">
-            <span className="match__ava match__ava--a">{users[0][0]}</span>
-            <span className="match__coracao">♥</span>
-            <span className="match__ava match__ava--b">{users[1][0]}</span>
-          </div>
-          <h2 className="match__titulo">Um baralho, dois votos</h2>
+          <h2 className="match__titulo">Um ingresso, duas metades</h2>
           <p className="match__texto">
-            Cada um desliza {baralho.length} cartazes sozinho, sem espiar o outro: para a direita, quero; para a esquerda, passo.
-            O que os dois quiserem vira o filme da noite.
+            Cada um desliza {baralho.length} cartazes sozinho: para a direita é quero, para a esquerda é passo.
+            O filme que os dois quiserem junta o ingresso.
           </p>
+
+          <div className="ingresso ingresso--rasgado" role="radiogroup" aria-label="Quem começa">
+            {[0, 1].map(i => (
+              <button key={i} type="button" role="radio" aria-checked={primeiro === i} aria-label={users[i]}
+                className={`meio meio--${i ? "dir" : "esq"} ${primeiro === i ? "meio--on" : ""}`}
+                onClick={() => setPrimeiro(i)}>
+                <Ava i={i} nome={users[i]}/>
+                <strong>{users[i]}</strong>
+                <small>{primeiro === i ? "começa" : "vota depois"}</small>
+              </button>
+            ))}
+          </div>
+          <p className="match__dica">Toque numa metade para escolher quem começa.</p>
+
           <button className="prog__assistir" onClick={() => { setVez(0); setFase("vez"); }}>
-            Começa {users[primeiro]}
+            {users[primeiro]} começa
           </button>
-          <button className="prog__mudar" onClick={() => setPrimeiro(p => 1 - p)}>Prefiro que {users[1 - primeiro]} comece</button>
         </div>
       )}
 
       {fase === "vez" && (
         <div className="match__vez">
           <div className="match__placar">
-            <span className={`match__ava match__ava--${ordem[vez] === 0 ? "a" : "b"}`}>{quem[0]}</span>
+            <Ava i={ordem[vez]} nome={quem}/>
             <strong>Vez de {quem}</strong>
             <span className="match__progresso">{Math.min(votados + 1, baralho.length)} de {baralho.length}</span>
           </div>
-          <div className="match__barra" aria-hidden="true"><span style={{ width: `${(votados / baralho.length) * 100}%` }}/></div>
+          {/* um furo no canhoto por cartaz: âmbar é quero, apagado é passo */}
+          <div className="match__furos" aria-hidden="true">
+            {baralho.map(c => {
+              const v = meusVotos.get(c.key);
+              return <i key={c.key} className={v === undefined ? "" : v ? "furo--sim" : "furo--nao"}/>;
+            })}
+          </div>
           <Baralho cartas={restantes} onVoto={votar}/>
-          {votados > 0 && <button className="prog__mudar" onClick={desfazer}>Desfazer o último</button>}
+          <button className="prog__mudar match__desfazer" onClick={desfazer} disabled={!votados}
+            style={{ visibility: votados ? "visible" : "hidden" }}>
+            Desfazer o último
+          </button>
         </div>
       )}
 
       {fase === "troca" && (
-        <div className="match__troca">
-          <LumiCompanion mood="shy" size={130} talk
-            line={`Pronto, ${users[ordem[0]]}! Agora passa o celular para ${users[ordem[1]]}. Eu não conto nada.`}/>
-          <button className="prog__assistir" onClick={() => { setVez(1); setFase("vez"); }}>
-            Sou {users[ordem[1]]}, começar
+        <div className={`match__troca ${abrindo ? "match__troca--saindo" : ""}`}>
+          <LumiCompanion mood="shy" size={120} talk
+            line={`Tapei os olhos, ${users[ordem[0]]}. Não vou contar nada.`}/>
+          <p className="match__passa">Agora passa o celular para</p>
+          <p className="match__nome">{users[ordem[1]]}</p>
+          <button className="prog__assistir" onClick={abrirCortina} disabled={abrindo}>
+            Sou {users[ordem[1]]}, abrir a cortina
           </button>
         </div>
       )}
 
       {fase === "resultado" && resultado && (
-        resultado.matches.length ? (
+        vencedor ? (
           <div className="match__resultado">
-            <div className="match__festa" aria-hidden="true">{Array.from({ length: 14 }, (_, i) => <i key={i} style={{ "--i": i }}/>)}</div>
-            <LumiCompanion mood="celebrating" size={84} className="lumi-co--inline" talk
-              line={resultado.matches.length === 1 ? "Deu match! Esse é o filme da noite." : `Deu ${resultado.matches.length} matches! Comecem por este.`}/>
-            <article className="prog__sala prog__sala--frente match__vencedor">
-              <div className="prog__moldura">
-                {resultado.matches[0].poster
-                  ? <img src={`${TMDB_IMG}${resultado.matches[0].poster}`} alt={`Cartaz de ${resultado.matches[0].title}`} className="prog__poster"/>
-                  : <span className="prog__poster prog__poster--vazio">{resultado.matches[0].title}</span>}
+            <LumiCompanion mood="celebrating" size={64} className="lumi-co--inline" talk
+              line={resultado.matches.length === 1 ? "Deu match! Esse é o filme da noite."
+                : vencedor.key === resultado.matches[0].key ? `Deu ${resultado.matches.length} matches! Eu começaria por este.`
+                : "Boa escolha. Esse também foi dos dois."}/>
+
+            <div className="match__palco">
+              <div className="prog__sala prog__sala--frente match__vencedor">
+                <div className="prog__moldura">
+                  {vencedor.poster
+                    ? <img key={vencedor.key} src={`${TMDB_IMG}${vencedor.poster}`} alt={`Cartaz de ${vencedor.title}`} className="prog__poster"/>
+                    : <span className="prog__poster prog__poster--vazio">{vencedor.title}</span>}
+                </div>
               </div>
-              <h2 className="prog__titulo">{resultado.matches[0].title}</h2>
-              <p className="prog__meta">{[resultado.matches[0].year, ...(resultado.matches[0].generos || []).slice(0, 2)].filter(Boolean).join(" · ")}</p>
-              {resultado.matches[0].link && (
-                <button className="prog__assistir" onClick={() => openExternal(resultado.matches[0].link)}>
-                  {resultado.matches[0].logos?.[0] && <img src={`${TMDB_LOGO}${resultado.matches[0].logos[0]}`} alt=""/>}
-                  <span>Assistir no {resultado.matches[0].provedores?.[0] || "streaming"}</span>
-                </button>
-              )}
-            </article>
+              {/* as duas metades se juntam em cima do cartaz */}
+              <div className="ingresso ingresso--junto" key={rodada} role="img"
+                aria-label={`Ingresso inteiro: ${users[0]} e ${users[1]} querem ver ${vencedor.title}`}>
+                {[0, 1].map(i => (
+                  <div key={i} className={`meio meio--${i ? "dir" : "esq"}`}>
+                    <Ava i={i} nome={users[i]}/>
+                    <strong>{users[i]}</strong>
+                  </div>
+                ))}
+                <span className="ingresso__coracao" aria-hidden="true">
+                  <svg viewBox="0 0 24 24"><path d={CORACAO}/></svg>
+                </span>
+              </div>
+            </div>
+
+            <h2 className="match__filme">{vencedor.title}</h2>
+            <p className="prog__meta">{[vencedor.year, ...(vencedor.generos || []).slice(0, 2)].filter(Boolean).join(" · ")}</p>
+
+            {vencedor.link && (
+              <button className="prog__assistir" onClick={() => openExternal(vencedor.link)}>
+                {vencedor.logos?.[0] && <img src={`${TMDB_LOGO}${vencedor.logos[0]}`} alt=""/>}
+                <span>Assistir no {vencedor.provedores?.[0] || "streaming"}</span>
+              </button>
+            )}
+
             {resultado.matches.length > 1 && (
               <div className="match__outros">
-                <p>Também deu match:</p>
-                <ul>{resultado.matches.slice(1).map(c => <li key={c.key}>{c.title}</li>)}</ul>
+                <p>Os {resultado.matches.length} matches de vocês. Toque para trocar o cartaz.</p>
+                <ul>
+                  {resultado.matches.map((c, i) => (
+                    <li key={c.key}>
+                      <button type="button" aria-pressed={c.key === vencedor.key} onClick={() => setEscolhido(i)}
+                        aria-label={c.title}>
+                        {c.poster ? <img src={`${TMDB_SM}${c.poster}`} alt=""/> : <span>{c.title}</span>}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
               </div>
             )}
-            <button className="prog__trocar" disabled={guardados.has("matches")}
-              onClick={() => guardar([[resultado.matches, users]], "matches")}>
-              {guardados.has("matches") ? "Na lista de vocês dois" : resultado.matches.length === 1 ? "Guardar na lista a dois" : "Guardar os matches na lista"}
-            </button>
-            <button className="prog__mudar" onClick={novaRodada}>Jogar outra rodada</button>
+
+            <div className="match__fim">
+              <button className="prog__trocar" disabled={guardados.has("matches")}
+                onClick={() => guardar([[resultado.matches, users]], "matches")}>
+                {guardados.has("matches") ? "Na lista de vocês dois" : resultado.matches.length === 1 ? "Guardar na lista a dois" : "Guardar os matches na lista"}
+              </button>
+              <button className="prog__mudar" onClick={novaRodada}>Jogar outra rodada</button>
+            </div>
           </div>
         ) : (
           <div className="match__resultado">
-            <LumiCompanion mood="thinking" size={84} className="lumi-co--inline" talk
-              line="Nenhum match desta vez. Os gostos se desencontraram, mas eu tenho mais cartazes."/>
-            <div className="match__desencontro">
-              {[0, 1].map(v => (
-                <div key={v}>
-                  <strong>{users[ordem[v]]} quis {resultado.soDe[v].length}</strong>
-                  <span>{resultado.soDe[v].slice(0, 3).map(c => c.title).join(", ") || "nenhum"}</span>
-                </div>
-              ))}
+            <LumiCompanion mood="thinking" size={64} className="lumi-co--inline" talk
+              line="Nenhum match desta vez. Cada um ficou com a sua metade, mas eu tenho mais cartazes."/>
+
+            <div className="ingresso ingresso--separado">
+              {[0, 1].map(v => {
+                const quis = resultado.soDe[v];
+                return (
+                  <div key={v} className={`meio meio--${v ? "dir" : "esq"}`}>
+                    <Ava i={ordem[v]} nome={users[ordem[v]]}/>
+                    <strong>{users[ordem[v]]}</strong>
+                    <small>{quis.length === 0 ? "passou em todos" : quis.length === 1 ? "quis 1 filme" : `quis ${quis.length} filmes`}</small>
+                    {quis.length > 0 && (
+                      <span className="meio__cartazes">
+                        {quis.slice(0, 3).map(c => c.poster
+                          ? <img key={c.key} src={`${TMDB_SM}${c.poster}`} alt={c.title}/>
+                          : <span key={c.key}>{c.title}</span>)}
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
             </div>
-            <button className="prog__assistir" onClick={novaRodada}>Jogar outra rodada</button>
-            {resultado.soDe.some(l => l.length) && (
-              <button className="prog__trocar" disabled={guardados.has("cada")}
-                onClick={() => guardar([
-                  [resultado.soDe[0], [users[ordem[0]]]],
-                  [resultado.soDe[1], [users[ordem[1]]]],
-                ], "cada")}>
-                {guardados.has("cada") ? "Guardado na lista" : "Guardar o que cada um quis"}
-              </button>
-            )}
+
+            <div className="match__fim">
+              <button className="prog__assistir" onClick={novaRodada}>Jogar outra rodada</button>
+              {resultado.soDe.some(l => l.length) && (
+                <button className="prog__trocar" disabled={guardados.has("cada")}
+                  onClick={() => guardar([
+                    [resultado.soDe[0], [users[ordem[0]]]],
+                    [resultado.soDe[1], [users[ordem[1]]]],
+                  ], "cada")}>
+                  {guardados.has("cada") ? "Guardado na lista" : "Guardar o que cada um quis"}
+                </button>
+              )}
+            </div>
           </div>
         )
       )}
@@ -253,9 +347,16 @@ export default function Match({
   );
 }
 
-function Casca({ titulo, onClose, children }) {
+const CORACAO = "M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1-1.1a5.5 5.5 0 0 0-7.8 7.8l1 1.1L12 21.2l7.8-7.7 1-1.1a5.5 5.5 0 0 0 0-7.8z";
+
+const Ava = ({ i, nome }) => (
+  <span className={`match__ava match__ava--${i ? "b" : "a"}`} aria-hidden="true">{nome?.[0]}</span>
+);
+
+function Casca({ titulo, onClose, fundo, children }) {
   return (
     <div className="subpage prog match">
+      {fundo}
       <div className="subpage__inner prog__inner">
         <div className="cfg-head">
           <button className="cfg-back" onClick={onClose} aria-label="Voltar">

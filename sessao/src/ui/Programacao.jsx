@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { TMDB_IMG, TMDB_LOGO, TMDB_SM, tmdbCached } from "../tmdb.js";
 import { gostoDoCasal } from "../recs/gosto.js";
 import { montarProgramacao } from "../recs/candidatos.js";
+import { itemDaLista } from "../recs/paraLista.js";
 import { openExternal } from "../nativeShare.js";
 import LumiCompanion from "./LumiCompanion.jsx";
 import Streamings from "./Streamings.jsx";
@@ -18,7 +19,7 @@ const POR_VEZ = 3;
  */
 export default function Programacao({
   users, currentUser, watched, watchlist, streamings = [], prefs,
-  onSaveStreamings, onAddWatchlist, onAlsoWant, onVeredito, loadVereditos, onClose,
+  onSaveStreamings, onAddWatchlist, onAlsoWant, onVeredito, loadVereditos, onMatch, onClose,
   request = tmdbCached, now,
 }) {
   useBackClose(onClose);
@@ -98,11 +99,7 @@ export default function Programacao({
   const quero = c => {
     if (c.naLista) { onAlsoWant?.(c.naLista); }
     else {
-      onAddWatchlist?.({
-        tmdbId: c.tmdbId, type: c.type, title: c.title, year: c.year, poster: c.poster, backdrop: c.backdrop,
-        overview: c.overview, genres: c.generos, tmdbRating: c.nota ? c.nota.toFixed(1) : null,
-        priority: "normal", suggestedBy: currentUser, wantedBy: [currentUser], addedAt: new Date().toISOString(),
-      });
+      onAddWatchlist?.(itemDaLista(c, [currentUser]));
     }
     setAdicionados(a => new Set(a).add(c.key));
   };
@@ -226,6 +223,9 @@ export default function Programacao({
               <button className="prog__trocar" onClick={trocar}>
                 <Icone n="trocar"/>{acabou ? "Ver as primeiras de novo" : temMais ? "Trocar as três" : "Voltar às primeiras"}
               </button>
+            )}
+            {onMatch && fase === "pronto" && (
+              <button className="prog__mudar" onClick={onMatch}>Não conseguem escolher? Decidam no match a dois</button>
             )}
             <button className="prog__mudar" onClick={() => setFase("streamings")}>Mudar nossos streamings</button>
             <p className="prog__credito">Onde assistir: dados do JustWatch, via TMDB.</p>

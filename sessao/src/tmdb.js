@@ -3,6 +3,7 @@ export const TMDB_BASE = "https://api.themoviedb.org/3";
 export const TMDB_IMG = "https://image.tmdb.org/t/p/w500";
 export const TMDB_BG = "https://image.tmdb.org/t/p/w1280";
 export const TMDB_LOGO = "https://image.tmdb.org/t/p/w92";
+export const TMDB_SM = "https://image.tmdb.org/t/p/w300";
 
 const TMDB_READ_TOKEN = import.meta.env.VITE_TMDB_READ_TOKEN;
 const TMDB_API_KEY = import.meta.env.VITE_TMDB_API_KEY;

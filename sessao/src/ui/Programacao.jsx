@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { TMDB_IMG, tmdbCached } from "../tmdb.js";
+import { TMDB_IMG, TMDB_LOGO, TMDB_SM, tmdbCached } from "../tmdb.js";
 import { gostoDoCasal } from "../recs/gosto.js";
 import { montarProgramacao } from "../recs/candidatos.js";
 import { openExternal } from "../nativeShare.js";
@@ -12,9 +12,9 @@ import "./programacao.css";
 const POR_VEZ = 3;
 
 /**
- * A sessão de hoje: o Lumi escolhe 3 títulos que combinam com o casal e que
- * estão nos streamings deles. Nada de catálogo para rolar — se nenhum servir,
- * ele troca os três.
+ * A sessão de hoje: três salas, um cartaz em cada. O Lumi escolhe o que combina
+ * com o casal e está nos streamings deles — nada de catálogo para rolar; se
+ * nenhum servir, ele troca os três.
  */
 export default function Programacao({
   users, currentUser, watched, watchlist, streamings = [], prefs,
@@ -29,8 +29,11 @@ export default function Programacao({
   const [cursor, setCursor] = useState(0);
   const [ocultos, setOcultos] = useState(() => new Set());
   const [adicionados, setAdicionados] = useState(() => new Set());
+  const [aviso, setAviso] = useState("");
   const [erro, setErro] = useState("");
   const [tentativa, setTentativa] = useState(0);
+  const [ativa, setAtiva] = useState(0);
+  const trilho = useRef(null);
   const gosto = useMemo(() => gostoDoCasal(watched, users, now), [watched, users, now]);
   const talk = prefs?.lumiComments !== false;
 
@@ -44,6 +47,7 @@ export default function Programacao({
         if (!vivo) return;
         setLista(resultado);
         setCursor(0);
+        setAtiva(0);
         setFase(resultado.length ? "pronto" : "vazio");
       } catch (e) {
         if (!vivo) return;
@@ -61,9 +65,33 @@ export default function Programacao({
   const visiveis = lista.filter(c => !ocultos.has(c.key));
   const agora = visiveis.slice(cursor, cursor + POR_VEZ);
   const acabou = fase === "pronto" && agora.length === 0;
+  const atual = agora[Math.min(ativa, agora.length - 1)];
+  const temMais = visiveis.length > cursor + POR_VEZ;
+
+  // a sala na frente é a que está centralizada no trilho
+  const aoRolar = () => {
+    const el = trilho.current;
+    if (!el?.children.length) return;
+    const passo = el.children[0].getBoundingClientRect().width + 14;
+    setAtiva(Math.max(0, Math.min(agora.length - 1, Math.round(el.scrollLeft / passo))));
+  };
+  const irPara = i => {
+    const el = trilho.current;
+    const alvo = el?.children[i];
+    if (!alvo) return;
+    const suave = !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    el.scrollTo({ left: alvo.offsetLeft - (el.clientWidth - alvo.clientWidth) / 2, behavior: suave ? "smooth" : "auto" });
+  };
+
+  const trocar = () => {
+    setCursor(c => (temMais ? c + POR_VEZ : 0));
+    setAtiva(0);
+    trilho.current?.scrollTo({ left: 0 });
+  };
 
   const tirar = async (c, veredito) => {
     setOcultos(o => new Set(o).add(c.key));
+    setAviso(veredito === "ja_vimos" ? `Anotado: vocês já viram ${c.title}.` : `Combinado, não sugiro mais ${c.title}.`);
     try { await onVeredito?.(c.key, veredito); } catch (e) { console.error(e); }
   };
 
@@ -91,25 +119,29 @@ export default function Programacao({
     : fase === "carregando" ? "Escolhendo a sessão de vocês…"
     : fase === "vazio" ? "Não achei nada nos streamings de vocês que combine. Que tal marcar mais algum?"
     : fase === "erro" ? null
-    : gosto.maturidade < 3 ? "Ainda estou conhecendo o gosto de vocês. Quanto mais notas, mais eu acerto."
     : acabou ? "Essas foram as minhas melhores ideias para hoje."
-    : "Separei três para hoje. Se nenhum servir, eu troco.";
+    : aviso || (gosto.maturidade < 3
+      ? "Ainda estou conhecendo o gosto de vocês. Quanto mais notas, mais eu acerto."
+      : "Separei três salas para hoje. Deslizem para ver as outras.");
 
   return createPortal(
     <div className="subpage prog">
-      <div className="subpage__inner">
+      {/* a sala ganha a luz do filme que está na frente */}
+      {fase === "pronto" && atual && (atual.backdrop || atual.poster) && (
+        <div key={atual.key} className="prog__ambiente" aria-hidden="true"
+          style={{ backgroundImage: `url(${TMDB_SM}${atual.backdrop || atual.poster})` }}/>
+      )}
+
+      <div className="subpage__inner prog__inner">
         <div className="cfg-head">
-          <button className="cfg-back" onClick={onClose} aria-label="Voltar"><BackIcon/></button>
+          <button className="cfg-back" onClick={onClose} aria-label="Voltar"><Icone n="voltar"/></button>
           <h1 className="cfg-title">Sessão de hoje</h1>
         </div>
 
-        {/* o letreiro do cinema: a única ousadia da tela */}
-        <div className="prog__letreiro" aria-hidden="true"><span>Em cartaz hoje</span></div>
-
         {fala && (
-          <div className="prog__lumi">
-            <LumiCompanion mood={fase === "carregando" ? "popcorn" : fase === "vazio" || acabou ? "thinking" : "excited"}
-              size={60} className="lumi-co--inline" talk={talk} line={fala}/>
+          <div className="prog__lumi" aria-live="polite">
+            <LumiCompanion mood={fase === "carregando" ? "popcorn" : fase === "vazio" || acabou ? "thinking" : aviso ? "winking" : "excited"}
+              size={56} className="lumi-co--inline" talk={talk} line={fala}/>
           </div>
         )}
 
@@ -118,8 +150,10 @@ export default function Programacao({
         )}
 
         {fase === "carregando" && (
-          <div className="prog__lista" aria-busy="true">
-            {Array.from({ length: POR_VEZ }, (_, i) => <div key={i} className="prog__cartaz prog__cartaz--skel"/>)}
+          <div className="prog__palco" aria-busy="true">
+            <div className="prog__trilho prog__trilho--espera">
+              <div className="prog__sala"><div className="prog__moldura prog__moldura--vazia"><span/></div></div>
+            </div>
           </div>
         )}
 
@@ -131,43 +165,68 @@ export default function Programacao({
         )}
 
         {fase === "pronto" && !acabou && (
-          <ol className="prog__lista">
-            {agora.map(c => {
-              const naLista = c.naLista && (c.naLista.wantedBy || []).includes(currentUser);
-              const jaAdicionado = adicionados.has(c.key) || naLista;
-              return (
-                <li key={c.key} className="prog__cartaz">
-                  {c.poster
-                    ? <img src={`${TMDB_IMG}${c.poster}`} alt="" className="prog__poster" loading="lazy"/>
-                    : <span className="prog__poster prog__poster--vazio" aria-hidden="true"/>}
-                  <div className="prog__corpo">
+          <div className="prog__palco">
+            {/* as três salas: dá pra pular direto para uma */}
+            <div className="prog__salas" aria-label="Salas de hoje">
+              {agora.map((c, i) => (
+                <button key={c.key} aria-current={i === ativa ? "true" : undefined} className={`prog__sala-tab ${i === ativa ? "prog__sala-tab--on" : ""}`}
+                  onClick={() => irPara(i)}>
+                  Sala {i + 1}
+                </button>
+              ))}
+            </div>
+
+            <div key={cursor} ref={trilho} className="prog__trilho" onScroll={aoRolar}
+              role="region" aria-roledescription="carrossel" aria-label="Sugestões do Lumi">
+              {agora.map((c, i) => {
+                const naListaJa = c.naLista && (c.naLista.wantedBy || []).includes(currentUser);
+                const naLista = adicionados.has(c.key) || naListaJa;
+                return (
+                  <article key={c.key} className={`prog__sala ${i === ativa ? "prog__sala--frente" : ""}`}
+                    aria-roledescription="sala" aria-label={`Sala ${i + 1} de ${agora.length}: ${c.title}`}>
+                    <div className="prog__moldura">
+                      {c.poster
+                        ? <img src={`${TMDB_IMG}${c.poster}`} alt={`Cartaz de ${c.title}`} className="prog__poster" loading={i ? "lazy" : "eager"}/>
+                        : <span className="prog__poster prog__poster--vazio">{c.title}</span>}
+                    </div>
+
                     <h2 className="prog__titulo">{c.title}</h2>
-                    <p className="prog__meta">{[c.year, ...(c.generos || []).slice(0, 2), c.type === "tv" ? "série" : null].filter(Boolean).join(", ")}</p>
+                    <p className="prog__meta">
+                      {[c.year, ...(c.generos || []).slice(0, 2), c.type === "tv" ? "série" : null].filter(Boolean).join(" · ")}
+                      {c.nota > 0 && <span className="prog__nota">★ {c.nota.toFixed(1).replace(".", ",")}</span>}
+                    </p>
+
                     <p className="prog__motivo">{c.motivo}</p>
-                    {c.provedores?.length > 0 && <p className="prog__onde">{c.provedores.join(", ")}</p>}
-                    <div className="prog__acoes">
-                      {c.link && <button className="pill pill--primary pill--sm" onClick={() => openExternal(c.link)}>Assistir agora</button>}
-                      <button className="pill pill--outline pill--sm" disabled={jaAdicionado} onClick={() => quero(c)}>
-                        {jaAdicionado ? "Na lista" : c.naLista ? "Também quero" : "Quero ver"}
+                    {c.overview && <p className="prog__sinopse">{c.overview}</p>}
+
+                    {c.link && (
+                      <button className="prog__assistir" onClick={() => openExternal(c.link)}>
+                        {c.logos?.[0] && <img src={`${TMDB_LOGO}${c.logos[0]}`} alt=""/>}
+                        <span>Assistir no {c.provedores?.[0] || "streaming"}</span>
                       </button>
+                    )}
+
+                    <div className="prog__acoes" role="group" aria-label={`O que fazer com ${c.title}`}>
+                      <button className={naLista ? "prog__acao prog__acao--feita" : "prog__acao"} disabled={naLista} onClick={() => quero(c)}>
+                        <Icone n="coracao"/>{naLista ? "Na lista" : c.naLista ? "Também quero" : "Quero ver"}
+                      </button>
+                      <button className="prog__acao" onClick={() => tirar(c, "ja_vimos")}><Icone n="visto"/>Já vimos</button>
+                      <button className="prog__acao" onClick={() => tirar(c, "nao_e_pra_nos")}><Icone n="nao"/>Não é pra nós</button>
                     </div>
-                    <div className="prog__acoes prog__acoes--fracas">
-                      <button onClick={() => tirar(c, "ja_vimos")}>Já vimos</button>
-                      <button onClick={() => tirar(c, "nao_e_pra_nos")}>Não é pra nós</button>
-                    </div>
-                  </div>
-                </li>
-              );
-            })}
-          </ol>
+                  </article>
+                );
+              })}
+            </div>
+          </div>
         )}
 
         {(fase === "pronto" || fase === "vazio") && (
           <div className="prog__rodape">
-            {fase === "pronto" && !acabou && visiveis.length > cursor + POR_VEZ && (
-              <button className="pill pill--light pill--block" onClick={() => setCursor(c => c + POR_VEZ)}>Trocar as três</button>
+            {fase === "pronto" && (
+              <button className="prog__trocar" onClick={trocar}>
+                <Icone n="trocar"/>{acabou ? "Ver as primeiras de novo" : temMais ? "Trocar as três" : "Voltar às primeiras"}
+              </button>
             )}
-            {acabou && <button className="pill pill--light pill--block" onClick={() => setCursor(0)}>Ver as primeiras de novo</button>}
             <button className="prog__mudar" onClick={() => setFase("streamings")}>Mudar nossos streamings</button>
             <p className="prog__credito">Onde assistir: dados do JustWatch, via TMDB.</p>
           </div>
@@ -178,8 +237,15 @@ export default function Programacao({
   );
 }
 
-const BackIcon = () => (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d="M19 12H5M12 19l-7-7 7-7"/>
+const CAMINHOS = {
+  voltar: "M19 12H5M12 19l-7-7 7-7",
+  coracao: "M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1-1.1a5.5 5.5 0 0 0-7.8 7.8l1 1.1L12 21.2l7.8-7.7 1-1.1a5.5 5.5 0 0 0 0-7.8z",
+  visto: "M20 6L9 17l-5-5",
+  nao: "M18 6L6 18M6 6l12 12",
+  trocar: "M17 1l4 4-4 4M3 11V9a4 4 0 0 1 4-4h14M7 23l-4-4 4-4M21 13v2a4 4 0 0 1-4 4H3",
+};
+const Icone = ({ n }) => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d={CAMINHOS[n]}/>
   </svg>
 );

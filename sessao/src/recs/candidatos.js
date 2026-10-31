@@ -117,7 +117,9 @@ async function ondeAssistir(request, c, streamings) {
     const d = await request(`/${c.type}/${c.tmdbId}/watch/providers`);
     const br = d.results?.[REGIAO];
     const nossos = (br?.flatrate || []).filter(p => streamings.includes(p.provider_id));
-    return nossos.length ? { provedores: nossos.map(p => p.provider_name), link: br.link || null } : null;
+    return nossos.length
+      ? { provedores: nossos.map(p => p.provider_name), logos: nossos.map(p => p.logo_path || null), link: br.link || null }
+      : null;
   } catch {
     return null;
   }

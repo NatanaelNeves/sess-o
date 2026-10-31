@@ -19,7 +19,7 @@ const POR_VEZ = 3;
  */
 export default function Programacao({
   users, currentUser, watched, watchlist, streamings = [], prefs,
-  onSaveStreamings, onAddWatchlist, onAlsoWant, onVeredito, loadVereditos, onMatch, onClose,
+  onSaveStreamings, onAddWatchlist, onAlsoWant, onVeredito, loadVereditos, onMatch, onAdivinha, onClose,
   request = tmdbCached, now,
 }) {
   useBackClose(onClose);
@@ -226,6 +226,9 @@ export default function Programacao({
             )}
             {onMatch && fase === "pronto" && (
               <button className="prog__mudar" onClick={onMatch}>Não conseguem escolher? Decidam no match a dois</button>
+            )}
+            {onAdivinha && fase === "pronto" && (
+              <button className="prog__mudar" onClick={onAdivinha}>Não sabem do que estão a fim? Deixem o Lumi adivinhar</button>
             )}
             <button className="prog__mudar" onClick={() => setFase("streamings")}>Mudar nossos streamings</button>
             <p className="prog__credito">Onde assistir: dados do JustWatch, via TMDB.</p>

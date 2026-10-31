@@ -1,0 +1,103 @@
+/* ============================================================
+   O Lumi adivinha — uma parede de cartazes acesos. Cada resposta
+   apaga os que não combinam, até sobrar o filme da noite.
+   ============================================================ */
+
+.adv__lumi { margin: 14px 0 4px; }
+.adv__centro { display: flex; flex-direction: column; align-items: center; gap: 14px; margin-top: 48px; text-align: center; }
+.adv__largo { max-width: 320px; }
+
+/* ---------- a parede ---------- */
+.adv__jogo { display: flex; flex-direction: column; }
+.adv__parede {
+  display: grid;
+  grid-template-columns: repeat(9, minmax(0, 1fr));
+  gap: 4px;
+  margin-top: 14px;
+  padding: 8px;
+  border-radius: 12px;
+  background: #0f090b;
+  box-shadow: inset 0 0 0 1px rgba(255, 236, 220, 0.06), inset 0 10px 30px rgba(0, 0, 0, 0.6);
+}
+.adv__luz {
+  position: relative;
+  display: grid;
+  place-items: center;
+  aspect-ratio: 2 / 3;
+  overflow: hidden;
+  border-radius: 3px;
+  background: #241518;
+  /* apagado: o cartaz some no escuro da sala */
+  opacity: 0.1;
+  filter: grayscale(1) brightness(0.5);
+  transition: opacity 0.45s ease calc(var(--i) * 9ms), filter 0.45s ease calc(var(--i) * 9ms), box-shadow 0.45s ease;
+}
+.adv__luz img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.adv__luz b { padding: 2px; font-size: 6px; line-height: 1.1; text-align: center; color: var(--pipoca); }
+.adv__luz--acesa {
+  opacity: 1;
+  filter: none;
+  box-shadow: 0 0 10px -2px rgba(255, 181, 74, 0.55);
+}
+/* com poucos acesos, cada um ganha mais luz */
+.adv__parede--pensando .adv__luz--acesa { box-shadow: 0 0 0 1.5px var(--lente), 0 0 16px rgba(255, 181, 74, 0.8); }
+
+.adv__contagem { margin-top: 8px; font-size: 13px; font-weight: 650; color: var(--lente); text-align: right; }
+
+/* ---------- a pergunta ---------- */
+.adv__pergunta { margin-top: 10px; animation: perguntaEntra 0.35s ease both; }
+@keyframes perguntaEntra { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.adv__numero { font-size: 13px; font-weight: 650; color: var(--text-tertiary); }
+.adv__pergunta h2 {
+  margin-top: 4px;
+  font-family: var(--font-display);
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.12;
+  text-wrap: balance;
+}
+.adv__respostas { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 20px; }
+.adv__resposta {
+  min-height: 58px;
+  border: 0;
+  border-radius: 16px;
+  background: var(--bg-surface);
+  box-shadow: inset 0 0 0 1.5px rgba(255, 236, 220, 0.16);
+  color: var(--pipoca);
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 700;
+  transition: transform 0.15s ease, background 0.2s ease, box-shadow 0.2s ease;
+}
+.adv__resposta:active { transform: scale(0.96); background: rgba(255, 181, 74, 0.14); box-shadow: inset 0 0 0 1.5px var(--lente); }
+.adv__resposta:focus-visible { outline: 2px solid var(--lente); outline-offset: 3px; }
+@media (hover: hover) {
+  .adv__resposta:hover { box-shadow: inset 0 0 0 1.5px var(--lente); }
+}
+.adv__extras { display: flex; justify-content: center; gap: 22px; margin-top: 6px; }
+.adv__pensando {
+  margin-top: 26px;
+  text-align: center;
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: 18px;
+  color: var(--lente);
+}
+
+/* ---------- o palpite ---------- */
+.adv__palpite { display: flex; flex-direction: column; }
+.adv__revelado { flex: none; width: 100%; margin-top: 10px; }
+.adv__revelado .prog__poster { animation: palpiteAcende 0.7s ease both; }
+@keyframes palpiteAcende {
+  from { opacity: 0; transform: scale(0.6); filter: brightness(2.2); }
+  60% { opacity: 1; filter: brightness(1.3); }
+  to { opacity: 1; transform: none; filter: none; }
+}
+.adv__fim { display: flex; flex-direction: column; align-items: center; margin-top: 10px; }
+.adv__reserva { font-size: 13px; color: var(--text-tertiary); }
+
+@media (prefers-reduced-motion: reduce) {
+  .adv__luz { transition: none; }
+  .adv__pergunta,
+  .adv__revelado .prog__poster { animation: none; }
+}

@@ -25,6 +25,7 @@ import { homeLumi } from "./ui/lumiMood.js";
 import LumiCompanion from "./ui/LumiCompanion.jsx";
 import Programacao from "./ui/Programacao.jsx";
 import Match from "./ui/Match.jsx";
+import Adivinha from "./ui/Adivinha.jsx";
 import { itemDaLista, querendoJuntos } from "./recs/paraLista.js";
 import Streamings from "./ui/Streamings.jsx";
 import NotaDoCasal from "./ui/NotaDoCasal.jsx";
@@ -2706,7 +2707,7 @@ const V3Demo = () => {
       acervo: <DiaryPage watched={DEMO_WATCHED} users={DEMO_USERS} currentUser="Ana" onDelete={noop} onEdit={noop}
         onSaveReview={noop} onUpdateStatus={noop} onContinueEpisode={noop} onToggleTogether={noop} onAddToWatchlist={noop} prefs={demoPrefs}/>,
       watchlist: <WatchlistPage watchlist={DEMO_WATCHLIST} watched={DEMO_WATCHED} users={DEMO_USERS} currentUser="Ana" onDelete={noop}
-        onMarkWatched={noop} onRoulette={noop} onSuggest={noop} onMatch={noop} onAlsoWant={noop} onPlan={noop} onOpenTicket={noop} onCheckin={noop} prefs={demoPrefs}/>,
+        onMarkWatched={noop} onRoulette={noop} onSuggest={noop} onMatch={noop} onAdivinha={noop} onAlsoWant={noop} onPlan={noop} onOpenTicket={noop} onCheckin={noop} prefs={demoPrefs}/>,
       perfil: <ProfilePage watched={DEMO_WATCHED} watchlist={DEMO_WATCHLIST} couple={DEMO_COUPLE} users={DEMO_USERS}
         prefs={demoPrefs} onOpenSettings={noop}/>,
       episodio: <EpisodeSheet entry={DEMO_WATCHED[5]} coupleId={null} onClose={noop} addToast={noop}/>,
@@ -2724,6 +2725,8 @@ const V3Demo = () => {
       settings: <SettingsPage couple={DEMO_COUPLE} users={DEMO_USERS} watched={DEMO_WATCHED}
         prefs={demoPrefs} onPref={noop} onSaveStreamings={async () => {}} onClose={noop} onSignOut={noop} onDeleteAccount={noop}/>,
       // &semstreamings mostra a escolha dos streamings antes das sugestões
+      adivinha: <Adivinha users={DEMO_USERS} currentUser="Ana" watched={DEMO_WATCHED} watchlist={DEMO_WATCHLIST} streamings={[8, 119]} prefs={demoPrefs}
+        onSaveStreamings={async () => {}} onSalvarNaLista={async () => {}} onVeredito={async () => {}} loadVereditos={async () => new Set()} onClose={noop}/>,
       match: <Match users={DEMO_USERS} watched={DEMO_WATCHED} watchlist={DEMO_WATCHLIST} streamings={[8, 119]} prefs={demoPrefs}
         onSaveStreamings={async () => {}} onSalvarNaLista={async () => {}} loadVereditos={async () => new Set()} onClose={noop}/>,
       sugestoes: <Programacao users={DEMO_USERS} currentUser="Ana" watched={DEMO_WATCHED} watchlist={DEMO_WATCHLIST}
@@ -4233,7 +4236,7 @@ const SagaWatchlistCard = ({ collection: col, group, watched, onMarkWatched, onD
   );
 };
 
-const WatchlistPage = ({ watchlist, watched = [], users, currentUser, onDelete, onMarkWatched, onRoulette, onSuggest, onMatch, onAlsoWant, onPlan, onOpenTicket, onCheckin, prefs }) => {
+const WatchlistPage = ({ watchlist, watched = [], users, currentUser, onDelete, onMarkWatched, onRoulette, onSuggest, onMatch, onAdivinha, onAlsoWant, onPlan, onOpenTicket, onCheckin, prefs }) => {
   const [who, setWho] = useState("all"); // all | both | <nome>
   const [refine, setRefine] = useState("all"); // all | high | imdb | recent | <genre>
 
@@ -4290,6 +4293,7 @@ const WatchlistPage = ({ watchlist, watched = [], users, currentUser, onDelete, 
           <div className="wl-planner__acoes">
             {onSuggest && <button type="button" className="wl-planner__cta" onClick={onSuggest}>Sugestões do Lumi</button>}
             {onMatch && users.length === 2 && <button type="button" className="wl-planner__cta wl-planner__cta--soft" onClick={onMatch}>Match a dois</button>}
+            {onAdivinha && <button type="button" className="wl-planner__cta wl-planner__cta--soft" onClick={onAdivinha}>O Lumi adivinha</button>}
             {watchlist.length >= 2 && <button type="button" className="wl-planner__cta wl-planner__cta--soft" onClick={onRoulette}>Sortear da lista</button>}
           </div>
         </div>
@@ -5578,6 +5582,7 @@ export default function App() {
   const [showRoulette, setShowRoulette] = useState(false);
   const [showProgramacao, setShowProgramacao] = useState(false);
   const [showMatch, setShowMatch] = useState(false);
+  const [showAdivinha, setShowAdivinha] = useState(false);
   const [menuOpen,     setMenuOpen]     = useState(false);
   const menuRef = useRef(null);
   const [installPrompt, setInstallPrompt] = useState(null);
@@ -6213,6 +6218,7 @@ export default function App() {
             onSaveStreamings={saveStreamings} onAddWatchlist={addWatchlist} onAlsoWant={alsoWant}
             onVeredito={saveVeredito} loadVereditos={loadVereditos}
             onMatch={users.length === 2 ? () => { setShowProgramacao(false); setShowMatch(true); } : undefined}
+            onAdivinha={() => { setShowProgramacao(false); setShowAdivinha(true); }}
             onClose={() => setShowProgramacao(false)}/>
         )}
         {showMatch && (
@@ -6220,6 +6226,12 @@ export default function App() {
             streamings={couple.streamings || []} prefs={prefs}
             onSaveStreamings={saveStreamings} onSalvarNaLista={salvarNaLista} loadVereditos={loadVereditos}
             onClose={() => setShowMatch(false)}/>
+        )}
+        {showAdivinha && (
+          <Adivinha users={users} currentUser={currentUser} watched={watched} watchlist={watchlist}
+            streamings={couple.streamings || []} prefs={prefs}
+            onSaveStreamings={saveStreamings} onSalvarNaLista={salvarNaLista} onVeredito={saveVeredito} loadVereditos={loadVereditos}
+            onClose={() => setShowAdivinha(false)}/>
         )}
         {cineModal && (() => {
           const live = watchlist.find(w => w.id === cineModal.item.id) || cineModal.item;
@@ -6266,7 +6278,7 @@ export default function App() {
                                        onContinueEpisode={continueEpisode} onToggleTogether={toggleTogether}
                                        onAddToWatchlist={()=>setAddModal("watchlist")} prefs={prefs}/>}
               {page==="watchlist" && <WatchlistPage watchlist={watchlist} watched={watched} users={users} currentUser={currentUser}
-                                       onDelete={e=>requestDelete(e,"watchlist")} onMarkWatched={markWatched} onRoulette={()=>setShowRoulette(true)} onSuggest={()=>setShowProgramacao(true)} onMatch={()=>setShowMatch(true)} onAlsoWant={alsoWant}
+                                       onDelete={e=>requestDelete(e,"watchlist")} onMarkWatched={markWatched} onRoulette={()=>setShowRoulette(true)} onSuggest={()=>setShowProgramacao(true)} onMatch={()=>setShowMatch(true)} onAdivinha={()=>setShowAdivinha(true)} onAlsoWant={alsoWant}
                                        onPlan={openPlan} onOpenTicket={openTicket} onCheckin={openCheckin} prefs={prefs}/>}
               {page==="profile"   && <ProfilePage   watched={watched} watchlist={watchlist} couple={couple} users={users} prefs={prefs}
                                        onOpenSettings={()=>setShowSettings(true)}/>}

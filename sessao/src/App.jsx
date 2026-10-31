@@ -2584,7 +2584,7 @@ const V3Demo = () => {
       settings: <SettingsPage couple={DEMO_COUPLE} users={DEMO_USERS} watched={DEMO_WATCHED}
         prefs={demoPrefs} onPref={noop} onSaveStreamings={async () => {}} onClose={noop} onSignOut={noop} onDeleteAccount={noop}/>,
       // &semstreamings mostra a escolha dos streamings antes das sugestões
-      escolher: <Escolher users={DEMO_USERS} watchlist={DEMO_WATCHLIST} streamings={[]}
+      escolher: <Escolher users={DEMO_USERS} watchlist={DEMO_WATCHLIST} streamings={[]} prefs={demoPrefs}
         onSessao={noop} onAdivinha={noop} onMatch={noop} onRoleta={noop} onClose={noop}/>,
       adivinha: <Adivinha users={DEMO_USERS} currentUser="Ana" watched={DEMO_WATCHED} watchlist={DEMO_WATCHLIST} streamings={[8, 119]} prefs={demoPrefs}
         onSaveStreamings={async () => {}} onSalvarNaLista={async () => {}} onVeredito={async () => {}} loadVereditos={async () => new Set()} onClose={noop}/>,
@@ -6065,7 +6065,7 @@ export default function App() {
         )}
         {showEscolher && (
           <Escolher users={users} watchlist={watchlist} streamings={couple.streamings || []}
-            onSessao={() => setShowProgramacao(true)} onAdivinha={() => setShowAdivinha(true)}
+            prefs={prefs} onSessao={() => setShowProgramacao(true)} onAdivinha={() => setShowAdivinha(true)}
             onMatch={() => setShowMatch(true)} onRoleta={() => setShowRoulette(true)}
             onClose={() => setShowEscolher(false)}/>
         )}

@@ -1,19 +1,85 @@
+import { useState } from "react";
 import { createPortal } from "react-dom";
 import { TMDB_MINI } from "../tmdb.js";
+import LumiCompanion from "./LumiCompanion.jsx";
 import useBackClose from "./useBackClose.js";
 import "./escolher.css";
 
 /**
- * "O que vamos ver hoje?": os quatro jeitos de escolher num lugar só, cada um
- * com uma miniatura de como funciona, o que faz, quanto tempo leva e de onde
- * vêm os filmes. A divisão que mais confunde (streamings ou lista) vira seção.
+ * "O que vamos ver hoje?": os quatro jeitos de escolher, cada um como uma sala.
+ * Só uma fica acesa por vez — a que vocês tocaram — e ela explica em três
+ * passos como funciona, quanto tempo leva e quem decide. As outras ficam no
+ * escuro, só com a situação que resolvem.
  */
-export default function Escolher({ users, watchlist = [], streamings = [], onSessao, onAdivinha, onMatch, onRoleta, onClose }) {
+export default function Escolher({ users, watchlist = [], streamings = [], prefs, onSessao, onAdivinha, onMatch, onRoleta, onClose }) {
   useBackClose(onClose);
+  const [acesa, setAcesa] = useState("sessao");
   const cartazes = watchlist.filter(w => w.poster).slice(0, 3).map(w => w.poster);
   const doisNoApp = users.length >= 2;
   const naLista = watchlist.length;
   const semStreamings = streamings.length === 0;
+
+  const jeitos = [
+    {
+      id: "sessao",
+      arte: <ArteSalas cartazes={cartazes}/>,
+      situacao: "Não sabem nem por onde começar?",
+      nome: "Sessão de hoje",
+      selo: "Comecem por aqui",
+      passos: [
+        semStreamings ? "Vocês marcam os streamings que assinam. É só na primeira vez." : "O Lumi olha os streamings que vocês assinam.",
+        "Ele separa três filmes pelo gosto de vocês, cada um numa sala.",
+        "Deslizem entre as salas e escolham o da noite.",
+      ],
+      fatos: [["relogio", "Na hora"], ["coracao", "Decide pelo gosto de vocês"]],
+      acao: "Ver a sessão de hoje",
+      abrir: onSessao,
+    },
+    {
+      id: "adivinha",
+      arte: <ArteParede/>,
+      situacao: "Sabem o clima, mas não o filme?",
+      nome: "O Lumi adivinha",
+      passos: [
+        "Respondam juntos perguntas como: hoje é dia de rir? Topam um susto?",
+        "Cada resposta apaga os cartazes que não combinam.",
+        "Quando sobra um, o Lumi revela o filme.",
+      ],
+      fatos: [["relogio", "Uns 2 minutos"], ["balao", "Decide pelo humor de hoje"]],
+      acao: "Começar as perguntas",
+      abrir: onAdivinha,
+    },
+    {
+      id: "match",
+      arte: <ArteIngresso iniciais={users.map(u => u[0])}/>,
+      situacao: "Cada um quer uma coisa?",
+      nome: "Match a dois",
+      passos: [
+        "Um de vocês desliza 12 cartazes: para a direita é quero, para a esquerda é passo.",
+        "Passa o celular, e o outro vota sem ver os votos.",
+        "O que os dois quiserem vira o filme da noite.",
+      ],
+      fatos: [["relogio", "Uns 3 minutos"], ["pessoas", "Decide pelo voto de cada um"]],
+      acao: "Começar o match",
+      abrir: onMatch,
+      bloqueio: doisNoApp ? null : "Fica liberado quando sua pessoa entrar no diário.",
+    },
+    {
+      id: "roleta",
+      arte: <ArteRoleta/>,
+      situacao: "Já têm a lista, só falta escolher?",
+      nome: "Roleta da lista",
+      passos: [
+        `Os títulos da lista a dois entram na roda${naLista > 12 ? ", até 12 por vez" : ""}.`,
+        "Vocês giram e deixam a sorte decidir.",
+        "O sorteado aparece no cartaz, pronto para a sessão.",
+      ],
+      fatos: [["relogio", "Na hora"], ["lista", naLista ? `Entre os ${naLista} da lista` : "Da lista a dois"]],
+      acao: "Girar a roleta",
+      abrir: onRoleta,
+      bloqueio: naLista >= 2 ? null : "Guardem pelo menos dois títulos na lista a dois para girar.",
+    },
+  ];
 
   return createPortal(
     <div className="subpage esc">
@@ -23,62 +89,45 @@ export default function Escolher({ users, watchlist = [], streamings = [], onSes
         </div>
 
         <h1 className="esc__titulo">O que vamos ver hoje?</h1>
-        <p className="esc__sub">Cada jeito resolve um tipo de indecisão. Escolham o que mais parece com a noite de vocês.</p>
+        <div className="esc__lumi">
+          <LumiCompanion mood="pointing" size={60} className="lumi-co--inline" talk={prefs?.lumiComments !== false}
+            line="Cada jeito resolve um tipo de indecisão. Toquem no que parece com a noite de vocês."/>
+        </div>
 
-        {/* cada jeito começa pela situação do casal; o nome e a mecânica vêm embaixo */}
-        <button type="button" className="esc__destaque" onClick={onSessao}>
-          <ArteSalas cartazes={cartazes}/>
-          <span className="esc__selo">Comecem por aqui</span>
-          <span className="esc__situacao">Não sabem nem por onde começar?</span>
-          <span className="esc__nome">Sessão de hoje</span>
-          <span className="esc__desc">O Lumi escolhe três filmes pelo gosto de vocês, entre o que está nos seus streamings. Vocês só olham.</span>
-          <Fatos itens={[["relogio", "Na hora"], ["coracao", "Decide pelo gosto de vocês"]]}/>
-          {semStreamings && <span className="esc__nota">Na primeira vez, vocês marcam onde assistem.</span>}
-          <span className="esc__acao">Ver a sessão de hoje</span>
-        </button>
+        <ul className="esc__salas">
+          {jeitos.map(j => {
+            const aberta = acesa === j.id;
+            return (
+              <li key={j.id} className={`esc__sala ${aberta ? "esc__sala--acesa" : ""}`}>
+                <button type="button" className="esc__porta" aria-expanded={aberta} aria-controls={`esc-${j.id}`}
+                  onClick={e => {
+                    setAcesa(j.id);
+                    // a sala que acendeu pode abrir abaixo da dobra: traz ela inteira para a tela
+                    const sala = e.currentTarget.closest("li");
+                    const suave = !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+                    setTimeout(() => sala?.scrollIntoView({ block: "nearest", behavior: suave ? "smooth" : "auto" }), 30);
+                  }}>
+                  <span className="esc__arte">{j.arte}</span>
+                  <span className="esc__cabeca">
+                    <span className="esc__situacao">{j.situacao}</span>
+                    <span className="esc__nome">{j.nome}{j.selo && <span className="esc__selo">{j.selo}</span>}</span>
+                  </span>
+                  <Icone n="seta"/>
+                </button>
 
-        <h2 className="esc__secao">Outros tipos de indecisão</h2>
-        <ul className="esc__lista">
-          <li>
-            <button type="button" className="esc__jeito" onClick={onAdivinha}>
-              <ArteParede/>
-              <span className="esc__texto">
-                <span className="esc__situacao">Sabem o clima, mas não o filme?</span>
-                <span className="esc__nome">O Lumi adivinha</span>
-                <span className="esc__desc">Respondam perguntas sobre hoje, como rir ou levar susto, e ele apaga os cartazes até sobrar um.</span>
-                <Fatos itens={[["relogio", "Uns 2 minutos"], ["balao", "Decide pelo humor de hoje"]]}/>
-              </span>
-              <Icone n="seta"/>
-            </button>
-          </li>
-          <li>
-            <button type="button" className="esc__jeito" onClick={onMatch} disabled={!doisNoApp}>
-              <ArteIngresso iniciais={users.map(u => u[0])}/>
-              <span className="esc__texto">
-                <span className="esc__situacao">Cada um quer uma coisa?</span>
-                <span className="esc__nome">Match a dois</span>
-                <span className="esc__desc">Cada um vota sozinho em 12 cartazes, passando o celular. O que os dois quiserem ganha.</span>
-                {doisNoApp
-                  ? <Fatos itens={[["relogio", "Uns 3 minutos"], ["pessoas", "Decide pelo voto de cada um"]]}/>
-                  : <span className="esc__nota">Liberado quando sua pessoa entrar no diário.</span>}
-              </span>
-              <Icone n="seta"/>
-            </button>
-          </li>
-          <li>
-            <button type="button" className="esc__jeito" onClick={onRoleta} disabled={naLista < 2}>
-              <ArteRoleta/>
-              <span className="esc__texto">
-                <span className="esc__situacao">Já têm a lista, só falta escolher?</span>
-                <span className="esc__nome">Roleta da lista</span>
-                <span className="esc__desc">A sorte escolhe entre o que vocês já guardaram na lista a dois.</span>
-                {naLista >= 2
-                  ? <Fatos itens={[["relogio", "Na hora"], ["lista", `Entre os ${naLista} da lista`]]}/>
-                  : <span className="esc__nota">Guardem pelo menos dois títulos na lista para girar.</span>}
-              </span>
-              <Icone n="seta"/>
-            </button>
-          </li>
+                {/* o conteúdo só existe na sala acesa: as apagadas ficam curtas */}
+                <div id={`esc-${j.id}`} className="esc__dentro" role="region" aria-label={`Como funciona: ${j.nome}`} hidden={!aberta}>
+                  <ol className="esc__passos">
+                    {j.passos.map(p => <li key={p}>{p}</li>)}
+                  </ol>
+                  <Fatos itens={j.fatos}/>
+                  {j.bloqueio
+                    ? <p className="esc__nota">{j.bloqueio}</p>
+                    : <button type="button" className="esc__acao" onClick={j.abrir}>{j.acao}</button>}
+                </div>
+              </li>
+            );
+          })}
         </ul>
       </div>
     </div>,
@@ -170,7 +219,6 @@ const CAMINHOS = {
   voltar: "M19 12H5M12 19l-7-7 7-7",
   seta: "M9 6l6 6-6 6",
   relogio: "M12 7v5l3 2M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z",
-  tv: "M4 6h16v11H4zM9 21h6M12 17v4",
   pessoas: "M16 19v-1a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v1M9.5 10a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM21 19v-1a4 4 0 0 0-3-3.9M16 4.1a3 3 0 0 1 0 5.8",
   lista: "M6 3h12v18l-6-4-6 4z",
   coracao: "M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1-1.1a5.5 5.5 0 0 0-7.8 7.8l1 1.1L12 21.2l7.8-7.7 1-1.1a5.5 5.5 0 0 0 0-7.8z",

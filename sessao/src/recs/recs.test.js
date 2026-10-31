@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { gostoDoCasal, generosFavoritos } from "./gosto.js";
 import { ranquear } from "./ranking.js";
-import { montarProgramacao } from "./candidatos.js";
+import { montarProgramacao, nomeCurto } from "./candidatos.js";
 
 const USERS = ["Ana", "Léo"];
 const HOJE = new Date("2026-10-31T20:00:00");
@@ -137,4 +137,13 @@ test("the three picks do not all give the same reason", () => {
   ], gosto, { users: USERS, hoje: HOJE, limite: 3 });
   const motivos = lista.map(c => c.motivo);
   assert.ok(new Set(motivos).size >= 2, `motivos repetidos: ${motivos.join(" | ")}`);
+});
+
+test("nome do streaming do jeito que a gente fala", () => {
+  assert.equal(nomeCurto("Amazon Prime Video"), "Prime Video");
+  assert.equal(nomeCurto("Amazon Prime Video with Ads"), "Prime Video");
+  assert.equal(nomeCurto("Disney Plus"), "Disney+");
+  assert.equal(nomeCurto("Paramount Plus"), "Paramount+");
+  assert.equal(nomeCurto("Netflix Standard with Ads"), "Netflix");
+  assert.equal(nomeCurto("Globoplay"), "Globoplay");
 });

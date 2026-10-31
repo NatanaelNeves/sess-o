@@ -11,7 +11,8 @@ import useBackClose from "./useBackClose.js";
 import "./programacao.css";
 import "./adivinha.css";
 
-const NA_PAREDE = 36;  // quantos cartazes o Lumi considera de cada vez
+const NA_PAREDE = 30;  // quantos cartazes o Lumi considera de cada vez
+const POR_FILEIRA = 6;
 const APAGAR_MS = 750; // tempo para ver as luzes apagando antes do palpite
 
 const semMovimento = () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
@@ -47,10 +48,12 @@ export default function Adivinha({
     (async () => {
       try {
         const excluir = loadVereditos ? await loadVereditos().catch(() => new Set()) : new Set();
-        const lista = await montarProgramacao({ request, gosto, streamings: meusStreamings, watchlist, excluir, users, hoje, conferir: NA_PAREDE });
+        const lista = await montarProgramacao({ request, gosto, streamings: meusStreamings, watchlist, excluir, users, hoje, conferir: 40 });
         if (!vivo) return;
-        // a parede fecha em fileiras inteiras de 9
-        const cabem = lista.length >= 18 ? Math.floor(Math.min(lista.length, NA_PAREDE) / 9) * 9 : lista.length;
+        // a parede fecha em fileiras inteiras
+        const cabem = lista.length >= POR_FILEIRA * 2
+          ? Math.floor(Math.min(lista.length, NA_PAREDE) / POR_FILEIRA) * POR_FILEIRA
+          : lista.length;
         const cartazes = lista.slice(0, cabem);
         setParede(cartazes);
         setAcesos(cartazes);
@@ -121,12 +124,10 @@ export default function Adivinha({
 
   const n = acesos.length;
   const pedido = resumoDoPedido(respostas);
-  const falaDaPergunta = respostas.length === 0
-    ? `Separei ${n} cartazes que combinam com vocês. Respondam juntos que eu adivinho.`
-    : n > 12 ? `Ainda tenho ${n} acesos. Continuem.`
-    : n > 3 ? `Esquentando: sobraram ${n}.`
-    : n > 1 ? `Quase lá. Só ${n} acesos.`
-    : "Achei! Sobrou um só.";
+  const contagem = n === 1 ? "Sobrou 1 aceso"
+    : n === parede.length ? `${n} acesos`
+    : n > 3 ? `${n} de ${parede.length} acesos`
+    : `Quase lá: ${n} acesos`;
   const naListaJa = palpite?.naLista && (users.length >= 2
     ? users.every(u => (palpite.naLista.wantedBy || []).includes(u))
     : (palpite.naLista.wantedBy || []).includes(currentUser));
@@ -179,30 +180,31 @@ export default function Adivinha({
                 </span>
               ))}
             </div>
-            <p className="adv__contagem" aria-live="polite">
-              {n === 1 ? "Sobrou 1 aceso" : `${n} de ${parede.length} acesos`}
-            </p>
-
-            <div className="adv__lumi">
-              <LumiCompanion mood={n <= 3 ? "excited" : respostas.length ? "thinking" : "curious"} size={52}
-                className="lumi-co--inline" talk={talk} line={falaDaPergunta}/>
+            {/* o Lumi só reage com o rosto; quem fala aqui é a pergunta */}
+            <div className="adv__cabeca">
+              <LumiCompanion mood={pensando || n <= 3 ? "excited" : respostas.length ? "thinking" : "curious"} size={44}
+                className="lumi-co--inline" talk={false}/>
+              <p className="adv__numero">{pensando ? "Apagando as luzes…" : `Pergunta ${respostas.length + 1}`}</p>
+              <p className="adv__contagem" aria-live="polite">{contagem}</p>
             </div>
 
             {pergunta && !pensando && (
               <div key={pergunta.id} className="adv__pergunta">
-                <p className="adv__numero">Pergunta {respostas.length + 1}</p>
                 <h2>{pergunta.texto}</h2>
+                {/* como no baralho do match: esquerda é não, direita é sim */}
                 <div className="adv__respostas">
-                  <button className="adv__resposta" onClick={() => responderPergunta("sim")}>Sim</button>
-                  <button className="adv__resposta" onClick={() => responderPergunta("nao")}>Não</button>
+                  <button className="adv__resposta adv__resposta--nao" onClick={() => responderPergunta("nao")}>Não</button>
+                  <button className="adv__resposta adv__resposta--sim" onClick={() => responderPergunta("sim")}>Sim</button>
                 </div>
                 <div className="adv__extras">
                   <button className="prog__mudar" onClick={() => responderPergunta("tanto_faz")}>Tanto faz</button>
                   {respostas.length > 0 && <button className="prog__mudar" onClick={voltar}>Voltar uma pergunta</button>}
                 </div>
+                {respostas.length === 0 && talk && (
+                  <p className="adv__dica">Respondam juntos. Cada resposta apaga os cartazes que não combinam, até sobrar o filme de vocês.</p>
+                )}
               </div>
             )}
-            {pensando && <p className="adv__pensando">Apagando as luzes…</p>}
           </div>
         )}
 

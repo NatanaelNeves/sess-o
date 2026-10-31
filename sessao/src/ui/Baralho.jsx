@@ -45,7 +45,9 @@ export default function Baralho({ cartas, onVoto }) {
 
   return (
     <div className="bar">
+      {/* a luz atrás do baralho acompanha o arrasto: âmbar para o quero, rosa para o passo */}
       <div className="bar__pilha"
+        style={{ "--forca": saindo ? (saindo === "sim" ? 1 : -1) : forca }}
         tabIndex={0}
         role="group"
         aria-label={`${topo.title}. Seta para a direita: quero; para a esquerda: passo.`}

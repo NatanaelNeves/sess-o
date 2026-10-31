@@ -167,8 +167,8 @@ export default function Programacao({
             <div className="prog__salas" aria-label="Salas de hoje">
               {agora.map((c, i) => (
                 <button key={c.key} aria-current={i === ativa ? "true" : undefined} className={`prog__sala-tab ${i === ativa ? "prog__sala-tab--on" : ""}`}
-                  onClick={() => irPara(i)}>
-                  Sala {i + 1}
+                  onClick={() => irPara(i)} aria-label={`Sala ${i + 1}`}>
+                  <small aria-hidden="true">Sala</small><b aria-hidden="true">{i + 1}</b>
                 </button>
               ))}
             </div>

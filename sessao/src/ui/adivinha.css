@@ -8,12 +8,15 @@
 .adv__largo { max-width: 320px; }
 
 /* ---------- a parede ---------- */
-.adv__jogo { display: flex; flex-direction: column; }
+/* a parede em cima; a pergunta e as respostas embaixo, perto do polegar */
+.adv__jogo { display: flex; flex-direction: column; min-height: calc(100dvh - 120px); }
 .adv__parede {
   display: grid;
-  grid-template-columns: repeat(9, minmax(0, 1fr));
-  gap: 4px;
-  margin-top: 14px;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 6px;
+  /* em celular baixinho a parede encolhe para as respostas caberem sem rolar */
+  width: min(100%, 36dvh);
+  margin: 14px auto 0;
   padding: 8px;
   border-radius: 12px;
   background: #0f090b;
@@ -25,12 +28,12 @@
   place-items: center;
   aspect-ratio: 2 / 3;
   overflow: hidden;
-  border-radius: 3px;
+  border-radius: 4px;
   background: #241518;
   /* apagado: o cartaz some no escuro da sala */
   opacity: 0.1;
   filter: grayscale(1) brightness(0.5);
-  transition: opacity 0.45s ease calc(var(--i) * 9ms), filter 0.45s ease calc(var(--i) * 9ms), box-shadow 0.45s ease;
+  transition: opacity 0.45s ease calc(var(--i) * 12ms), filter 0.45s ease calc(var(--i) * 12ms), box-shadow 0.45s ease;
 }
 .adv__luz img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .adv__luz b { padding: 2px; font-size: 6px; line-height: 1.1; text-align: center; color: var(--pipoca); }
@@ -42,16 +45,18 @@
 /* com poucos acesos, cada um ganha mais luz */
 .adv__parede--pensando .adv__luz--acesa { box-shadow: 0 0 0 1.5px var(--lente), 0 0 16px rgba(255, 181, 74, 0.8); }
 
-.adv__contagem { margin-top: 8px; font-size: 13px; font-weight: 650; color: var(--lente); text-align: right; }
+.adv__cabeca { display: flex; align-items: center; gap: 10px; margin-top: auto; padding-top: 14px; }
+.adv__cabeca .lumi-co { flex: none; width: auto; }
+.adv__numero { flex: 1; font-size: 14px; font-weight: 650; color: var(--text-secondary); }
+.adv__contagem { font-size: 13px; font-weight: 650; color: var(--lente); }
 
 /* ---------- a pergunta ---------- */
-.adv__pergunta { margin-top: 10px; animation: perguntaEntra 0.35s ease both; }
+.adv__pergunta { margin-top: 6px; animation: perguntaEntra 0.35s ease both; }
 @keyframes perguntaEntra { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
-.adv__numero { font-size: 13px; font-weight: 650; color: var(--text-tertiary); }
 .adv__pergunta h2 {
   margin-top: 4px;
   font-family: var(--font-display);
-  font-size: 28px;
+  font-size: clamp(23px, 7.4vw, 28px);
   font-weight: 700;
   line-height: 1.12;
   text-wrap: balance;
@@ -69,20 +74,17 @@
   font-weight: 700;
   transition: transform 0.15s ease, background 0.2s ease, box-shadow 0.2s ease;
 }
-.adv__resposta:active { transform: scale(0.96); background: rgba(255, 181, 74, 0.14); box-shadow: inset 0 0 0 1.5px var(--lente); }
+.adv__resposta:active { transform: scale(0.96); }
+.adv__resposta--nao { color: var(--bochecha); background: rgba(242, 167, 160, 0.06); box-shadow: inset 0 0 0 2px rgba(242, 167, 160, 0.45); }
+/* o sim é a lente do Lumi acesa, igual ao quero do baralho */
+.adv__resposta--sim {
+  color: #2b1716;
+  background: radial-gradient(circle at 38% 30%, #ffe0a8, var(--lente) 55%, #e08a1e);
+  box-shadow: 0 0 0 4px rgba(255, 181, 74, 0.14), 0 10px 26px -10px rgba(255, 181, 74, 0.85);
+}
 .adv__resposta:focus-visible { outline: 2px solid var(--lente); outline-offset: 3px; }
-@media (hover: hover) {
-  .adv__resposta:hover { box-shadow: inset 0 0 0 1.5px var(--lente); }
-}
 .adv__extras { display: flex; justify-content: center; gap: 22px; margin-top: 6px; }
-.adv__pensando {
-  margin-top: 26px;
-  text-align: center;
-  font-family: var(--font-display);
-  font-style: italic;
-  font-size: 18px;
-  color: var(--lente);
-}
+.adv__dica { margin-top: 14px; max-width: 38ch; font-size: 13px; line-height: 1.5; color: var(--text-tertiary); }
 
 /* ---------- o palpite ---------- */
 .adv__palpite { display: flex; flex-direction: column; }

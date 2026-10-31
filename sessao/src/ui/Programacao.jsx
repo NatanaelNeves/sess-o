@@ -19,7 +19,7 @@ const POR_VEZ = 3;
  */
 export default function Programacao({
   users, currentUser, watched, watchlist, streamings = [], prefs,
-  onSaveStreamings, onAddWatchlist, onAlsoWant, onVeredito, loadVereditos, onMatch, onAdivinha, onClose,
+  onSaveStreamings, onAddWatchlist, onAlsoWant, onVeredito, loadVereditos, onOutroJeito, onClose,
   request = tmdbCached, now,
 }) {
   useBackClose(onClose);
@@ -224,11 +224,8 @@ export default function Programacao({
                 <Icone n="trocar"/>{acabou ? "Ver as primeiras de novo" : temMais ? "Trocar as três" : "Voltar às primeiras"}
               </button>
             )}
-            {onMatch && fase === "pronto" && (
-              <button className="prog__mudar" onClick={onMatch}>Não conseguem escolher? Decidam no match a dois</button>
-            )}
-            {onAdivinha && fase === "pronto" && (
-              <button className="prog__mudar" onClick={onAdivinha}>Não sabem do que estão a fim? Deixem o Lumi adivinhar</button>
+            {onOutroJeito && fase === "pronto" && (
+              <button className="prog__mudar" onClick={onOutroJeito}>Nenhum dos três? Escolham de outro jeito</button>
             )}
             <button className="prog__mudar" onClick={() => setFase("streamings")}>Mudar nossos streamings</button>
             <p className="prog__credito">Onde assistir: dados do JustWatch, via TMDB.</p>

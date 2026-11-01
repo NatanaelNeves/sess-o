@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { TMDB_IMG, TMDB_LOGO, TMDB_SM, tmdbCached } from "../tmdb.js";
 import { gostoDoCasal } from "../recs/gosto.js";
@@ -34,7 +34,6 @@ export default function Programacao({
   const [erro, setErro] = useState("");
   const [tentativa, setTentativa] = useState(0);
   const [ativa, setAtiva] = useState(0);
-  const trilho = useRef(null);
   const gosto = useMemo(() => gostoDoCasal(watched, users, now), [watched, users, now]);
   const talk = prefs?.lumiComments !== false;
 
@@ -69,25 +68,9 @@ export default function Programacao({
   const atual = agora[Math.min(ativa, agora.length - 1)];
   const temMais = visiveis.length > cursor + POR_VEZ;
 
-  // a sala na frente é a que está centralizada no trilho
-  const aoRolar = () => {
-    const el = trilho.current;
-    if (!el?.children.length) return;
-    const passo = el.children[0].getBoundingClientRect().width + 14;
-    setAtiva(Math.max(0, Math.min(agora.length - 1, Math.round(el.scrollLeft / passo))));
-  };
-  const irPara = i => {
-    const el = trilho.current;
-    const alvo = el?.children[i];
-    if (!alvo) return;
-    const suave = !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-    el.scrollTo({ left: alvo.offsetLeft - (el.clientWidth - alvo.clientWidth) / 2, behavior: suave ? "smooth" : "auto" });
-  };
-
   const trocar = () => {
     setCursor(c => (temMais ? c + POR_VEZ : 0));
     setAtiva(0);
-    trilho.current?.scrollTo({ left: 0 });
   };
 
   const tirar = async (c, veredito) => {
@@ -119,7 +102,7 @@ export default function Programacao({
     : acabou ? "Essas foram as minhas melhores ideias para hoje."
     : aviso || (gosto.maturidade < 3
       ? "Ainda estou conhecendo o gosto de vocês. Quanto mais notas, mais eu acerto."
-      : "Separei três salas para hoje. Deslizem para ver as outras.");
+      : "Separei três salas para hoje. Toquem num cartaz para ver o filme.");
 
   return createPortal(
     <div className="subpage prog">
@@ -161,61 +144,55 @@ export default function Programacao({
           </div>
         )}
 
-        {fase === "pronto" && !acabou && (
-          <div className="prog__palco">
-            {/* as três salas: dá pra pular direto para uma */}
-            <div className="prog__salas" aria-label="Salas de hoje">
-              {agora.map((c, i) => (
-                <button key={c.key} aria-current={i === ativa ? "true" : undefined} className={`prog__sala-tab ${i === ativa ? "prog__sala-tab--on" : ""}`}
-                  onClick={() => irPara(i)} aria-label={`Sala ${i + 1}`}>
-                  <small aria-hidden="true">Sala</small><b aria-hidden="true">{i + 1}</b>
-                </button>
-              ))}
-            </div>
-
-            <div key={cursor} ref={trilho} className="prog__trilho" onScroll={aoRolar}
-              role="region" aria-roledescription="carrossel" aria-label="Sugestões do Lumi">
-              {agora.map((c, i) => {
-                const naListaJa = c.naLista && (c.naLista.wantedBy || []).includes(currentUser);
-                const naLista = adicionados.has(c.key) || naListaJa;
-                return (
-                  <article key={c.key} className={`prog__sala ${i === ativa ? "prog__sala--frente" : ""}`}
-                    aria-roledescription="sala" aria-label={`Sala ${i + 1} de ${agora.length}: ${c.title}`}>
-                    <div className="prog__moldura">
+        {fase === "pronto" && !acabou && atual && (() => {
+          const naListaJa = atual.naLista && (atual.naLista.wantedBy || []).includes(currentUser);
+          const naLista = adicionados.has(atual.key) || naListaJa;
+          return (
+            <div className="prog__palco">
+              {/* o letreiro: os três cartazes lado a lado, para comparar de uma vez só */}
+              <div key={cursor} className="prog__letreiro" role="tablist" aria-label="As três salas de hoje">
+                {agora.map((c, i) => (
+                  <button key={c.key} type="button" role="tab" id={`prog-sala-${i}`} aria-selected={i === ativa}
+                    aria-controls="prog-detalhe" aria-label={`Sala ${i + 1}: ${c.title}`}
+                    className={`prog__cartaz ${i === ativa ? "prog__cartaz--frente" : ""}`} onClick={() => setAtiva(i)}>
+                    <span className="prog__moldura">
                       {c.poster
-                        ? <img src={`${TMDB_IMG}${c.poster}`} alt={`Cartaz de ${c.title}`} className="prog__poster" loading={i ? "lazy" : "eager"}/>
+                        ? <img src={`${TMDB_IMG}${c.poster}`} alt="" className="prog__poster"/>
                         : <span className="prog__poster prog__poster--vazio">{c.title}</span>}
-                    </div>
+                    </span>
+                    <span className="prog__placa" aria-hidden="true">Sala {i + 1}</span>
+                  </button>
+                ))}
+              </div>
 
-                    <h2 className="prog__titulo">{c.title}</h2>
-                    <p className="prog__meta">
-                      {[c.year, ...(c.generos || []).slice(0, 2), c.type === "tv" ? "série" : null].filter(Boolean).join(" · ")}
-                      {c.nota > 0 && <span className="prog__nota">★ {c.nota.toFixed(1).replace(".", ",")}</span>}
-                    </p>
+              {/* o filme da sala acesa, com o que precisa para decidir */}
+              <article key={atual.key} id="prog-detalhe" role="tabpanel" aria-labelledby={`prog-sala-${ativa}`} className="prog__detalhe">
+                <h2 className="prog__titulo">{atual.title}</h2>
+                <p className="prog__meta">
+                  {[atual.year, ...(atual.generos || []).slice(0, 2), atual.type === "tv" ? "série" : null].filter(Boolean).join(" · ")}
+                  {atual.nota > 0 && <span className="prog__nota">★ {atual.nota.toFixed(1).replace(".", ",")}</span>}
+                </p>
+                <p className="prog__motivo">{atual.motivo}</p>
+                {atual.overview && <p className="prog__sinopse">{atual.overview}</p>}
 
-                    <p className="prog__motivo">{c.motivo}</p>
-                    {c.overview && <p className="prog__sinopse">{c.overview}</p>}
+                {atual.link && (
+                  <button className="prog__assistir" onClick={() => openExternal(atual.link)}>
+                    {atual.logos?.[0] && <img src={`${TMDB_LOGO}${atual.logos[0]}`} alt=""/>}
+                    <span>Assistir no {atual.provedores?.[0] || "streaming"}</span>
+                  </button>
+                )}
 
-                    {c.link && (
-                      <button className="prog__assistir" onClick={() => openExternal(c.link)}>
-                        {c.logos?.[0] && <img src={`${TMDB_LOGO}${c.logos[0]}`} alt=""/>}
-                        <span>Assistir no {c.provedores?.[0] || "streaming"}</span>
-                      </button>
-                    )}
-
-                    <div className="prog__acoes" role="group" aria-label={`O que fazer com ${c.title}`}>
-                      <button className={naLista ? "prog__acao prog__acao--feita" : "prog__acao"} disabled={naLista} onClick={() => quero(c)}>
-                        <Icone n="coracao"/>{naLista ? "Na lista" : c.naLista ? "Também quero" : "Quero ver"}
-                      </button>
-                      <button className="prog__acao" onClick={() => tirar(c, "ja_vimos")}><Icone n="visto"/>Já vimos</button>
-                      <button className="prog__acao" onClick={() => tirar(c, "nao_e_pra_nos")}><Icone n="nao"/>Não é pra nós</button>
-                    </div>
-                  </article>
-                );
-              })}
+                <div className="prog__acoes" role="group" aria-label={`O que fazer com ${atual.title}`}>
+                  <button className={naLista ? "prog__acao prog__acao--feita" : "prog__acao"} disabled={naLista} onClick={() => quero(atual)}>
+                    <Icone n="coracao"/>{naLista ? "Na lista" : atual.naLista ? "Também quero" : "Quero ver"}
+                  </button>
+                  <button className="prog__acao" onClick={() => tirar(atual, "ja_vimos")}><Icone n="visto"/>Já vimos</button>
+                  <button className="prog__acao" onClick={() => tirar(atual, "nao_e_pra_nos")}><Icone n="nao"/>Não é pra nós</button>
+                </div>
+              </article>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {(fase === "pronto" || fase === "vazio") && (
           <div className="prog__rodape">

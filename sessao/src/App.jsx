@@ -37,10 +37,26 @@ import "./ui/identity.css";
 import { buildReviewPayload, canWriteReview, getReviewOwnerName } from "./reviewPermissions.js";
 import { getPhotoUploadErrorMessage, resolvePhotoUploadCoupleId } from "./photoUpload";
 import { generateInviteCode, normalizeInviteCode, isInviteCodeValid, INVITE_CODE_LENGTH } from "./inviteCode.js";
-import { chunkItems, getAccountDeletionRole, withoutUserReview } from "./accountDeletion.js";
+import { chunkItems, withoutUserReview } from "./accountDeletion.js";
+import { leaveKind, leaveUpdate, stayingName, loadErrorMessage } from "./coupleLeave.js";
 import { albumKinds, compressPhotoToDataUrl, loadAlbum, newAlbumId, removePhoto, savePhoto } from "./photoAlbum";
 
 const coupleLabel = couple => [couple?.name1, couple?.name2].filter(Boolean).join(" & ");
+
+// marcas por diário guardadas no aparelho:
+//   solo     — a pessoa já escolheu "começar enquanto espero" (a tela de convite não volta)
+//   pareado  — este aparelho já viu o diário com as duas pessoas (se uma sair, avisamos
+//              em vez de mostrar "Diário criado!")
+const flagKey = (name, coupleId) => `sessao-${name}-${coupleId}`;
+const readFlag = (name, coupleId) => {
+  try { return !!coupleId && localStorage.getItem(flagKey(name, coupleId)) === "1"; } catch { return false; }
+};
+const writeFlag = (name, coupleId, on) => {
+  try {
+    if (on) localStorage.setItem(flagKey(name, coupleId), "1");
+    else localStorage.removeItem(flagKey(name, coupleId));
+  } catch { /* sem storage: a marca só não persiste */ }
+};
 const escapeHtml = value => String(value ?? "").replace(/[&<>"']/g, char => ({
   "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;",
 })[char]);
@@ -2606,7 +2622,7 @@ const EpisodeSheet = ({ entry, coupleId, onClose, addToast }) => {
 // Dev-only gallery (?v3demo) — valida os componentes V3 sem precisar de login.
 // ?v3demo&p=home|acervo|watchlist|perfil renderiza as páginas reais com dados mock.
 // Removido do bundle de produção pelo tree-shaking do import.meta.env.DEV.
-const DEMO_COUPLE = { name1: "Ana", name2: "Léo", since: "2025-03-10", createdAt: "2025-03-10T12:00:00.000Z", inviteCode: "PIPOCA-42" };
+const DEMO_COUPLE = { uid1: "demo-ana", uid2: "demo-leo", name1: "Ana", name2: "Léo", since: "2025-03-10", createdAt: "2025-03-10T12:00:00.000Z", inviteCode: "PIPOCA-42" };
 const DEMO_USERS = ["Ana", "Léo"];
 const demoEntry = (i, over = {}) => ({
   id: `d${i}`, type: "movie", title: `Filme ${i}`, year: "2024", poster: null, backdrop: null,
@@ -2679,7 +2695,7 @@ const V3Demo = () => {
         type: i % 4 === 0 ? "tv" : "movie", runtime: 90 + i * 6, year: `20${10 + i}`,
       }))} onClose={noop} onRegistrar={noop}/>,
       settings: <SettingsPage couple={DEMO_COUPLE} users={DEMO_USERS} watched={DEMO_WATCHED}
-        prefs={demoPrefs} onPref={noop} onSaveStreamings={async () => {}} onClose={noop} onSignOut={noop} onDeleteAccount={noop}/>,
+        prefs={demoPrefs} onPref={noop} onSaveStreamings={async () => {}} onClose={noop} onSignOut={noop} onDeleteAccount={noop} onLeaveCouple={noop}/>,
       // &semstreamings mostra a escolha dos streamings antes das sugestões
       mais: <AddSheet onEscolha={noop} onClose={noop}/>,
       marcarcinema: <SearchModal headTitle="Marcar ida ao cinema" headSub="qual filme vocês vão ver?" headLumi="cinemaSign"
@@ -2695,7 +2711,10 @@ const V3Demo = () => {
         streamings={new URLSearchParams(window.location.search).has("semstreamings") ? [] : [8, 119]} prefs={demoPrefs}
         onSaveStreamings={async () => {}} onAddWatchlist={noop} onAlsoWant={noop}
         onVeredito={async () => {}} loadVereditos={async () => new Set()} onClose={noop}/>,
-      delete: <DeleteAccountModal role="owner" deleting={false} error="" onCancel={noop} onConfirm={noop}/>,
+      delete: <DeleteAccountModal kind="handover" staying="Léo" onExport={noop} deleting={false} error="" onCancel={noop} onConfirm={noop}/>,
+      sair: <LeaveCoupleModal kind="partner" staying="Ana" onExport={noop} leaving={false} error="" onCancel={noop} onConfirm={noop}/>,
+      erro: <LumiState lumi="error" title="O diário não carregou" text={loadErrorMessage({ code: "resource-exhausted" })}
+        cta="Tentar de novo" ctaVariant="outline" onCta={noop}/>,
     };
     return (
       <div className="v3-shell">
@@ -5256,15 +5275,51 @@ const ProfilePage = ({ watched, watchlist, couple, users, prefs, onOpenSettings 
   );
 };
 
-const DeleteAccountModal = ({ role, deleting, error, onCancel, onConfirm, needsPassword = false }) => {
+// O que acontece com o diário quando você sai dele (ou exclui a conta): nunca
+// apaga o que é da outra pessoa — o diário fica com ela.
+const leaveCopy = (kind, staying) => {
+  const quem = staying || "sua pessoa";
+  if (kind === "handover") return `O diário continua com ${quem}: memórias, fotos e lista ficam com ${quem}. Suas avaliações saem das memórias.`;
+  if (kind === "partner") return `O diário continua com ${quem}. Suas avaliações saem das memórias; o resto fica com ${quem}.`;
+  return null;
+};
+
+// "Exportar antes" — a última chance de levar uma cópia das memórias
+const ExportBeforeLeaving = ({ onExport, disabled }) => onExport ? (
+  <button type="button" className="pill pill--outline pill--block delete-account__export" onClick={onExport} disabled={disabled}>
+    Exportar as memórias antes
+  </button>
+) : null;
+
+const LeaveCoupleModal = ({ kind, staying, leaving, error, onCancel, onConfirm, onExport }) => (
+  <Overlay onClose={() => { if (!leaving) onCancel(); }}>
+    <Modal title="Sair do diário" onClose={onCancel} closeDisabled={leaving} maxW={440}>
+      <div className="delete-account">
+        <Lumi name="sad" size={82} style={{ margin: "0 auto" }} alt="Lumi preocupado" />
+        <p className="delete-account__copy">{leaveCopy(kind, staying)}</p>
+        <p className="delete-account__copy">Sua conta continua: depois você pode criar um diário novo ou entrar em outro com um convite.</p>
+        <ExportBeforeLeaving onExport={onExport} disabled={leaving}/>
+        {error && <p className="delete-account__error" role="alert">{error}</p>}
+        <div className="delete-account__actions">
+          <button type="button" className="button button--ghost" onClick={onCancel} disabled={leaving}>Cancelar</button>
+          <button type="button" className="button button--danger" onClick={onConfirm} disabled={leaving}>
+            {leaving ? "Saindo…" : "Sair do diário"}
+          </button>
+        </div>
+      </div>
+    </Modal>
+  </Overlay>
+);
+
+const DeleteAccountModal = ({ kind, staying, deleting, error, onCancel, onConfirm, onExport, needsPassword = false }) => {
   const [confirmation, setConfirmation] = useState("");
   const [password, setPassword] = useState("");
   const inputRef = useRef(null);
   const exact = confirmation.trim().toUpperCase() === "EXCLUIR";
-  const copy = role === "owner"
-    ? "Você criou este diário. A conta, todas as memórias, avaliações, fotos e a lista do casal serão apagadas para as duas pessoas."
-    : role === "partner"
-      ? "Sua conta e suas avaliações serão apagadas. O diário continuará disponível para a pessoa que o criou."
+  const copy = kind === "solo"
+    ? "Você é a única pessoa neste diário. A conta, as memórias, avaliações, fotos e a lista serão apagadas."
+    : kind === "handover" || kind === "partner"
+      ? `Sua conta será apagada. ${leaveCopy(kind, staying)}`
       : "Sua conta do Sessão será apagada permanentemente.";
 
   useEffect(() => {
@@ -5281,6 +5336,7 @@ const DeleteAccountModal = ({ role, deleting, error, onCancel, onConfirm, needsP
           <Lumi name="sad" size={82} style={{ margin: "0 auto" }} alt="Lumi preocupado" />
           <p className="delete-account__copy">{copy}</p>
           <p className="delete-account__warning">Essa ação não pode ser desfeita.</p>
+          <ExportBeforeLeaving onExport={onExport} disabled={deleting}/>
           <label className="delete-account__label" htmlFor="delete-account-confirmation">
             Digite <strong>EXCLUIR</strong> para confirmar
           </label>
@@ -5341,7 +5397,7 @@ const FridayReminderRow = ({ on, onChange }) => {
   );
 };
 
-const SettingsPage = ({ couple, users, watched, prefs, onPref, onSaveStreamings, onClose, onSignOut, onDeleteAccount }) => {
+const SettingsPage = ({ couple, users, watched, prefs, onPref, onSaveStreamings, onClose, onSignOut, onDeleteAccount, onLeaveCouple }) => {
   useBackClose(onClose);
   const [copied, setCopied] = useState(false);
   const [editStreamings, setEditStreamings] = useState(false);
@@ -5447,6 +5503,15 @@ const SettingsPage = ({ couple, users, watched, prefs, onPref, onSaveStreamings,
 
         <div className="cfg-section">Zona de cuidado</div>
         <div className="cfg-group">
+          {onLeaveCouple && couple.uid2 && (
+            <button className="cfg-row" onClick={onLeaveCouple}>
+              <span className="cfg-row__label cfg-row__label--danger">
+                Sair do diário
+                <small className="cfg-row__hint">o diário fica com a outra pessoa; sua conta continua</small>
+              </span>
+              <span className="cfg-row__chev">›</span>
+            </button>
+          )}
           <button className="cfg-row" onClick={onDeleteAccount}>
             <span className="cfg-row__label cfg-row__label--danger">Excluir minha conta e meus dados</span>
             <span className="cfg-row__chev">›</span>
@@ -5539,6 +5604,19 @@ export default function App() {
   ));
   const [deletingAccount, setDeletingAccount] = useState(false);
   const [deleteAccountError, setDeleteAccountError] = useState("");
+  const [showLeave, setShowLeave] = useState(false);
+  const [handingOff, setHandingOff] = useState(false); // entre o lote da saída e a confirmação
+  const [leaving, setLeaving] = useState(false);
+  const [leaveError, setLeaveError] = useState("");
+  // falha ao achar o diário na entrada (rede, cota do dia): tela de erro, nunca
+  // splash infinito — e nunca a tela de "criar casal", que faria um diário duplicado
+  const [bootError, setBootError] = useState(null);
+  const [bootTry, setBootTry] = useState(0);
+  // falha nos listeners do diário: aviso com "tentar de novo" no lugar do conteúdo
+  const [dataError, setDataError] = useState(null);
+  const [listenTry, setListenTry] = useState(0);
+  // exclusões esperando o "desfazer" (chave "watched:id" / "watchlist:id")
+  const [pendingDeletes, setPendingDeletes] = useState(() => new Set());
   const [cineModal,    setCineModal]    = useState(null); // { mode:"plan"|"ticket"|"checkin", item }
   const [epSheet,      setEpSheet]      = useState(null);
   // preferências do Lumi (Configurações) — persistidas localmente
@@ -5596,7 +5674,17 @@ export default function App() {
   const currentUser = getReviewOwnerName(couple, authUser?.uid);
   const users = couple ? [couple.name1, couple.name2].filter(Boolean) : [];
   const dataReady = !!coupleId && dataReadyFor === coupleId;
-  const accountDeletionRole = getAccountDeletionRole(couple, authUser?.uid);
+  const leaveKindNow = leaveKind(couple, authUser?.uid);
+  const stayingNow = stayingName(couple, authUser?.uid);
+  const neverPaired = !!couple && "name2" in couple && couple.name2 == null;
+
+  // fora do diário (saiu, passou adiante, foi apagado): volta para a escolha de casal
+  const resetCouple = useCallback(() => {
+    setCouple(null); setCoupleId(null);
+    setWatched([]); setWatchlist([]);
+    setDataReadyFor(null); setDataError(null);
+    setEnterSolo(false);
+  }, []);
 
   // captura o retorno do login via redirect (mobile/PWA)
   useEffect(() => {
@@ -5612,50 +5700,62 @@ export default function App() {
     window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
   }, [authUser]);
 
-  // auth listener
+  // auth listener — `bootTry` refaz a busca quando a pessoa toca em "Tentar de novo"
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async user => {
       setAuthUser(user);
+      setBootError(null);
       if (!user) { setWatched([]); setWatchlist([]); setCouple(null); setCoupleId(null); setAuthLoading(false); return; }
-      // look for existing couple (as uid1 or uid2)
-      const [s1, s2] = await Promise.all([
-        getDocs(query(collection(db,"couples"), where("uid1","==",user.uid))),
-        getDocs(query(collection(db,"couples"), where("uid2","==",user.uid))),
-      ]);
-      const snap = !s1.empty ? s1 : s2;
-      if (!snap.empty) {
-        const pairDoc = snap.docs[0];
-        const pairData = pairDoc.data();
-        setCoupleId(pairDoc.id);
-        setCouple(pairData);
-        // Migra convites antigos para o índice privado sem bloquear o acesso.
-        if (pairData.uid1 === user.uid && !pairData.uid2 && isInviteCodeValid(pairData.inviteCode)) {
-          const inviteRef = doc(db, "inviteCodes", pairData.inviteCode);
-          getDoc(inviteRef).then(inviteSnapshot => {
-            if (inviteSnapshot.exists()) return;
-            return setDoc(inviteRef, {
-              coupleId: pairDoc.id,
-              createdBy: user.uid,
-              createdAt: pairData.createdAt || new Date().toISOString(),
-            });
-          }).catch(error => console.warn("Não foi possível indexar o convite antigo", error));
+      try {
+        // look for existing couple (as uid1 or uid2)
+        const [s1, s2] = await Promise.all([
+          getDocs(query(collection(db,"couples"), where("uid1","==",user.uid))),
+          getDocs(query(collection(db,"couples"), where("uid2","==",user.uid))),
+        ]);
+        const snap = !s1.empty ? s1 : s2;
+        if (!snap.empty) {
+          const pairDoc = snap.docs[0];
+          setCoupleId(pairDoc.id);
+          setCouple(pairDoc.data());
+        } else {
+          setWatched([]);
+          setWatchlist([]);
         }
-      } else {
-        setWatched([]);
-        setWatchlist([]);
+      } catch (error) {
+        console.error(error);
+        setBootError(error);
+      } finally {
+        setAuthLoading(false);
       }
-      setAuthLoading(false);
     });
     return () => unsub();
-  }, [addToast]);
+  }, [bootTry]);
+
+  const retryBoot = () => { setBootError(null); setAuthLoading(true); setBootTry(t => t + 1); };
 
   // Mantém os dois aparelhos sincronizados quando o parceiro aceita o convite.
+  // Sem acesso (a pessoa saiu ou passou o diário adiante) ou diário apagado: sai dele.
   useEffect(() => {
     if (!coupleId) return;
     return onSnapshot(doc(db, "couples", coupleId), snapshot => {
-      if (snapshot.exists()) setCouple(snapshot.data());
+      if (snapshot.exists()) {
+        const data = snapshot.data();
+        // Este aparelho lembra que o diário já teve as duas pessoas: se uma sair, quem
+        // fica recebe um aviso e continua no diário (em vez de "Diário criado!").
+        if (data.name2) writeFlag("pareado", coupleId, true);
+        else if (readFlag("pareado", coupleId)) {
+          writeFlag("pareado", coupleId, false);
+          writeFlag("solo", coupleId, true);
+          addToast("Sua pessoa saiu do diário. As memórias continuam aqui; o código novo para convidar está nas Configurações.", "info");
+        }
+        setCouple(data);
+      } else if (!snapshot.metadata.fromCache) resetCouple();
+    }, error => {
+      console.error(error);
+      if (error.code === "permission-denied") resetCouple();
+      else setDataError(error);
     });
-  }, [coupleId]);
+  }, [coupleId, resetCouple, addToast]);
 
   // splash: garante um tempo mínimo de respiro do Lumi antes do conteúdo
   useEffect(() => {
@@ -5663,18 +5763,53 @@ export default function App() {
     return () => clearTimeout(t);
   }, []);
 
-  // Firestore real-time listeners
+  // Firestore real-time listeners — `listenTry` religa depois de um erro
   useEffect(() => {
     if (!coupleId) return;
+    const onError = error => {
+      console.error(error);
+      if (error.code === "permission-denied") resetCouple();
+      else setDataError(error);
+    };
     // IMPORTANTE: id:d.id vem DEPOIS do spread pra que o ID real do documento
     // sempre vença um eventual campo "id" antigo salvo nos dados (registros
     // criados com id gerado no cliente). Sem isso, updateDoc aponta pro doc errado.
     const unW  = onSnapshot(collection(db,"couples",coupleId,"watched"),
-      snap => { setWatched(snap.docs.map(d=>({...d.data(),id:d.id}))); setDataReadyFor(coupleId); });
+      snap => { setWatched(snap.docs.map(d=>({...d.data(),id:d.id}))); setDataReadyFor(coupleId); }, onError);
     const unWL = onSnapshot(collection(db,"couples",coupleId,"watchlist"),
-      snap => setWatchlist(snap.docs.map(d=>({...d.data(),id:d.id}))));
+      snap => setWatchlist(snap.docs.map(d=>({...d.data(),id:d.id}))), onError);
     return () => { unW(); unWL(); };
-  }, [coupleId]);
+  }, [coupleId, listenTry, resetCouple]);
+
+  const retryListen = () => { setDataError(null); setListenTry(t => t + 1); };
+
+  // Código do convite com a vaga aberta. Diário que nunca teve parceiro e ainda não
+  // está no índice (convites antigos): indexa o MESMO código, que a pessoa pode já ter
+  // recebido. Depois de uma saída o código antigo foi tirado do índice: gera um novo,
+  // para quem saiu não voltar com ele.
+  const isOwner = !!couple && couple.uid1 === authUser?.uid;
+  const seatOpen = !!couple && !couple.uid2;
+  const inviteCode = couple?.inviteCode;
+  useEffect(() => {
+    if (!coupleId || !isOwner || !seatOpen || !authUser) return;
+    let cancelled = false;
+    (async () => {
+      const current = isInviteCodeValid(inviteCode) ? await getDoc(doc(db, "inviteCodes", inviteCode)) : null;
+      if (cancelled || (current?.exists() && current.data().coupleId === coupleId)) return;
+      const createdAt = new Date().toISOString();
+      if (current && !current.exists() && neverPaired) {
+        await setDoc(doc(db, "inviteCodes", inviteCode), { coupleId, createdBy: authUser.uid, createdAt });
+        return;
+      }
+      const code = generateInviteCode();
+      const batch = writeBatch(db);
+      batch.update(doc(db, "couples", coupleId), { inviteCode: code });
+      batch.set(doc(db, "inviteCodes", code), { coupleId, createdBy: authUser.uid, createdAt });
+      await batch.commit();
+    })().catch(error => console.warn("Não foi possível preparar o código do convite", error));
+    return () => { cancelled = true; };
+  }, [coupleId, isOwner, seatOpen, inviteCode, neverPaired, authUser]);
+
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -5751,6 +5886,68 @@ export default function App() {
     setEnterSolo(false);
   };
 
+  // O documento do código atual, se ele existir e apontar para este diário (apagar um
+  // documento inexistente seria recusado pelas regras e derrubaria o lote inteiro).
+  const ourInviteRef = async () => {
+    if (!isInviteCodeValid(couple?.inviteCode)) return null;
+    const ref = doc(db, "inviteCodes", couple.inviteCode);
+    const snapshot = await getDoc(ref);
+    return snapshot.exists() && snapshot.data().coupleId === coupleId ? ref : null;
+  };
+
+  // Sair do diário (com ou sem excluir a conta). Primeiro as próprias avaliações saem
+  // das memórias; depois, num lote só, a vaga abre (ou o diário passa para a outra
+  // pessoa) e o código antigo sai do índice — quem saiu não volta com ele.
+  const leaveCoupleWrites = async () => {
+    const update = leaveUpdate(couple, authUser?.uid, deleteField());
+    if (!coupleId || !update) throw new Error("NOT_PAIRED");
+    const watchedSnapshot = await getDocs(collection(db, "couples", coupleId, "watched"));
+    const entriesWithReview = watchedSnapshot.docs.filter(item => currentUser in (item.data().reviews || {}));
+    for (const entries of chunkItems(entriesWithReview)) {
+      const batch = writeBatch(db);
+      entries.forEach(item => batch.update(item.ref, {
+        reviews: withoutUserReview(item.data().reviews, currentUser),
+      }));
+      await batch.commit();
+    }
+    const inviteRef = await ourInviteRef();
+    // as marcas saem antes: o snapshot local do lote chega antes da confirmação e não
+    // deve avisar "sua pessoa saiu" justamente para quem está saindo
+    ["solo", "pareado"].forEach(flag => writeFlag(flag, coupleId, false));
+    const batch = writeBatch(db);
+    batch.update(doc(db, "couples", coupleId), update);
+    if (inviteRef) batch.delete(inviteRef);
+    setHandingOff(true);
+    try {
+      await batch.commit();
+      resetCouple();
+    } finally {
+      setHandingOff(false);
+    }
+  };
+
+  const handleLeaveCouple = async () => {
+    setLeaving(true);
+    setLeaveError("");
+    try {
+      if (!navigator.onLine) throw new Error("OFFLINE");
+      await leaveCoupleWrites();
+      setShowLeave(false);
+      setShowSettings(false);
+      setPage("home");
+      addToast("Você saiu do diário", "info");
+    } catch (error) {
+      console.error(error);
+      setLeaveError(error.message === "OFFLINE"
+        ? "Conecte-se à internet para sair do diário."
+        : "Não foi possível sair agora. Verifique a conexão e tente novamente.");
+    } finally {
+      setLeaving(false);
+    }
+  };
+
+  const exportMemories = () => exportToPdf(watched, users, couple);
+
   const handleDeleteAccount = async password => {
     setDeletingAccount(true);
     setDeleteAccountError("");
@@ -5765,37 +5962,24 @@ export default function App() {
       else if (isNativeApp()) beforeDelete = await nativeReauth(user);
       else await reauthenticateWithPopup(user, new GoogleAuthProvider());
 
-      if (coupleId && accountDeletionRole === "owner") {
-        // As subcoleções precisam sair antes do documento do casal, que autoriza o acesso.
-        // As fotos moram no próprio Firestore (ver src/photoAlbum.js), então entram no
-        // mesmo lote de exclusão do acervo.
-        const [watchedSnapshot, watchlistSnapshot, photosSnapshot] = await Promise.all([
-          getDocs(collection(db, "couples", coupleId, "watched")),
-          getDocs(collection(db, "couples", coupleId, "watchlist")),
-          getDocs(collection(db, "couples", coupleId, "photos")),
-        ]);
-        const childRefs = [...watchedSnapshot.docs, ...watchlistSnapshot.docs, ...photosSnapshot.docs].map(item => item.ref);
+      if (coupleId && leaveKindNow === "solo") {
+        // Só esta pessoa no diário: ele sai inteiro. As subcoleções precisam sair antes do
+        // documento do casal, que autoriza o acesso. As fotos moram no próprio Firestore
+        // (ver src/photoAlbum.js), então entram no mesmo lote de exclusão do acervo.
+        const snapshots = await Promise.all(["watched", "watchlist", "photos", "sugestoes"]
+          .map(name => getDocs(collection(db, "couples", coupleId, name))));
+        const childRefs = snapshots.flatMap(snapshot => snapshot.docs.map(item => item.ref));
         for (const refs of chunkItems(childRefs)) {
           const batch = writeBatch(db);
           refs.forEach(itemRef => batch.delete(itemRef));
           await batch.commit();
         }
-        if (couple.inviteCode) await deleteDoc(doc(db, "inviteCodes", couple.inviteCode));
+        const inviteRef = await ourInviteRef();
+        if (inviteRef) await deleteDoc(inviteRef);
         await deleteDoc(doc(db, "couples", coupleId));
-      } else if (coupleId && accountDeletionRole === "partner") {
-        const watchedSnapshot = await getDocs(collection(db, "couples", coupleId, "watched"));
-        const entriesWithReview = watchedSnapshot.docs.filter(item => currentUser in (item.data().reviews || {}));
-        for (const entries of chunkItems(entriesWithReview)) {
-          const batch = writeBatch(db);
-          entries.forEach(item => batch.update(item.ref, {
-            reviews: withoutUserReview(item.data().reviews, currentUser),
-          }));
-          await batch.commit();
-        }
-        await updateDoc(doc(db, "couples", coupleId), {
-          uid2: deleteField(),
-          name2: deleteField(),
-        });
+      } else if (coupleId && leaveKindNow) {
+        // Há outra pessoa: o diário fica com ela, só a sua parte sai.
+        await leaveCoupleWrites();
       }
 
       await beforeDelete();
@@ -5854,7 +6038,8 @@ export default function App() {
 
     const pairRef = doc(db, "couples", invite.data().coupleId);
     try {
-      await updateDoc(pairRef, { name2, uid2: authUser.uid });
+      // joinedWith prova para as regras que quem entra tem o código atual
+      await updateDoc(pairRef, { name2, uid2: authUser.uid, joinedWith: normalizedCode });
     } catch (error) {
       console.error(error);
       throw new Error("Este convite expirou ou já foi usado.", { cause: error });
@@ -6042,20 +6227,38 @@ export default function App() {
   const loadVereditos = async () =>
     new Set((await getDocs(collection(db, "couples", coupleId, "sugestoes"))).docs.map(d => d.id));
 
+  // Excluir espera o "desfazer" sair da tela antes de apagar de verdade. Recriar o
+  // documento depois não funciona: a memória pode ter a crítica da outra pessoa, que
+  // ninguém além dela pode gravar. Se o app fechar antes, nada é apagado.
+  const UNDO_MS = 3500;
+  const forgetPending = key => setPendingDeletes(s => { const next = new Set(s); next.delete(key); return next; });
+  const commitDelete = async (item, coll, id) => {
+    await deleteDoc(doc(db, "couples", coupleId, coll, id));
+    // as fotos da memória moram em documentos próprios: saem junto
+    if (coll === "watched" && item.albumId) {
+      await Promise.all(albumKinds(item).map(kind => removePhoto(coupleId, item.albumId, kind).catch(e => console.error(e))));
+    }
+  };
   const requestDelete = (item, type) => {
     setConfirm({
-      message: "Tem certeza? Essa ação não pode ser desfeita.",
-      onConfirm: async () => {
+      message: "Remover? Você ainda pode desfazer por alguns segundos.",
+      onConfirm: () => {
         setConfirm(null);
         const coll = type==="watched" ? "watched" : "watchlist";
-        const { id, ...data } = item;
-        await deleteDoc(doc(db,"couples",coupleId,coll,id));
-        addToast("Removido","error", async () => {
-          await setDoc(doc(db,"couples",coupleId,coll,id), data);
-        });
+        const key = `${coll}:${item.id}`;
+        setPendingDeletes(s => new Set(s).add(key));
+        const timer = setTimeout(() => {
+          commitDelete(item, coll, item.id)
+            .catch(e => { console.error(e); addToast("Não foi possível remover", "error"); })
+            .finally(() => forgetPending(key));
+        }, UNDO_MS);
+        addToast("Removido", "info", () => { clearTimeout(timer); forgetPending(key); });
       },
     });
   };
+  // o que as telas mostram: sem os itens esperando o "desfazer"
+  const watchedView = useMemo(() => pendingDeletes.size ? watched.filter(w => !pendingDeletes.has(`watched:${w.id}`)) : watched, [watched, pendingDeletes]);
+  const watchlistView = useMemo(() => pendingDeletes.size ? watchlist.filter(w => !pendingDeletes.has(`watchlist:${w.id}`)) : watchlist, [watchlist, pendingDeletes]);
 
   const markWatched = e => {
     // NÃO remove da watchlist aqui — só depois que a sessão for realmente salva.
@@ -6105,7 +6308,9 @@ export default function App() {
 
   const accountDeletionModal = showDeleteAccount ? (
     <DeleteAccountModal
-      role={accountDeletionRole}
+      kind={leaveKindNow}
+      staying={stayingNow}
+      onExport={coupleId && watched.length ? exportMemories : undefined}
       deleting={deletingAccount}
       error={deleteAccountError}
       onCancel={() => {
@@ -6115,6 +6320,18 @@ export default function App() {
       }}
       onConfirm={handleDeleteAccount}
       needsPassword={hasPassword(auth.currentUser)}
+    />
+  ) : null;
+
+  const leaveModal = showLeave && (leaveKindNow === "handover" || leaveKindNow === "partner") ? (
+    <LeaveCoupleModal
+      kind={leaveKindNow}
+      staying={stayingNow}
+      leaving={leaving}
+      error={leaveError}
+      onExport={watched.length ? exportMemories : undefined}
+      onCancel={() => { if (!leaving) { setShowLeave(false); setLeaveError(""); } }}
+      onConfirm={handleLeaveCouple}
     />
   ) : null;
 
@@ -6147,14 +6364,29 @@ export default function App() {
 
   if (!authUser) return <LoginScreen onLogin={handleLogin} onAppleLogin={handleAppleLogin} loading={loginLoading}/>;
 
+  // o diário não carregou: explica e deixa tentar de novo (nunca cai em "criar casal")
+  if (bootError) return (
+    <div className="error-screen">
+      <LumiState lumi="error" title="O projetor travou" text={loadErrorMessage(bootError)}
+        cta="Tentar de novo" ctaVariant="outline" onCta={retryBoot}/>
+      <button type="button" onClick={handleSignOut} className="auth-signout">Sair / trocar de conta</button>
+    </div>
+  );
+
   if (!couple) return <>
     <CoupleSetup authUser={authUser} onCreate={handleCreateCouple} onJoin={handleJoinCouple} onSignOut={handleSignOut}/>
     {accountDeletionModal}
   </>;
 
   // First user created couple but partner hasn't joined yet (name2 is null)
-  if (!couple.name2 && !enterSolo) return <>
-    <InviteScreen inviteCode={couple.inviteCode} couple={couple} onContinue={() => setEnterSolo(true)} onSignOut={handleSignOut}/>
+  // saindo do diário: o estado local já mudou, mas a saída ainda não foi confirmada
+  if (handingOff) return <SplashScreen/>;
+
+  // "Começar enquanto espero" fica guardado no aparelho; quem já teve as duas pessoas
+  // no diário (alguém saiu) segue direto para ele
+  if (!couple.name2 && !enterSolo && !readFlag("solo", coupleId) && !readFlag("pareado", coupleId)) return <>
+    <InviteScreen inviteCode={couple.inviteCode} couple={couple} onSignOut={handleSignOut}
+      onContinue={() => { writeFlag("solo", coupleId, true); setEnterSolo(true); }}/>
     {accountDeletionModal}
   </>;
 
@@ -6180,6 +6412,7 @@ export default function App() {
       )}
       <ToastContainer toasts={toasts} onDismiss={dismissToast}/>
       {accountDeletionModal}
+      {leaveModal}
 
       <div className="v3-shell">
 
@@ -6220,7 +6453,8 @@ export default function App() {
           <SettingsPage couple={couple} users={users} watched={watched}
             prefs={prefs} onPref={setPref} onSaveStreamings={saveStreamings}
             onClose={()=>setShowSettings(false)} onSignOut={handleSignOut}
-            onDeleteAccount={() => { setDeleteAccountError(""); setShowDeleteAccount(true); }}/>
+            onDeleteAccount={() => { setDeleteAccountError(""); setShowDeleteAccount(true); }}
+            onLeaveCouple={() => { setLeaveError(""); setShowLeave(true); }}/>
         )}
         {showEscolher && (
           <Escolher users={users} watchlist={watchlist} streamings={couple.streamings || []}
@@ -6279,23 +6513,26 @@ export default function App() {
 
         {/* pages */}
         <div className="app-shell__content">
-          {!dataReady ? <ContentSkeleton/> : (
+          {dataError ? (
+            <LumiState lumi="error" title="O diário não carregou" text={loadErrorMessage(dataError)}
+              cta="Tentar de novo" ctaVariant="outline" onCta={retryListen}/>
+          ) : !dataReady ? <ContentSkeleton/> : (
             <div key={page} className="v3-page">
-              {page==="home"      && <HomePage      watched={watched} watchlist={watchlist} couple={couple} currentUser={currentUser} users={users} coupleId={coupleId} addToast={addToast}
+              {page==="home"      && <HomePage      watched={watchedView} watchlist={watchlistView} couple={couple} currentUser={currentUser} users={users} coupleId={coupleId} addToast={addToast}
                                        onEscolher={()=>setShowEscolher(true)} onAdd={()=>setAddModal("watched")}
                                        onSaveReview={saveReview} onUpdateStatus={saveStatus} onContinueEpisode={continueEpisode} onToggleTogether={toggleTogether}
                                        onOpenSettings={()=>setShowSettings(true)}
                                        onOpenTicket={openTicket} onOpenCheckin={openCheckin} onGoWatchlist={()=>setPage("watchlist")}
                                        onGoDiary={()=>setPage("diary")} onGoProfile={()=>setPage("profile")}
                                        onEdit={editWatched} onDelete={e=>requestDelete(e,"watched")} prefs={prefs}/>}
-              {page==="diary"     && <DiaryPage     watched={watched} users={users} currentUser={currentUser} coupleId={coupleId} addToast={addToast}
+              {page==="diary"     && <DiaryPage     watched={watchedView} users={users} currentUser={currentUser} coupleId={coupleId} addToast={addToast}
                                        onDelete={e=>requestDelete(e,"watched")} onEdit={editWatched} onSaveReview={saveReview} onUpdateStatus={saveStatus}
                                        onContinueEpisode={continueEpisode} onToggleTogether={toggleTogether}
                                        onAddToWatchlist={()=>setAddModal("watchlist")} prefs={prefs}/>}
-              {page==="watchlist" && <WatchlistPage watchlist={watchlist} watched={watched} users={users} currentUser={currentUser}
+              {page==="watchlist" && <WatchlistPage watchlist={watchlistView} watched={watchedView} users={users} currentUser={currentUser}
                                        onDelete={e=>requestDelete(e,"watchlist")} onMarkWatched={markWatched} onEscolher={()=>setShowEscolher(true)} onAlsoWant={alsoWant}
                                        onPlan={openPlan} onOpenTicket={openTicket} onCheckin={openCheckin} prefs={prefs}/>}
-              {page==="profile"   && <ProfilePage   watched={watched} watchlist={watchlist} couple={couple} users={users} prefs={prefs}
+              {page==="profile"   && <ProfilePage   watched={watchedView} watchlist={watchlistView} couple={couple} users={users} prefs={prefs}
                                        onOpenSettings={()=>setShowSettings(true)}/>}
             </div>
           )}

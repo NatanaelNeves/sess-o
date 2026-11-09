@@ -6,8 +6,9 @@ service cloud.firestore {
     function isAuth() {
       return request.auth != null;
     }
+    // uid2/name2 podem não existir (vaga aberta depois de uma saída): sempre via get()
     function isMember(coupleData) {
-      return coupleData.uid1 == request.auth.uid || coupleData.uid2 == request.auth.uid;
+      return coupleData.uid1 == request.auth.uid || coupleData.get("uid2", null) == request.auth.uid;
     }
     function coupleData(coupleId) {
       return get(/databases/$(database)/documents/couples/$(coupleId)).data;
@@ -15,12 +16,12 @@ service cloud.firestore {
     // funções de regra aceitam só uma expressão de retorno — nada de `if`
     function reviewOwnerName(coupleData) {
       return request.auth.uid == coupleData.uid1 ? coupleData.name1
-           : request.auth.uid == coupleData.uid2 ? coupleData.name2
+           : request.auth.uid == coupleData.get("uid2", null) ? coupleData.get("name2", null)
            : null;
     }
     function reviewPartnerName(coupleData) {
-      return request.auth.uid == coupleData.uid1 ? coupleData.name2
-           : request.auth.uid == coupleData.uid2 ? coupleData.name1
+      return request.auth.uid == coupleData.uid1 ? coupleData.get("name2", null)
+           : request.auth.uid == coupleData.get("uid2", null) ? coupleData.name1
            : null;
     }
     // Cada um só escreve a própria crítica; as outras chaves de `reviews` ficam
@@ -39,23 +40,54 @@ service cloud.firestore {
         && (partner == null
           || newReviews.get(partner, null) == oldReviews.get(partner, null));
     }
+    // Depois que alguém sai, uid2/name2 deixam de existir (deleteField): ler o campo
+    // direto dá erro e recusaria qualquer entrada nova. Por isso o get() com padrão.
     function isJoiningCouple(coupleId) {
       let code = resource.data.inviteCode;
-      return resource.data.uid2 == null
+      return resource.data.get("uid2", null) == null
+        && resource.data.uid1 != request.auth.uid
         && request.resource.data.uid2 == request.auth.uid
         && request.resource.data.name2 is string
         && request.resource.data.name2.size() >= 1
         && request.resource.data.name2.size() <= 40
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["uid2", "name2"])
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["uid2", "name2", "joinedWith"])
+        && joinProvesCode()
         && exists(/databases/$(database)/documents/inviteCodes/$(code))
         && get(/databases/$(database)/documents/inviteCodes/$(code)).data.coupleId == coupleId;
     }
+    // Quem entra mostra o código atual (joinedWith). Sem isso bastaria saber o id do
+    // casal — e quem já foi parceiro sabe. Diários que nunca tiveram parceiro (name2
+    // gravado como null na criação) ainda aceitam a entrada sem joinedWith, para não
+    // quebrar versões antigas do app; depois de uma saída o campo some e a prova vira
+    // obrigatória.
+    function joinProvesCode() {
+      return request.resource.data.get("joinedWith", null) == resource.data.inviteCode
+        || (("name2" in resource.data) && !("joinedWith" in request.resource.data));
+    }
     function isOwnProfileUpdate() {
-      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(["name1", "name2", "since"])
-        && (
-          (resource.data.uid1 == request.auth.uid && request.resource.data.name2 == resource.data.name2)
-          || (resource.data.uid2 == request.auth.uid && request.resource.data.name1 == resource.data.name1)
-        );
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      return (resource.data.uid1 == request.auth.uid && changed.hasOnly(["name1", "since"]))
+        || (resource.data.get("uid2", null) == request.auth.uid && changed.hasOnly(["name2", "since"]));
+    }
+    // Quem criou o diário sai e o diário fica com a outra pessoa: ela vira uid1 e a
+    // vaga de parceiro abre. Nada além dos quatro campos da dupla muda.
+    function isHandingOver() {
+      return resource.data.uid1 == request.auth.uid
+        && resource.data.get("uid2", null) is string
+        && request.resource.data.uid1 == resource.data.uid2
+        && request.resource.data.name1 == resource.data.get("name2", null)
+        && !('uid2' in request.resource.data)
+        && !('name2' in request.resource.data)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["uid1", "name1", "uid2", "name2"]);
+    }
+    // Código novo quando a vaga está aberta: quem saiu não volta com o código antigo.
+    function isInviteRotation() {
+      return resource.data.uid1 == request.auth.uid
+        && resource.data.get("uid2", null) == null
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["inviteCode"])
+        && request.resource.data.inviteCode is string
+        && request.resource.data.inviteCode.size() >= 6
+        && request.resource.data.inviteCode.size() <= 8;
     }
     // "Nossos streamings": qualquer um dos dois escolhe; só uma lista curta de IDs do TMDB
     function isStreamingsUpdate() {
@@ -65,7 +97,7 @@ service cloud.firestore {
         && request.resource.data.streamings.size() <= 40;
     }
     function isLeavingCouple() {
-      return resource.data.uid2 == request.auth.uid
+      return resource.data.get("uid2", null) == request.auth.uid
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["uid2", "name2"])
         && !('uid2' in request.resource.data)
         && !('name2' in request.resource.data);
@@ -88,7 +120,8 @@ service cloud.firestore {
         && request.resource.data.inviteCode.size() >= 6
         && request.resource.data.inviteCode.size() <= 8;
 
-      allow update: if isAuth() && (isOwnProfileUpdate() || isJoiningCouple(coupleId) || isLeavingCouple() || isStreamingsUpdate());
+      allow update: if isAuth() && (isOwnProfileUpdate() || isJoiningCouple(coupleId) || isLeavingCouple()
+        || isHandingOver() || isInviteRotation() || isStreamingsUpdate());
 
       // Delete: only uid1 can delete
       allow delete: if isAuth() && resource.data.uid1 == request.auth.uid;
@@ -145,7 +178,14 @@ service cloud.firestore {
         && getAfter(/databases/$(database)/documents/couples/$(request.resource.data.coupleId)).data.uid1 == request.auth.uid
         && getAfter(/databases/$(database)/documents/couples/$(request.resource.data.coupleId)).data.inviteCode == inviteCode;
       allow update: if false;
-      allow delete: if isAuth() && resource.data.createdBy == request.auth.uid;
+      // Quem criou o código, o dono atual do diário (depois de uma passagem) ou o
+      // parceiro que está saindo — este último apaga o código no mesmo lote da saída.
+      allow delete: if isAuth() && (
+        resource.data.createdBy == request.auth.uid
+        || (exists(/databases/$(database)/documents/couples/$(resource.data.coupleId))
+          && (coupleData(resource.data.coupleId).uid1 == request.auth.uid
+            || coupleData(resource.data.coupleId).get("uid2", null) == request.auth.uid))
+      );
     }
   }
 }

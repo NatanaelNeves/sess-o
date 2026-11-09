@@ -1924,38 +1924,6 @@
 .rl-result-card__title { font-family: var(--font-display); font-size: 26px; font-weight: 700; margin-top: 4px; }
 .rl-result-card__sub { font-size: 12px; color: var(--gold); margin-top: 4px; }
 
-/* ---------- Onboarding ---------- */
-.onb {
-  position: fixed; inset: 0; z-index: 6000;
-  display: flex; flex-direction: column; align-items: center;
-  padding: 64px 34px calc(34px + env(safe-area-inset-bottom, 0px));
-  background: radial-gradient(120% 70% at 50% 10%, #241518 0%, #170f12 60%);
-  overflow-y: auto;
-}
-.onb > .lumi { background: transparent; }
-.onb__title { font-family: var(--font-display); font-size: 38px; font-weight: 600; margin: 24px 0 0; text-align: center; line-height: 1.1; text-wrap: balance; }
-.onb__text { font-size: 15px; color: var(--text-secondary); text-align: center; margin: 14px 0 0; line-height: 1.6; }
-.onb__dots { display: flex; gap: 8px; margin-top: 26px; }
-.onb__dot { width: 7px; height: 7px; border-radius: 50%; background: #4a3437; transition: all 0.3s var(--ease-out-soft); }
-.onb__dot--on { width: 22px; border-radius: var(--radius-full); background: var(--gold); }
-.onb__steps { margin-top: 28px; display: flex; flex-direction: column; gap: 16px; width: 100%; }
-.onb__step { display: flex; gap: 16px; align-items: center; border-radius: 22px; background: var(--bg-surface); border: 1px solid rgba(255, 255, 255, 0.07); padding: 16px; }
-.onb__step img { width: 58px; height: 58px; object-fit: contain; flex-shrink: 0; }
-.onb__step-t { font-weight: 700; font-size: 15px; }
-.onb__step-s { font-size: 13px; color: var(--text-secondary); margin-top: 3px; line-height: 1.45; }
-.onb__cta { margin-top: auto; width: 100%; padding-top: 26px; }
-.onb__privacy-note { font-size: 12px; color: var(--text-tertiary); text-align: center; margin-top: 4px; line-height: 1.5; }
-.onb__privacy-note span:last-child { color: var(--gold); font-weight: 700; }
-.onb__replay {
-  min-height: 44px;
-  padding: 8px 14px;
-  border: none;
-  background: transparent;
-  color: var(--text-tertiary);
-  font-size: 12px;
-}
-.onb__replay:hover { color: var(--text-secondary); }
-
 /* código de convite (caixa tracejada) */
 .invite-dash {
   width: 100%;

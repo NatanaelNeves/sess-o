@@ -7,6 +7,13 @@
       "runtimeArgs": ["run", "dev"],
       "cwd": "sessao",
       "port": 5173
+    },
+    {
+      "name": "sessao-demo-build",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["vite", "preview", "--outDir", "../.impeccable/demo-dist", "--port", "5180", "--strictPort"],
+      "cwd": "sessao",
+      "port": 5180
     }
   ]
 }

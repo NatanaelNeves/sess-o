@@ -6,7 +6,7 @@ export default defineConfig({
   // ios/ e capacitor-android/ guardam cópias do build: o dev server não deve
   // varrê-las como código-fonte nem vigiar milhares de arquivos gerados
   optimizeDeps: { entries: ['index.html'] },
-  server: { watch: { ignored: ['**/ios/**', '**/capacitor-android/**', '**/android/**', '**/native/**'] } },
+  server: { watch: { ignored: ['**/ios/**', '**/capacitor-android/**', '**/native/**'] } },
   build: {
     rollupOptions: {
       output: {

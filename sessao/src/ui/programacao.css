@@ -333,5 +333,5 @@
 .stm__aviso { color: var(--text-secondary); margin-top: 14px; }
 
 @media (prefers-reduced-motion: reduce) {
-  .prog__letreiro::before, .prog__cartaz--skel, .stm__opcao--skel { animation: none; }
+  .prog__letreiro::before, .stm__opcao--skel { animation: none; }
 }

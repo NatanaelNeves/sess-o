@@ -20,12 +20,8 @@ dist-ssr
 # Firebase
 .firebase/
 
-# Local Android toolchain and generated build files
+# Local Android toolchain
 android-tools/
-android/.gradle/
-android/app/build/
-android/android.keystore
-android/local.properties
 
 # Editor directories and files
 .vscode/*

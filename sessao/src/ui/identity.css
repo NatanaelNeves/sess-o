@@ -6,10 +6,7 @@
 
 /* ---------- títulos de seção: frase normal, serifa macia, sem caixa alta ---------- */
 .home-last-label,
-.section-label,
-.section-heading,
 .cfg-section,
-.cine-section-label,
 .timeline-month__header,
 .story-chapter__month {
   font-family: var(--font-display);
@@ -27,7 +24,6 @@
 .continue-hero__eyebrow,
 .ep-hero__eyebrow,
 .ep-hero__badge,
-.ep-stepper__label,
 .celebrate__eyebrow,
 .ep-input > span,
 .mdetail-banner__eyebrow,
@@ -37,9 +33,7 @@
 .ns-hero__eyebrow,
 .cine-head__eyebrow,
 .cfg-badge,
-.rl-cine__eyebrow,
-.tl-entry__tag,
-.nota-casal--row .nota-casal__label {
+.tl-entry__tag {
   text-transform: none;
   letter-spacing: 0;
   font-size: 13px;
@@ -174,7 +168,6 @@
 
 /* vermelho como texto precisa ser mais claro que o cachecol para ser legível no escuro */
 .cfg-row__label--danger,
-.button--danger-text,
 .delete-account__error,
 .error-text { color: var(--perigo-texto); }
 

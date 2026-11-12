@@ -32,17 +32,18 @@ Um app para vocês dois registrarem o que assistem juntos, avaliarem cada sessã
 
 ## 🎨 Identidade
 
-Tema escuro cinematográfico — vermelho carmim, dourado nas notas, lilás na watchlist e a serifa *Cormorant Garamond* nos títulos. Pensado **mobile-first**, com bottom sheets, áreas de toque confortáveis e microinterações discretas.
+"A cabine do Lumi": tema escuro de sala de cinema — cacau no fundo, vermelho cachecol nas ações, âmbar da lente do projetor nas notas — com a serifa *Fraunces* nos títulos e *Figtree* no texto. Pensado **mobile-first**, com bottom sheets, áreas de toque confortáveis e microinterações discretas.
 
 ## 🛠️ Stack
 
 | Camada | Tecnologia |
 |---|---|
 | Front-end | React 19 + Vite |
-| Autenticação | Firebase Auth (Google) |
+| Autenticação | Firebase Auth (Google, Apple no iPhone, e-mail e senha) |
 | Banco de dados | Cloud Firestore (tempo real + cache offline) |
 | Dados de filmes | API do TMDB |
 | Hospedagem | Firebase Hosting |
+| Apps | Capacitor (Android em `capacitor-android/`, iOS em `ios/`) |
 | CI/CD | GitHub Actions (deploy automático a cada push na `main`) |
 | Imagens de share | html-to-image |
 
@@ -82,7 +83,7 @@ npm run preview    # serve o build localmente
 
 ## ☁️ Deploy
 
-O deploy é **automático**: todo push na branch `main` dispara o workflow [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml), que builda e publica no Firebase Hosting.
+O deploy é **automático**: todo push na branch `main` dispara o workflow [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml), que roda lint e testes, publica as regras do Firestore e só então o site no Firebase Hosting.
 
 Secrets necessários no GitHub (Settings → Secrets and variables → Actions):
 
@@ -98,7 +99,7 @@ npm run build
 npx firebase deploy --only hosting
 ```
 
-As regras do Firestore são publicadas à mão enquanto a conta de serviço do CI não tiver os papéis "Service Usage Consumer" e "Firebase Rules Admin":
+Antes de mexer em `firestore.rules`, rode os testes das regras no emulador (`npm run test:rules`). Para publicá-las à mão:
 
 ```bash
 cd sessao
@@ -119,7 +120,7 @@ gradlew assembleDebug       # gera app/build/outputs/apk/debug/app-debug.apk
 ```
 
 - O APK de depuração é assinado com `~/.android/debug.keystore`, cujo SHA-1 está cadastrado no app Android `com.natanaelneves.sessao` do Firebase. Em outra máquina, ou para a Play Store com uma chave de release, cadastre o SHA-1 novo no Firebase e baixe o `google-services.json` de novo.
-- Se o celular já tiver uma versão do Sessão assinada com outra chave (o TWA antigo ou a tentativa com Expo), desinstale essa versão antes de instalar o APK.
+- Se o celular já tiver uma versão do Sessão assinada com outra chave (os APKs beta 0.x), desinstale essa versão antes de instalar o APK.
 - Ícone e tela de abertura: `node scripts/android-assets.mjs`.
 
 ## 📂 Estrutura
@@ -129,12 +130,15 @@ gradlew assembleDebug       # gera app/build/outputs/apk/debug/app-debug.apk
 ├─ .github/workflows/deploy.yml   # CI/CD → Firebase Hosting
 └─ sessao/
    ├─ src/
-   │  ├─ App.jsx        # app inteiro (componentes + lógica)
-   │  ├─ App.css        # design system + camadas de polimento/mobile
+   │  ├─ App.jsx        # telas principais e a lógica do diário
+   │  ├─ ui/            # telas e componentes da cabine (entrada, escolher, match…)
+   │  ├─ recs/          # motor de sugestões (gosto, candidatos, ranking)
+   │  ├─ native*.js     # pontes com o app (login, compartilhar, lembretes)
    │  ├─ firebase.js    # init do Firebase (config embutida como fallback)
-   │  ├─ theme.css      # tokens (cores, espaçamento, raios, easing)
-   │  └─ typography.css # fontes
+   │  └─ theme.css      # tokens (cores, espaçamento, raios, easing)
+   ├─ capacitor-android/ e ios/   # projetos nativos (Capacitor)
    ├─ firestore.rules   # regras de segurança do Firestore
+   ├─ firestore-tests/  # testes das regras (emulador)
    └─ firebase.json     # config de hosting
 ```
 

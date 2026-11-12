@@ -1,7 +1,9 @@
-// A entrada do Sessão: a fachada de um cinema de rua à noite. O letreiro anuncia
-// o que está em cartaz (vocês dois), a bilheteria entrega um ingresso cujo canhoto
-// é o login e, rolando, a programação da noite mostra o app funcionando — a luz
-// do projetor acompanha a sessão em cartaz, e as cenas dá para usar de verdade.
+// A entrada do Sessão: a fachada de um cinema de rua à noite, que também é a
+// página de apresentação do app. O letreiro anuncia o que está em cartaz (vocês
+// dois); logo abaixo, em palavras simples, o que o Sessão é e o que tem dentro;
+// a bilheteria entrega um ingresso cujo canhoto é o login. Rolando, a programação
+// mostra cada parte do app funcionando — a luz do projetor acompanha a sessão em
+// cartaz, e as cenas dá para usar de verdade.
 // Quem chega por um convite vê o letreiro e o ingresso falando com ela.
 import { useEffect, useRef, useState } from "react";
 import { lumiSrc } from "../lumi.jsx";
@@ -10,6 +12,16 @@ import "./entrada.css";
 
 const reduzMovimento = () =>
   typeof window !== "undefined" && !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+
+// leva a uma parte da página (as seções e as fileiras da programação têm id "ent-…")
+// O que cabe na tela vai para o meio; o que é mais alto que ela começa do topo
+// (o CSS reserva o espaço da agenda fixa), para o título nunca ficar escondido.
+const rolarAte = (el, block = "center") => {
+  if (!el) return;
+  const alto = el.getBoundingClientRect().height > window.innerHeight - 140;
+  el.scrollIntoView({ behavior: reduzMovimento() ? "auto" : "smooth", block: alto ? "start" : block });
+};
+const irPara = (id, block) => rolarAte(document.getElementById(`ent-${id}`), block);
 
 const GoogleIcon = () => (
   <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
@@ -34,6 +46,8 @@ const Seta = ({ lado }) => (
     <path d={lado === "esq" ? "M15 5l-7 7 7 7" : "M9 5l7 7-7 7"} stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
   </svg>
 );
+const Visto = () => <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" fill="none"/></svg>;
+const Desce = () => <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" fill="none"/></svg>;
 const Poltrona = ({ acesa }) => (
   <svg viewBox="0 0 24 24" aria-hidden="true" className={`ent-poltrona ${acesa ? "is-acesa" : ""}`}>
     <path d="M6 4h12a2 2 0 0 1 2 2v7H4V6a2 2 0 0 1 2-2zM3 11h2v6H3zM19 11h2v6h-2zM5 13h14v4H5zM7 17h2v3H7zM15 17h2v3h-2z"/>
@@ -106,6 +120,38 @@ const Ingresso = ({ onGoogle, onApple, onEmail, loading, convite, id, compacto =
 );
 
 // ── as cenas da programação (filmes e números de exemplo) ─────────────────
+
+// 19h00: as três sugestões do Lumi, cada uma com o motivo (as frases seguem as
+// que o app escreve de verdade em recs/ranking.js).
+const SUGESTOES = [
+  { titulo: "Whiplash", info: "2014, drama", tom: "whiplash", motivo: "Porque vocês dois amaram La La Land." },
+  { titulo: "A Chegada", info: "2016, ficção", tom: "chegada", motivo: "Vocês dão notas altas para ficção científica." },
+  { titulo: "Vidas Passadas", info: "2023, romance", tom: "vidas", motivo: "Está na lista de vocês dois há 2 meses, e já dá pra ver num streaming de vocês." },
+];
+
+const CenaSugestoes = () => {
+  const [sala, setSala] = useState(0);
+  const acesa = SUGESTOES[sala];
+  return (
+    <div className="ent-cena ent-cena--sugestoes">
+      <p className="ent-cena__instrucao">Toque num cartaz pra ver por que o Lumi indicou.</p>
+      <div className="ent-salas">
+        {SUGESTOES.map((f, i) => (
+          <button key={f.titulo} type="button" className={`ent-sala ent-cartaz--${f.tom} ${i === sala ? "is-acesa" : ""}`}
+            aria-pressed={i === sala} aria-label={`Sala ${i + 1}: ${f.titulo}`} onClick={() => setSala(i)}>
+            <span className="ent-sala__placa" aria-hidden="true">Sala {i + 1}</span>
+            <span aria-hidden="true">{f.titulo}</span>
+          </button>
+        ))}
+      </div>
+      <p className="ent-sugestao" aria-live="polite">
+        <strong>{acesa.titulo}</strong>
+        <span className="ent-sugestao__info">{acesa.info}</span>
+        <span className="ent-sugestao__motivo">{acesa.motivo}</span>
+      </p>
+    </div>
+  );
+};
 
 // 19h30: o match de verdade. A pessoa é a Ana; o Léo já escolheu.
 const BARALHO = [
@@ -276,30 +322,49 @@ const ProvaDaNota = () => {
   );
 };
 
+// Cada fileira diz, nesta ordem: quando acontece, que parte do app é, o que o
+// casal ganha com ela e o que vem dentro. `rotulo` é o nome curto da agenda.
 const PROGRAMACAO = [
   {
-    hora: "19h30", titulo: "Escolher a dois", Cena: CenaEscolher,
-    texto: "Cada um diz sim ou não aos cartazes no mesmo celular, e o que os dois querem vira a sessão. Sem acordo? O Lumi adivinha com perguntas de sim ou não, ou a roleta decide.",
+    id: "sugestoes", hora: "19h00", rotulo: "Sugestões", oque: "O que ver hoje", Cena: CenaSugestoes,
+    titulo: "O Lumi indica três, e diz por quê.",
+    texto: "Nada de catálogo pra rolar. O Lumi olha as notas de vocês e traz três títulos, cada um com o motivo, só dos streamings que vocês assinam. Não gostaram? Troquem as três.",
+    tem: ["Só dos streamings de vocês", "O motivo de cada sugestão", "Trocar as três"],
   },
   {
-    hora: "21h00", titulo: "A sessão", Cena: CenaSessao,
+    id: "decidir", hora: "19h30", rotulo: "Decidir", oque: "Decidir a dois", Cena: CenaEscolher,
+    titulo: "Cada um quer uma coisa? Dá match.",
+    texto: "Cada um diz sim ou não aos cartazes, passando o mesmo celular, e o que os dois querem vira a sessão. Sabem o clima, mas não o filme? O Lumi adivinha com perguntas de sim ou não. Já têm a lista? A roleta sorteia.",
+    tem: ["Match a dois", "O Lumi adivinha", "Roleta"],
+  },
+  {
+    id: "registrar", hora: "21h00", rotulo: "Diário", oque: "O diário", Cena: CenaSessao,
+    titulo: "Cada sessão vira uma memória.",
     texto: "Filme ou série, no sofá ou no cinema: registrem em segundos, com capa, ano e duração. Nas séries, o diário guarda o episódio em que vocês pararam. Vai ser no cinema? Marquem a data e o ingresso fica guardado.",
+    tem: ["Filmes e séries", "Onde vocês pararam", "Idas ao cinema"],
   },
   {
-    hora: "23h00", titulo: "A nota do casal", Cena: ProvaDaNota,
-    texto: "Cada um dá a sua nota e ninguém mexe na do outro. Das duas nasce a nota de vocês, e o Lumi diz se estavam em sintonia.",
+    id: "notas", hora: "23h00", rotulo: "Notas", oque: "As notas dos dois", Cena: ProvaDaNota,
+    titulo: "Cada um dá a sua. Das duas nasce a de vocês.",
+    texto: "Ninguém mexe na nota do outro. Das duas nasce a nota do casal, e o Lumi diz se vocês estavam em sintonia.",
+    tem: ["A nota de cada um", "A nota do casal", "Compatibilidade"],
   },
   {
-    hora: "Sexta", titulo: "A lista a dois", Cena: CenaLista,
+    id: "lista", hora: "Sexta", rotulo: "Lista", oque: "A lista a dois", Cena: CenaLista,
+    titulo: "O que falta ver, e quem quer ver.",
     texto: "Guardem o que querem ver e quem quer. Quando os dois querem o mesmo filme, as duas poltronas acendem.",
+    tem: ["Quem quer ver", "O que os dois querem", "Próximas idas ao cinema"],
   },
   {
-    hora: "Dezembro", titulo: "A retrospectiva", Cena: CenaRetro,
-    texto: "O ano de vocês em cenas: as horas juntos, o filme do ano, a maior discordância. No fim, um pôster pra guardar ou compartilhar.",
+    id: "retrospectiva", hora: "Dezembro", rotulo: "Retrospectiva", oque: "A retrospectiva", Cena: CenaRetro,
+    titulo: "O ano de vocês, em cenas.",
+    texto: "As horas juntos, o filme do ano, a maior discordância. No fim, um pôster pra guardar ou compartilhar.",
+    tem: ["Horas juntos", "O filme do ano", "Pôster pra compartilhar"],
   },
   {
-    hora: "Todo dia", titulo: "Nesse dia", Cena: CenaNesseDia,
-    texto: "O Lumi lembra o que vocês assistiram nesta mesma data, em anos anteriores.",
+    id: "nesse-dia", hora: "Todo dia", rotulo: "Nesse dia", oque: "Nesse dia", Cena: CenaNesseDia,
+    titulo: "O Lumi lembra por vocês.",
+    texto: "O que vocês assistiram nesta mesma data, em anos anteriores, volta como lembrança.",
   },
 ];
 
@@ -328,32 +393,37 @@ const Programacao = () => {
     }
   }, [ativa]);
 
-  const ir = i => linhas.current[i]?.scrollIntoView({ behavior: reduzMovimento() ? "auto" : "smooth", block: "center" });
+  const ir = i => rolarAte(linhas.current[i]);
 
   return (
     <section className="ent-programacao" aria-labelledby="ent-prog-titulo">
       <div className="ent-programacao__cabeca">
-        <h2 id="ent-prog-titulo" className="ent-h2">A programação da noite</h2>
+        <h2 id="ent-prog-titulo" className="ent-h2">O que vocês fazem no Sessão</h2>
         <p className="ent-programacao__aviso">Filmes e números de exemplo. As cenas com instrução dá pra usar.</p>
       </div>
-      <nav className="ent-agenda" aria-label="Horários da programação">
+      <nav className="ent-agenda" aria-label="Partes do Sessão">
         <div className="ent-agenda__trilho" ref={agenda}>
           {PROGRAMACAO.map((s, i) => (
-            <button key={s.hora} type="button" className={`ent-agenda__hora ${i === ativa ? "is-ativa" : ""}`}
+            <button key={s.id} type="button" className={`ent-agenda__hora ${i === ativa ? "is-ativa" : ""}`}
               aria-current={i === ativa ? "true" : undefined} onClick={() => ir(i)}>
-              {s.hora}
+              {s.rotulo}
             </button>
           ))}
         </div>
       </nav>
       <ol className="ent-sessoes">
-        {PROGRAMACAO.map(({ hora, titulo, texto, Cena }, i) => (
-          <li key={titulo} data-i={i} ref={el => { linhas.current[i] = el; }}
+        {PROGRAMACAO.map(({ id, hora, oque, titulo, texto, tem, Cena }, i) => (
+          <li key={id} id={`ent-${id}`} data-i={i} ref={el => { linhas.current[i] = el; }}
             className={`ent-sessao ${i === ativa ? "is-no-ar" : ""}`}>
-            <span className="ent-sessao__hora">{hora}</span>
+            <p className="ent-sessao__hora">{hora} <span className="ent-sessao__oque">{oque}</span></p>
             <div className="ent-sessao__corpo">
               <h3 className="ent-sessao__titulo">{titulo}</h3>
               <p className="ent-sessao__texto">{texto}</p>
+              {tem && (
+                <ul className="ent-tem" aria-label="O que vem junto">
+                  {tem.map(t => <li key={t}><Visto/>{t}</li>)}
+                </ul>
+              )}
             </div>
             <div className="ent-sessao__cena"><Cena/></div>
           </li>
@@ -362,6 +432,30 @@ const Programacao = () => {
     </section>
   );
 };
+
+// O que não ganhou fileira própria, mas existe no app: uma lista curta, sem cards.
+const TAMBEM = [
+  ["Fotos da sessão", "As fotos daquele dia ficam guardadas junto do filme."],
+  ["Críticas", "Além da nota, cada um escreve o que achou."],
+  ["Sagas", "O diário acompanha as franquias que vocês estão maratonando."],
+  ["Compatibilidade", "Quanto o gosto de vocês combina, nota a nota."],
+  ["Nossos streamings", "Digam o que assinam e as sugestões vêm só de lá."],
+  ["Exportar memórias", "O diário é de vocês: dá pra levar tudo embora."],
+];
+
+const TambemTem = () => (
+  <section className="ent-tambem" aria-labelledby="ent-tambem-titulo">
+    <h2 id="ent-tambem-titulo" className="ent-h2">E ainda cabe no diário</h2>
+    <dl className="ent-tambem__lista">
+      {TAMBEM.map(([nome, texto]) => (
+        <div key={nome}>
+          <dt>{nome}</dt>
+          <dd>{texto}</dd>
+        </div>
+      ))}
+    </dl>
+  </section>
+);
 
 // O rolo das conquistas: as medalhas reais do app, quadro a quadro.
 const CONQUISTAS = [
@@ -383,7 +477,7 @@ const RoloDeConquistas = () => {
     if (el) el.scrollBy({ left: direcao * el.clientWidth * 0.8, behavior: reduzMovimento() ? "auto" : "smooth" });
   };
   return (
-    <section className="ent-creditos" aria-labelledby="ent-creditos-titulo">
+    <section className="ent-creditos" id="ent-conquistas" aria-labelledby="ent-creditos-titulo">
       <div className="ent-creditos__cabeca">
         <div>
           <h2 id="ent-creditos-titulo" className="ent-h2">Cada marco vira medalha</h2>
@@ -407,6 +501,16 @@ const RoloDeConquistas = () => {
     </section>
   );
 };
+
+// "O que tem no Sessão": cada item leva à parte da página que mostra aquilo.
+const DENTRO = [
+  ["Diário de sessões", "registrar"],
+  ["Notas dos dois", "notas"],
+  ["Lista a dois", "lista"],
+  ["O que ver hoje", "sugestoes"],
+  ["Retrospectiva", "retrospectiva"],
+  ["Conquistas", "conquistas", "start"],
+];
 
 const PASSOS = [
   ["Entre com a sua conta", "Google, e-mail ou Apple. Cada pessoa tem a sua."],
@@ -436,22 +540,33 @@ export default function Entrada({ onGoogle, onApple, onEmail, loading = false, c
   const ingresso = { onGoogle, onApple, onEmail, loading, convite };
   const [barra, setBarra] = useState(false);
 
-  // a barra de entrar aparece no celular quando o ingresso some da tela e sai
-  // de cena quando o canhoto final aparece
+  // no celular, a barra de entrar fica à mão sempre que nenhum canhoto (o da
+  // bilheteria ou o do fim da página) está na tela
   useEffect(() => {
-    const topo = document.getElementById("bilheteria");
-    const fim = document.getElementById("canhoto-final");
-    if (!topo || !fim || typeof IntersectionObserver === "undefined") return;
-    const io = new IntersectionObserver(() => {
-      const acima = topo.getBoundingClientRect().bottom < 0;
-      const r = fim.getBoundingClientRect();
-      const fimVisivel = r.top < window.innerHeight && r.bottom > 0;
-      setBarra(acima && !fimVisivel);
+    const canhotos = ["bilheteria", "canhoto-final"].map(id => document.getElementById(id)).filter(Boolean);
+    if (!canhotos.length || typeof IntersectionObserver === "undefined") return;
+    const naTela = new Set();
+    const io = new IntersectionObserver(entradas => {
+      entradas.forEach(e => { if (e.isIntersecting) naTela.add(e.target); else naTela.delete(e.target); });
+      setBarra(naTela.size === 0);
     });
-    io.observe(topo);
-    io.observe(fim);
+    canhotos.forEach(el => io.observe(el));
     return () => io.disconnect();
   }, []);
+
+  const bilheteria = (
+    <div className="ent-bilheteria">
+      <div className="ent-bilheteria__guiche">
+        <span className="ent-bilheteria__placa" aria-hidden="true">Bilheteria</span>
+        <div className="ent-bilheteria__vidro">
+          <img src={lumiSrc(convite ? "hugHeart" : "peeking")} alt=""
+            className={`ent-bilheteria__lumi ${convite ? "ent-bilheteria__lumi--convite" : ""}`}/>
+        </div>
+        <span className="ent-bilheteria__boca" aria-hidden="true"/>
+      </div>
+      <Ingresso {...ingresso} id="bilheteria"/>
+    </div>
+  );
 
   const irParaBilheteria = () => {
     document.getElementById("bilheteria")?.scrollIntoView({ behavior: reduzMovimento() ? "auto" : "smooth", block: "center" });
@@ -462,11 +577,11 @@ export default function Entrada({ onGoogle, onApple, onEmail, loading = false, c
     <div className="ent">
       <header className="ent-topo">
         <span className="ent-marca"><img src={lumiSrc("headHappy")} alt=""/> Sessão</span>
-        <button type="button" className="ent-topo__entrar" onClick={irParaBilheteria}>Entrar</button>
+        <button type="button" className="ent-topo__entrar" onClick={irParaBilheteria}>Já tenho conta</button>
       </header>
 
       <main>
-        {/* a fachada: letreiro, a frase do que é e a bilheteria que entrega o ingresso */}
+        {/* a fachada: o letreiro, o que o Sessão é, o que tem dentro e a bilheteria */}
         <section className="ent-fachada" aria-labelledby="ent-titulo">
           <div className="ent-letreiro">
             <span className="ent-letreiro__lampadas ent-letreiro__lampadas--cima" aria-hidden="true"/>
@@ -476,26 +591,47 @@ export default function Entrada({ onGoogle, onApple, onEmail, loading = false, c
             </h1>
           </div>
 
-          <p className="ent-frase">
-            {convite
-              ? "Sua pessoa te chamou para o diário de cinema de vocês. Entre com a sua conta e o convite já vem preenchido."
-              : "O diário de cinema de vocês dois: guardem cada filme e série, cada um dá a sua nota e vocês decidem juntos o que ver hoje."}
-          </p>
-
-          <div className="ent-bilheteria">
-            <div className="ent-bilheteria__guiche">
-              <span className="ent-bilheteria__placa" aria-hidden="true">Bilheteria</span>
-              <div className="ent-bilheteria__vidro">
-                <img src={lumiSrc(convite ? "hugHeart" : "peeking")} alt=""
-                  className={`ent-bilheteria__lumi ${convite ? "ent-bilheteria__lumi--convite" : ""}`}/>
-              </div>
-              <span className="ent-bilheteria__boca" aria-hidden="true"/>
+          <div className="ent-fachada__colunas">
+            <div className="ent-oque">
+              <p className="ent-oque__frase">
+                {convite ? "Um diário de filmes e séries, só de vocês dois." : "O diário de filmes e séries de vocês dois."}
+              </p>
+              <p className="ent-oque__texto">
+                {convite
+                  ? "Sua pessoa te chamou. Entre com a sua conta e o convite já vem preenchido. Depois é registrar as sessões, dar a sua nota e escolher juntos o que ver."
+                  : "Registrem cada sessão, cada um dá a sua nota e, quando bater a dúvida do que ver hoje, o Lumi ajuda a escolher."}
+              </p>
+              <ul className="ent-garantias">
+                <li><Visto/>Grátis para os dois</li>
+                <li><Visto/>Só vocês veem</li>
+                <li><Visto/>{mostrarInstalar ? "Abre no navegador" : "Sem anúncios"}</li>
+              </ul>
             </div>
-            <Ingresso {...ingresso} id="bilheteria"/>
+
+            {/* quem veio por convite tem um lugar esperando: a bilheteria vem antes */}
+            {convite && bilheteria}
+
+            <div className="ent-dentro">
+              <h2 id="ent-dentro-titulo" className="ent-dentro__titulo">O que tem no Sessão</h2>
+              <ul className="ent-dentro__lista" aria-labelledby="ent-dentro-titulo">
+                {DENTRO.map(([nome, id, bloco]) => (
+                  <li key={id}>
+                    <button type="button" className="ent-dentro__item" onClick={() => irPara(id, bloco)}>{nome}<Desce/></button>
+                  </li>
+                ))}
+              </ul>
+              <button type="button" className="ent-dentro__duvidas" onClick={() => irPara("duvidas", "start")}>
+                Os dois precisam ter conta? Veja as dúvidas
+              </button>
+            </div>
+
+            {!convite && bilheteria}
           </div>
         </section>
 
         <Programacao/>
+
+        <TambemTem/>
 
         <RoloDeConquistas/>
 
@@ -529,7 +665,7 @@ export default function Entrada({ onGoogle, onApple, onEmail, loading = false, c
         </section>
 
         {/* dúvidas: perguntas reais, respostas curtas */}
-        <section className="ent-duvidas" aria-labelledby="ent-duvidas-titulo">
+        <section className="ent-duvidas" id="ent-duvidas" aria-labelledby="ent-duvidas-titulo">
           <h2 id="ent-duvidas-titulo" className="ent-h2">Dúvidas na fila da pipoca</h2>
           <div className="ent-duvidas__lista">
             {DUVIDAS.map(([pergunta, resposta]) => (
@@ -587,11 +723,12 @@ export default function Entrada({ onGoogle, onApple, onEmail, loading = false, c
         <p className="ent-rodape__tmdb">Filmes e séries do TMDB. O Sessão usa a API do TMDB, mas não é endossado nem certificado por ele.</p>
       </footer>
 
-      {/* no celular: a bilheteria acompanha quem rola a página */}
+      {/* no celular: a bilheteria acompanha quem lê a página */}
       <div className={`ent-barra ${barra ? "is-visivel" : ""}`} inert={!barra}>
         <span className="ent-barra__texto"><b>{convite ? "Seu lugar está guardado" : "Sessão para dois"}</b>{convite ? `convite ${convite}` : "grátis, para os dois"}</span>
-        <button type="button" className="ent-barra__botao" onClick={onGoogle} disabled={loading}>
-          <GoogleIcon/> Entrar
+        {/* com mais de um jeito de entrar à vista (Apple no iPhone), a barra leva à bilheteria */}
+        <button type="button" className="ent-barra__botao" onClick={onApple ? irParaBilheteria : onGoogle} disabled={loading}>
+          {!onApple && <GoogleIcon/>} Entrar
         </button>
       </div>
     </div>

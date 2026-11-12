@@ -1,6 +1,6 @@
 // Gera uma cópia .webp de cada pose do kit do Lumi.
-// O app web carrega os .webp (bem mais leves); os .png continuam sendo a fonte
-// do kit e são usados pelo app nativo e pelos scripts de ícone.
+// O app carrega os .webp (bem mais leves); os .png continuam sendo a fonte do kit
+// e são usados pela arte de compartilhar (canvas) e pelos scripts de ícone.
 import sharp from "sharp";
 import { readdir, stat } from "node:fs/promises";
 import path from "node:path";

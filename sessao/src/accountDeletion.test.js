@@ -1,13 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { chunkItems, getAccountDeletionRole, withoutUserReview } from "./accountDeletion.js";
-
-test("identifies the deletion impact for each account", () => {
-  const couple = { uid1: "owner", uid2: "partner" };
-  assert.equal(getAccountDeletionRole(couple, "owner"), "owner");
-  assert.equal(getAccountDeletionRole(couple, "partner"), "partner");
-  assert.equal(getAccountDeletionRole(couple, "other"), "account-only");
-});
+import { chunkItems, withoutUserReview } from "./accountDeletion.js";
 
 test("removes only the departing user's review", () => {
   const reviews = { Ana: { rating: 5 }, Léo: { rating: 4 } };

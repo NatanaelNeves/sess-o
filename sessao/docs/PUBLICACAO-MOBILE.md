@@ -211,7 +211,7 @@ em Ajustes do iPhone → Apple ID → *Entrar com a Apple* que o Sessão sumiu d
    apresentados como beta na loja (diretriz 2.2). Decida o texto e a versão pública.
 4. **Revisar a política de privacidade** alterada (Apple + correção do Storage) — ela vai ao ar no próximo push na `main`.
 5. **Identificadores**: o pacote `com.natanaelneves.sessao` vale para as duas lojas e **não muda depois de publicado**.
-   Confirme se o TWA antigo (`sessao/android/`) chegou a ser publicado no Play com esse mesmo pacote.
+   Confirme se o TWA antigo (removido do repositório; está no histórico do git) chegou a ser publicado no Play com esse mesmo pacote.
 6. **Firebase**: SHA-1 da upload key e da chave do Play; app iOS + `GoogleService-Info.plist`; provedor Apple (seções 3 e 4).
 7. **Decisões provisórias** que tomei e você pode mudar: iOS só iPhone e só retrato (evita capturas de iPad);
    versão 1.0.0; nome "Sessão"; categoria sugerida *Entretenimento*.

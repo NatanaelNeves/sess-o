@@ -91,7 +91,7 @@
   color: var(--tinta);
   font-family: var(--font-display);
   font-weight: 700;
-  font-size: clamp(34px, 9.4vw, 80px);
+  font-size: clamp(28px, 9vw, 80px); /* em 320px, "Guardaram um" ainda cabe numa linha */
   line-height: 1.08;
   letter-spacing: -0.01em;
   box-shadow: inset 0 0 28px rgba(255, 181, 74, 0.35), 0 0 40px rgba(255, 214, 150, 0.2);
@@ -105,15 +105,55 @@
 .ent-letras__palavra { display: inline-block; white-space: nowrap; margin: 0 0.14em; }
 .ent-letra { display: inline-block; transform: translateY(var(--desce)) rotate(var(--giro)); }
 
-.ent-frase {
-  max-width: 34ch; margin: 20px auto 0;
+/* ── o que é o Sessão, em palavras simples ───────────────────────────── */
+/* position: relative para o texto ficar por cima da sombra que o letreiro projeta */
+.ent-fachada__colunas { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); }
+.ent-oque { margin-top: 22px; }
+.ent-oque__frase {
+  max-width: 17ch; margin: 0 auto;
+  font-family: var(--font-display); font-weight: 600;
+  font-size: clamp(27px, 7.6vw, 44px); line-height: 1.1; letter-spacing: -0.01em;
+  text-wrap: balance;
+}
+.ent-oque__texto {
+  max-width: 36ch; margin: 12px auto 0;
   font-size: 17px; line-height: 1.55;
   color: #d9c8dc;
   text-wrap: pretty;
 }
+.ent-garantias {
+  list-style: none; margin: 16px 0 0; padding: 0;
+  display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 16px;
+  font-size: 14px; font-weight: 600;
+}
+.ent-garantias li { display: inline-flex; align-items: center; gap: 6px; }
+.ent-garantias svg { width: 15px; height: 15px; flex: none; color: var(--lente); }
+
+/* o que tem dentro: cada item desce até a parte da página que mostra aquilo */
+.ent-dentro { margin-top: 26px; }
+.ent-dentro__titulo { margin: 0 0 10px; font-family: var(--font-body); font-weight: 600; font-size: 14px; color: #d9c8dc; }
+.ent-dentro__lista { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+.ent-dentro__item {
+  display: inline-flex; align-items: center; gap: 6px;
+  min-height: 42px; padding: 0 10px 0 15px;
+  border: 1px solid rgba(251, 239, 223, 0.26); border-radius: 999px;
+  background: rgba(251, 239, 223, 0.07); color: var(--pipoca);
+  font-weight: 600; font-size: 14px;
+  transition: border-color 0.2s var(--ease), background-color 0.2s var(--ease);
+}
+.ent-dentro__item svg { width: 16px; height: 16px; flex: none; color: var(--lente); }
+.ent-dentro__item:hover { border-color: var(--lente); background: rgba(255, 181, 74, 0.1); }
+.ent-dentro__item:focus-visible, .ent-dentro__duvidas:focus-visible { outline: 2px solid var(--lente); outline-offset: 3px; }
+.ent-dentro__duvidas {
+  min-height: 44px; margin-top: 6px; padding: 0;
+  border: 0; background: none;
+  color: #d9c8dc; font-size: 14px;
+  text-decoration: underline; text-decoration-color: rgba(251, 239, 223, 0.35); text-underline-offset: 4px;
+}
+.ent-dentro__duvidas:hover { color: var(--pipoca); text-decoration-color: var(--lente); }
 
 /* ── a bilheteria e o ingresso que ela entrega ───────────────────────── */
-.ent-bilheteria { max-width: 400px; margin: 22px auto 0; text-align: left; }
+.ent-bilheteria { width: 100%; max-width: 400px; margin: 26px auto 0; text-align: left; }
 .ent-bilheteria__guiche {
   position: relative;
   padding: 34px 14px 14px;
@@ -168,12 +208,20 @@
   animation: ent-sai 0.9s 0.55s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 @keyframes ent-sai { from { transform: translateY(-16px); } to { transform: none; } }
+/* os dois furos do picote são recortes de verdade (máscara), não bolinhas da cor
+   do fundo: o ingresso pode ficar sobre qualquer trecho do céu ou da rua */
 .ent-ingresso__frente {
   padding: 18px 18px 14px;
   border-radius: 14px 14px 0 0;
   background:
     repeating-linear-gradient(90deg, rgba(42, 24, 16, 0.025) 0 2px, transparent 2px 6px),
     var(--creme);
+  -webkit-mask:
+    radial-gradient(circle 11px at 0 100%, transparent 97%, #000) 0 0 / 51% 100% no-repeat,
+    radial-gradient(circle 11px at 100% 100%, transparent 97%, #000) 100% 0 / 51% 100% no-repeat;
+  mask:
+    radial-gradient(circle 11px at 0 100%, transparent 97%, #000) 0 0 / 51% 100% no-repeat,
+    radial-gradient(circle 11px at 100% 100%, transparent 97%, #000) 100% 0 / 51% 100% no-repeat;
 }
 .ent-ingresso__cabeca { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
 .ent-ingresso__titulo {
@@ -200,22 +248,23 @@
 .ent-ingresso__codigo { letter-spacing: 0.1em; color: #a5262b; font-variant-numeric: tabular-nums; }
 
 .ent-ingresso__picote {
-  position: relative; height: 0;
+  height: 0; margin: 0 11px;
   border-top: 2px dashed #c4ab84;
   background: var(--creme);
 }
-.ent-ingresso__picote i {
-  position: absolute; top: -11px; width: 22px; height: 22px; border-radius: 50%;
-  background: #2a1a2a;
-}
-.ent-ingresso__picote i:first-child { left: -11px; }
-.ent-ingresso__picote i:last-child { right: -11px; }
+.ent-ingresso__picote i { display: none; }
 
 .ent-ingresso__canhoto {
   display: grid; gap: 9px;
   padding: 16px 16px 14px;
   border-radius: 0 0 14px 14px;
   background: var(--creme);
+  -webkit-mask:
+    radial-gradient(circle 11px at 0 0, transparent 97%, #000) 0 0 / 51% 100% no-repeat,
+    radial-gradient(circle 11px at 100% 0, transparent 97%, #000) 100% 0 / 51% 100% no-repeat;
+  mask:
+    radial-gradient(circle 11px at 0 0, transparent 97%, #000) 0 0 / 51% 100% no-repeat,
+    radial-gradient(circle 11px at 100% 0, transparent 97%, #000) 100% 0 / 51% 100% no-repeat;
   transform-origin: 0 0;
   transition: transform 0.45s cubic-bezier(0.16, 1, 0.3, 1);
 }
@@ -223,6 +272,7 @@
   border-radius: 14px;
   border-top: 2px dashed #c4ab84;
   padding-top: 18px;
+  -webkit-mask: none; mask: none;
 }
 /* começou o login: o canhoto se inclina como quem destaca */
 .ent-ingresso.is-rasgando .ent-ingresso__canhoto { transform: rotate(-2.5deg) translate(4px, 8px); }
@@ -277,16 +327,26 @@
   grid-template-areas: "hora" "corpo" "cena";
   padding: 26px 0 30px;
   border-bottom: 1px solid var(--border-default);
+  scroll-margin-top: 58px; /* a agenda fixa */
 }
+.ent-tambem, .ent-creditos, .ent-duvidas { scroll-margin-top: 24px; }
 .ent-sessao__hora {
   grid-area: hora;
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px;
+  margin: 0;
   font-family: var(--font-display); font-weight: 700; font-size: 22px; line-height: 1.1;
   color: var(--lente);
   font-variant-numeric: tabular-nums lining-nums;
 }
-.ent-sessao__corpo { grid-area: corpo; margin-top: 4px; }
-.ent-sessao__titulo { margin: 0; font-family: var(--font-display); font-weight: 600; font-size: 25px; line-height: 1.2; }
+/* ao lado da hora, que parte do app é aquela */
+.ent-sessao__oque { font-family: var(--font-body); font-weight: 600; font-size: 15px; line-height: 1.3; color: var(--text-secondary); }
+.ent-sessao__corpo { grid-area: corpo; margin-top: 6px; }
+.ent-sessao__titulo { margin: 0; font-family: var(--font-display); font-weight: 600; font-size: 25px; line-height: 1.2; text-wrap: balance; }
 .ent-sessao__texto { margin: 6px 0 0; max-width: 58ch; font-size: 16px; line-height: 1.6; color: var(--text-secondary); }
+/* o que vem junto: texto com um visto, para não parecer botão */
+.ent-tem { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 14px; font-weight: 600; }
+.ent-tem li { display: inline-flex; align-items: center; gap: 6px; }
+.ent-tem svg { width: 15px; height: 15px; flex: none; color: var(--lente); }
 .ent-sessao__cena { grid-area: cena; margin-top: 18px; min-width: 0; }
 
 /* a agenda fixa: em que horário a pessoa está, e atalho para os outros */
@@ -337,6 +397,53 @@
 
 /* instrução das cenas que dá pra usar */
 .ent-cena__instrucao { margin: 0 0 8px; font-size: 13px; line-height: 1.4; color: var(--text-secondary); }
+
+/* 19h00 · as três sugestões: os cartazes lado a lado, o tocado fica aceso */
+.ent-cena--sugestoes {
+  max-width: 380px; min-height: 0; padding: 14px;
+  background: radial-gradient(ellipse 80% 60% at 50% 0%, rgba(255, 181, 74, 0.12), transparent 70%), var(--bg-surface);
+  box-shadow: inset 0 0 0 1px var(--border-default);
+}
+.ent-salas { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.ent-sala {
+  position: relative;
+  aspect-ratio: 2 / 3; padding: 6px;
+  border: 0; border-radius: 8px;
+  display: flex; flex-direction: column; justify-content: flex-end;
+  text-align: left; overflow-wrap: anywhere;
+  font-family: var(--font-display); font-weight: 700; font-size: clamp(12px, 3.8vw, 14px); line-height: 1.05;
+  color: #fff6ea;
+  filter: brightness(0.5) saturate(0.7);
+  transform: scale(0.93);
+  transition: transform 0.3s var(--ease), filter 0.3s var(--ease), box-shadow 0.3s var(--ease);
+}
+.ent-sala.is-acesa { filter: none; transform: none; box-shadow: 0 0 0 2px var(--lente), 0 0 22px rgba(255, 181, 74, 0.4); }
+.ent-sala:focus-visible { outline: 2px solid var(--pipoca); outline-offset: 3px; }
+.ent-sala__placa {
+  position: absolute; top: 6px; left: 6px;
+  padding: 1px 7px; border-radius: 999px;
+  background: rgba(23, 15, 18, 0.82); color: var(--lente);
+  font-style: italic; font-weight: 600; font-size: 11px; line-height: 1.4;
+}
+.ent-cartaz--whiplash {
+  background:
+    radial-gradient(circle at 60% 32%, #f3c552 0 14px, #8a6414 15px 16px, transparent 17px),
+    linear-gradient(180deg, #17110d 0%, #3a2a12 58%, #6e5114 100%);
+}
+.ent-cartaz--chegada {
+  background:
+    radial-gradient(ellipse 11px 27px at 56% 36%, #10181c 0 96%, transparent 100%),
+    linear-gradient(180deg, #b9cdd0 0%, #6f979c 50%, #1f4a50 100%);
+}
+.ent-cartaz--vidas {
+  background:
+    radial-gradient(circle at 30% 26%, #ffe2b8 0 8px, transparent 9px),
+    linear-gradient(180deg, #f0a383 0%, #a9567a 52%, #3a2a5c 100%);
+}
+.ent-sugestao { margin: 12px 0 0; min-height: 5.6em; font-size: 14px; line-height: 1.4; color: var(--text-secondary); }
+.ent-sugestao strong { margin-right: 8px; font-family: var(--font-display); font-size: 18px; color: var(--pipoca); }
+.ent-sugestao__info { font-size: 13px; color: var(--text-tertiary); }
+.ent-sugestao__motivo { display: block; margin-top: 3px; }
 
 /* 19h30 · o match de verdade */
 .ent-cena--escolher {
@@ -451,7 +558,6 @@
   background: var(--bg-surface);
   box-shadow: inset 0 0 0 1px rgba(255, 181, 74, 0.28), 0 0 0 4px rgba(255, 181, 74, 0.06);
 }
-.ent-prova__dica { margin: 0 0 8px; font-size: 13px; color: var(--text-secondary); }
 .ent-prova__pessoa { display: flex; align-items: center; gap: 8px; min-height: 44px; }
 .ent-prova__nome { width: 38px; font-weight: 700; font-size: 14px; }
 .ent-prova__nome--eu { color: var(--perigo-texto); }
@@ -621,6 +727,13 @@
 }
 .ent-rodape .ent-rodape__tmdb { font-size: 12px; color: var(--text-tertiary); max-width: 52ch; margin: 0 auto; line-height: 1.5; }
 
+/* ── e ainda cabe no diário: lista impressa, sem cards ───────────────── */
+.ent-tambem { max-width: 1000px; margin: 88px auto 0; }
+.ent-tambem__lista { margin: 0; display: grid; grid-template-columns: minmax(0, 1fr); column-gap: 28px; }
+.ent-tambem__lista div { padding: 14px 0 16px; border-top: 1px solid var(--border-default); }
+.ent-tambem__lista dt { font-family: var(--font-display); font-weight: 600; font-size: 19px; line-height: 1.25; }
+.ent-tambem__lista dd { margin: 3px 0 0; font-size: 15px; line-height: 1.5; color: var(--text-secondary); }
+
 /* ── o rolo das conquistas ───────────────────────────────────────────── */
 .ent-creditos { max-width: 1000px; margin: 96px auto 0; }
 .ent-creditos__cabeca { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; }
@@ -728,7 +841,8 @@
   .ent-letreiro__lampadas--cima { top: 9px; }
   .ent-letreiro__lampadas--baixo { bottom: 9px; }
   .ent-letreiro__painel { padding: 18px 20px 20px; }
-  .ent-frase { font-size: 19px; }
+  .ent-oque__texto { font-size: 19px; }
+  .ent-tambem__lista { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 
   .ent-sessao {
     grid-template-columns: 150px minmax(0, 1fr) 340px;
@@ -736,7 +850,7 @@
     column-gap: 28px;
     padding: 34px 0 38px;
   }
-  .ent-sessao__hora { font-size: 28px; padding-top: 2px; }
+  .ent-sessao__hora { flex-direction: column; align-items: flex-start; gap: 6px; font-size: 28px; padding-top: 2px; }
   .ent-sessao__corpo { margin-top: 0; }
   .ent-sessao__titulo { font-size: 30px; }
   .ent-sessao__cena { margin-top: 0; }
@@ -766,8 +880,27 @@
   .ent-instalar__jeitos { grid-template-columns: 1fr 1fr; gap: 24px; }
 }
 
+/* a fachada em duas colunas: à esquerda o que é e o que tem, à direita a bilheteria */
+@media (min-width: 900px) {
+  .ent-fachada__colunas {
+    grid-template-columns: minmax(0, 1fr) 400px;
+    grid-template-areas: "oque bilheteria" "dentro bilheteria";
+    grid-template-rows: auto 1fr;
+    column-gap: 56px;
+    margin-top: 40px;
+    text-align: left;
+  }
+  .ent-oque { grid-area: oque; margin-top: 14px; }
+  .ent-oque__frase { max-width: 15ch; margin-inline: 0; font-size: 50px; }
+  .ent-oque__texto { margin-inline: 0; }
+  .ent-garantias, .ent-dentro__lista { justify-content: flex-start; }
+  .ent-dentro { grid-area: dentro; }
+  .ent-bilheteria { grid-area: bilheteria; margin: 0; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .ent-letreiro__lampadas, .ent-letreiro__painel, .ent-ingresso { animation: none; }
+  .ent-sala, .ent-dentro__item { transition: none; }
   .ent-cartaz, .ent-barra, .ent-sessao::before, .ent-sessao__cena, .ent-sessao__hora, .ent-agenda__hora, .ent-poltrona, .ent-lista li, .ent-duvida__sinal::before, .ent-duvida__sinal::after { transition: none; }
   .ent-botao, .ent-prova__coracao, .ent-prova__coracao svg, .ent-ingresso__canhoto { transition: none; }
 }
